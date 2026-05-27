@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: sarthi-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - sarthi-network
+
+  redis:
+    image: redis:alpine
+    container_name: sarthi-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - sarthi-network
+
+  backend:
+    build: .
+    container_name: sarthi-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - JWT_SECRET=sarthi-jwt-super-secret-key-2026
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - MONGODB_URI=mongodb://mongodb:27017
+      - DATABASE_NAME=sarthi
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NVIDIA_API_KEY=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
+      - NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+      - NVIDIA_MODEL=openai/gpt-oss-20b
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - sarthi-network
+
+networks:
+  sarthi-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:

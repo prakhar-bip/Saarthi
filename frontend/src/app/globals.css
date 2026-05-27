@@ -1,0 +1,212 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafaf9; /* Stone 50 */
+  --foreground: #1c1917; /* Stone 900 */
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(231, 229, 228, 0.6); /* Stone 200/60 */
+  --accent-primary: #6366f1; /* Indigo 500 */
+  --accent-secondary: #f43f5e; /* Rose 500 */
+}
+
+@theme {
+  --font-sans: var(--font-plus-jakarta), ui-sans-serif, system-ui;
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui;
+}
+
+body {
+  background: radial-gradient(at 0% 0%, rgba(224, 242, 254, 0.15) 0px, transparent 50%),
+              radial-gradient(at 50% 0%, rgba(244, 219, 255, 0.18) 0px, transparent 50%),
+              radial-gradient(at 100% 100%, rgba(254, 243, 199, 0.12) 0px, transparent 50%),
+              var(--background);
+  color: var(--foreground);
+  overflow-x: hidden;
+}
+
+/* On-hover cursors must be pointer for interactive items */
+a, button, input[type="button"], input[type="submit"], select, [role="button"], .interactive-cursor {
+  cursor: pointer !important;
+}
+
+/* Smooth Theme Transitions */
+body, aside, main, header, footer, input, textarea, .glass-panel, .glass-panel-heavy {
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Elegant Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e7e5e4; /* Stone 200 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d6d3d1; /* Stone 300 */
+}
+
+/* ============================================
+   KEYFRAME ANIMATIONS
+   ============================================ */
+
+@keyframes lock-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.animate-lock-shake {
+  animation: lock-shake 0.4s ease-in-out;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 3s infinite ease-in-out;
+}
+
+@keyframes bg-glow {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-15px) scale(1.05); }
+}
+
+.animate-bg-glow {
+  animation: bg-glow 8s infinite ease-in-out;
+}
+
+/* Float animation — gentle vertical bob */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* Shimmer sweep for skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(245, 245, 244, 0.8) 0%,
+    rgba(231, 229, 228, 0.5) 40%,
+    rgba(245, 245, 244, 0.8) 80%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Gradient border shift */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.gradient-border-animated {
+  background: linear-gradient(270deg, #6366f1, #8b5cf6, #f43f5e, #6366f1);
+  background-size: 400% 400%;
+  animation: gradient-shift 4s ease infinite;
+}
+
+/* Typewriter cursor blink */
+@keyframes typing-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-cursor-blink {
+  animation: typing-cursor 0.9s step-end infinite;
+}
+
+/* Step node pulse (active step indicator) */
+@keyframes step-scan {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  60% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+.animate-step-scan {
+  animation: step-scan 1.8s ease-out infinite;
+}
+
+/* Rotating dashes around progress ring */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+.animate-spin-slow-reverse {
+  animation: spin-slow 16s linear infinite reverse;
+}
+
+/* Draw-on path for SVG check circle */
+@keyframes draw-check {
+  from { stroke-dashoffset: 60; }
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-draw-check {
+  stroke-dasharray: 60;
+  animation: draw-check 0.5s ease-out forwards;
+}
+
+/* Stagger reveal for list items */
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.35s ease-out forwards;
+}
+
+/* Wave ripple for AI typing */
+@keyframes wave-dot {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.8); }
+}
+
+.animate-wave-dot {
+  animation: wave-dot 0.8s ease-in-out infinite;
+}
+
+/* ============================================
+   GLASSMORPHISM UTILITIES
+   ============================================ */
+
+.glass-panel {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+}
+
+.glass-panel-heavy {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
