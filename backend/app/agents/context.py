@@ -129,16 +129,20 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
             "complexity": project_overview.get("complexity"),
         }
 
-    if "features" in value:
-        summary["features"] = value.get("features", [])[:8]
-    if "core_modules" in value:
-        summary["core_modules"] = value.get("core_modules", [])[:8]
+    features = value.get("features")
+    if isinstance(features, (list, str)):
+        summary["features"] = features[:8]
+    core_modules = value.get("core_modules")
+    if isinstance(core_modules, (list, str)):
+        summary["core_modules"] = core_modules[:8]
     if "tech_stack" in value:
         summary["tech_stack"] = value.get("tech_stack")
-    if "module_execution_order" in value:
-        summary["module_execution_order"] = value.get("module_execution_order", [])[:10]
-    if "recommended_next_agents" in value:
-        summary["recommended_next_agents"] = value.get("recommended_next_agents", [])[:10]
+    exec_order = value.get("module_execution_order")
+    if isinstance(exec_order, (list, str)):
+        summary["module_execution_order"] = exec_order[:10]
+    next_agents = value.get("recommended_next_agents")
+    if isinstance(next_agents, (list, str)):
+        summary["recommended_next_agents"] = next_agents[:10]
 
     if "entities" in value:
         summary["entities"] = _names_from_items(value.get("entities"), "entity_name")[:12]
@@ -186,8 +190,12 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
 
     handoff = value.get("agent_handoff")
     if isinstance(handoff, Mapping):
-        summary["handoff_summary"] = handoff.get("handoff_summary", [])[:6]
-        summary["integration_points"] = handoff.get("integration_points", [])[:6]
+        handoff_sum = handoff.get("handoff_summary")
+        if isinstance(handoff_sum, (list, str)):
+            summary["handoff_summary"] = handoff_sum[:6]
+        int_pts = handoff.get("integration_points")
+        if isinstance(int_pts, (list, str)):
+            summary["integration_points"] = int_pts[:6]
 
     return {key: val for key, val in summary.items() if val not in (None, [], {})}
 

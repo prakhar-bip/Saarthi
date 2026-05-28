@@ -62,6 +62,444 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
         return get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
 
 
+def inject_boilerplate_files(codebase: List[Dict[str, Any]], project_name: str, architecture_context: dict = None) -> List[Dict[str, Any]]:
+    project_slug = project_name.lower().replace(" ", "-").replace("_", "-")
+    existing_paths = {f.get("path") for f in codebase}
+    
+    # 1. package.json
+    if "package.json" not in existing_paths:
+        codebase.append({
+            "name": "package.json",
+            "path": "package.json",
+            "language": "json",
+            "content": json.dumps({
+                "name": project_slug,
+                "private": True,
+                "version": "0.1.0",
+                "type": "module",
+                "scripts": {
+                    "dev": "vite",
+                    "build": "tsc && vite build",
+                    "preview": "vite preview"
+                },
+                "dependencies": {
+                    "react": "^18.3.1",
+                    "react-dom": "^18.3.1",
+                    "react-router-dom": "^6.22.3",
+                    "events": "^3.3.0"
+                },
+                "devDependencies": {
+                    "@types/react": "^18.3.3",
+                    "@types/react-dom": "^18.3.0",
+                    "@vitejs/plugin-react": "^4.2.1",
+                    "autoprefixer": "^10.4.18",
+                    "postcss": "^8.4.35",
+                    "tailwindcss": "^3.4.1",
+                    "typescript": "^5.2.2",
+                    "vite": "^5.2.0"
+                }
+            }, indent=2)
+        })
+
+    # 2. vite.config.ts
+    if "vite.config.ts" not in existing_paths and "vite.config.js" not in existing_paths:
+        codebase.append({
+            "name": "vite.config.ts",
+            "path": "vite.config.ts",
+            "language": "typescript",
+            "content": (
+                "import { defineConfig } from 'vite';\n"
+                "import react from '@vitejs/plugin-react';\n\n"
+                "export default defineConfig({\n"
+                "  plugins: [react()],\n"
+                "  server: {\n"
+                "    port: 3000,\n"
+                "    host: true\n"
+                "  }\n"
+                "});"
+            )
+        })
+
+    # 3. postcss.config.js
+    if "postcss.config.js" not in existing_paths and "postcss.config.mjs" not in existing_paths:
+        codebase.append({
+            "name": "postcss.config.js",
+            "path": "postcss.config.js",
+            "language": "javascript",
+            "content": (
+                "export default {\n"
+                "  plugins: {\n"
+                "    tailwindcss: {},\n"
+                "    autoprefixer: {},\n"
+                "  },\n"
+                "}"
+            )
+        })
+
+    # 4. tsconfig.json
+    if "tsconfig.json" not in existing_paths:
+        codebase.append({
+            "name": "tsconfig.json",
+            "path": "tsconfig.json",
+            "language": "json",
+            "content": json.dumps({
+                "compilerOptions": {
+                    "target": "ES2020",
+                    "useDefineForClassFields": True,
+                    "lib": ["DOM", "DOM.Iterable", "ScriptHost", "ES2020"],
+                    "module": "ESNext",
+                    "skipLibCheck": True,
+                    "moduleResolution": "bundler",
+                    "allowImportingTsExtensions": True,
+                    "resolveJsonModule": True,
+                    "isolatedModules": True,
+                    "noEmit": True,
+                    "jsx": "react-jsx",
+                    "strict": False,
+                    "noUnusedLocals": False,
+                    "noUnusedParameters": False,
+                    "noFallthroughCasesInSwitch": True,
+                    "types": ["node"]
+                },
+                "include": ["src"]
+            }, indent=2)
+        })
+
+    # 5. index.html
+    if "index.html" not in existing_paths:
+        codebase.append({
+            "name": "index.html",
+            "path": "index.html",
+            "language": "html",
+            "content": (
+                f"<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n"
+                f"    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/vite.svg\" />\n"
+                f"    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+                f"    <title>{project_name}</title>\n  </head>\n  <body class=\"bg-background text-text antialiased\">\n"
+                f"    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.tsx\"></script>\n"
+                f"  </body>\n</html>"
+            )
+        })
+
+    # 6. src/main.tsx
+    if "src/main.tsx" not in existing_paths and "src/index.tsx" not in existing_paths:
+        app_path = "src/App.tsx" if "src/App.tsx" in existing_paths or "App.tsx" not in existing_paths else "App.tsx"
+        app_import = "./App.tsx" if app_path == "src/App.tsx" else "../App.tsx"
+        
+        css_import = "./index.css" if "src/index.css" in existing_paths else "../index.css" if "index.css" in existing_paths else ""
+        css_line = f"\nimport '{css_import}';" if css_import else ""
+        
+        codebase.append({
+            "name": "main.tsx",
+            "path": "src/main.tsx",
+            "language": "typescript",
+            "content": (
+                f"import React from 'react';\n"
+                f"import ReactDOM from 'react-dom/client';\n"
+                f"import App from '{app_import}';{css_line}\n\n"
+                f"ReactDOM.createRoot(document.getElementById('root')!).render(\n"
+                f"  <React.StrictMode>\n"
+                f"    <App />\n"
+                f"  </React.StrictMode>,\n"
+                f");"
+            )
+        })
+
+    # 7. Check if tailwind.config.js exists, if not write a default matching the colors
+    if "tailwind.config.js" not in existing_paths:
+        codebase.append({
+            "name": "tailwind.config.js",
+            "path": "tailwind.config.js",
+            "language": "javascript",
+            "content": (
+                "/** @type {import('tailwindcss').Config} */\n"
+                "module.exports = {\n"
+                "  content: ['./src/**/*.{js,jsx,ts,tsx,html}', './index.html'],\n"
+                "  theme: {\n"
+                "    extend: {\n"
+                "      colors: {\n"
+                "        primary: '#4CAF50',\n"
+                "        secondary: '#FF9800',\n"
+                "        background: '#E5E5E5',\n"
+                "        card: '#FFFFFF',\n"
+                "        text: '#666666',\n"
+                "        border: '#AAAAAA',\n"
+                "      },\n"
+                "    },\n"
+                "  },\n"
+                "  plugins: [],\n"
+                "};"
+            )
+        })
+
+    # 8. Check if index.css exists, if not write a default
+    if "src/index.css" not in existing_paths and "index.css" not in existing_paths:
+        codebase.append({
+            "name": "index.css",
+            "path": "src/index.css",
+            "language": "css",
+            "content": (
+                "@tailwind base;\n"
+                "@tailwind components;\n"
+                "@tailwind utilities;\n\n"
+                "body {\n"
+                "  @apply bg-background text-text antialiased;\n"
+                "}"
+            )
+        })
+
+    # 9. backend/requirements.txt
+    if "backend/requirements.txt" not in existing_paths:
+        codebase.append({
+            "name": "requirements.txt",
+            "path": "backend/requirements.txt",
+            "language": "plaintext",
+            "content": (
+                "fastapi>=0.100.0\n"
+                "uvicorn>=0.22.0\n"
+                "pydantic>=2.0\n"
+                "pydantic-settings>=2.0\n"
+                "motor>=3.3.0\n"
+                "pymongo>=4.5.0\n"
+            )
+        })
+
+    # 10. backend/main.py (Dynamic endpoints & CORS)
+    if "backend/main.py" not in existing_paths:
+        endpoints = []
+        entities = []
+        if architecture_context:
+            api_arch = architecture_context.get("api_architecture") or {}
+            endpoints = api_arch.get("endpoints", [])
+            if not endpoints:
+                api_impl = architecture_context.get("api_implementation") or {}
+                endpoints = api_impl.get("endpoints", [])
+            
+            db_arch = architecture_context.get("db_architecture") or {}
+            entities = db_arch.get("entities", [])
+            if not entities:
+                db_model = architecture_context.get("database_model_generation") or {}
+                entities = db_model.get("entities", [])
+
+        # Build FastAPI routes based on these endpoints
+        routes_code = []
+        added_paths = set()
+        
+        for ep in endpoints:
+            if not isinstance(ep, dict):
+                continue
+            path = ep.get("path", "")
+            method = ep.get("method", "GET").lower()
+            desc = ep.get("description", "Sarthi API route.")
+            if not path or (path, method) in added_paths:
+                continue
+            added_paths.add((path, method))
+            
+            func_name = path.strip("/").replace("/", "_").replace("{", "").replace("}", "").replace("-", "_").replace(".", "_")
+            func_name = f"{method}_{func_name}" if func_name else f"{method}_root"
+            
+            if method == "get":
+                routes_code.append(
+                    f"@app.get(\"{path}\", summary=\"{desc}\")\n"
+                    f"async def {func_name}():\n"
+                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\"}}\n"
+                )
+            elif method == "post":
+                routes_code.append(
+                    f"@app.post(\"{path}\", summary=\"{desc}\")\n"
+                    f"async def {func_name}(payload: dict):\n"
+                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\", \"data\": payload}}\n"
+                )
+            elif method == "delete":
+                routes_code.append(
+                    f"@app.delete(\"{path}\", summary=\"{desc}\")\n"
+                    f"async def {func_name}():\n"
+                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\"}}\n"
+                )
+            elif method == "put":
+                routes_code.append(
+                    f"@app.put(\"{path}\", summary=\"{desc}\")\n"
+                    f"async def {func_name}(payload: dict):\n"
+                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\", \"data\": payload}}\n"
+                )
+                
+        if not routes_code and entities:
+            for ent in entities:
+                if not isinstance(ent, dict):
+                    continue
+                ent_name = ent.get("entity_name", "Item")
+                ent_lower = ent_name.lower()
+                
+                routes_code.append(
+                    f"@app.get(\"/api/v1/{ent_lower}s\", summary=\"Get all {ent_name} items.\")\n"
+                    f"async def get_{ent_lower}s():\n"
+                    f"    return {{\"status\": \"success\", \"{ent_lower}s\": []}}\n"
+                )
+                routes_code.append(
+                    f"@app.post(\"/api/v1/{ent_lower}s\", summary=\"Create a new {ent_name}.\")\n"
+                    f"async def create_{ent_lower}(payload: dict):\n"
+                    f"    return {{\"status\": \"success\", \"message\": \"{ent_name} created successfully.\", \"data\": payload}}\n"
+                )
+
+        if not routes_code:
+            routes_code.append(
+                "@app.get(\"/api/v1/health\", summary=\"Health check endpoint.\")\n"
+                "async def health_check():\n"
+                "    return {\"status\": \"healthy\", \"service\": \"" + project_name + "\"}\n"
+            )
+
+        routes_str = "\n".join(routes_code)
+        
+        main_py_content = f"""from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+app = FastAPI(
+    title="{project_name} API",
+    description="Backend API services compiled dynamically by Sarthi.",
+    version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def root():
+    return {{
+        "message": "Welcome to the {project_name} API!",
+        "engine": "Sarthi Codebase Compiler",
+        "status": "online"
+    }}
+
+{routes_str}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+"""
+        codebase.append({
+            "name": "main.py",
+            "path": "backend/main.py",
+            "language": "python",
+            "content": main_py_content
+        })
+
+    # 11. backend/Dockerfile
+    if "backend/Dockerfile" not in existing_paths:
+        codebase.append({
+            "name": "Dockerfile",
+            "path": "backend/Dockerfile",
+            "language": "dockerfile",
+            "content": (
+                "FROM python:3.10-slim\n"
+                "WORKDIR /app\n"
+                "COPY requirements.txt .\n"
+                "RUN pip install --no-cache-dir -r requirements.txt\n"
+                "COPY . .\n"
+                "EXPOSE 8000\n"
+                "CMD [\"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n"
+            )
+        })
+
+    # 12. Dockerfile.frontend
+    if "Dockerfile.frontend" not in existing_paths:
+        codebase.append({
+            "name": "Dockerfile.frontend",
+            "path": "Dockerfile.frontend",
+            "language": "dockerfile",
+            "content": (
+                "FROM node:18-alpine\n"
+                "WORKDIR /app\n"
+                "COPY package.json .\n"
+                "RUN npm install\n"
+                "COPY . .\n"
+                "EXPOSE 3000\n"
+                "CMD [\"npm\", \"run\", \"dev\"]\n"
+            )
+        })
+
+    # 13. docker-compose.yml
+    if "docker-compose.yml" not in existing_paths:
+        codebase.append({
+            "name": "docker-compose.yml",
+            "path": "docker-compose.yml",
+            "language": "yaml",
+            "content": (
+                "version: '3.8'\n\n"
+                "services:\n"
+                "  backend:\n"
+                "    build: ./backend\n"
+                "    ports:\n"
+                "      - \"8000:8000\"\n"
+                "    environment:\n"
+                "      - MONGODB_URI=mongodb://mongodb:27017/sarthi\n"
+                "    depends_on:\n"
+                "      - mongodb\n\n"
+                "  frontend:\n"
+                "    build:\n"
+                "      context: .\n"
+                "      dockerfile: Dockerfile.frontend\n"
+                "    ports:\n"
+                "      - \"3000:3000\"\n"
+                "    depends_on:\n"
+                "      - backend\n\n"
+                "  mongodb:\n"
+                "    image: mongo:latest\n"
+                "    ports:\n"
+                "      - \"27017:27017\"\n"
+                "    volumes:\n"
+                "      - mongo_data:/data/db\n\n"
+                "volumes:\n"
+                "  mongo_data:\n"
+            )
+        })
+
+    # 14. start.sh
+    if "start.sh" not in existing_paths:
+        codebase.append({
+            "name": "start.sh",
+            "path": "start.sh",
+            "language": "bash",
+            "content": (
+                "#!/bin/bash\n"
+                "echo \"Starting Sarthi full-stack services...\"\n"
+                "echo \"Launching FastAPI backend server...\"\n"
+                "cd backend\n"
+                "python -m venv venv\n"
+                "source venv/bin/activate || source venv/Scripts/activate\n"
+                "pip install -r requirements.txt\n"
+                "python main.py &\n"
+                "BACKEND_PID=$!\n\n"
+                "echo \"Launching React frontend server...\"\n"
+                "cd ..\n"
+                "npm install\n"
+                "npm run dev\n"
+            )
+        })
+
+    # 15. start.bat
+    if "start.bat" not in existing_paths:
+        codebase.append({
+            "name": "start.bat",
+            "path": "start.bat",
+            "language": "batch",
+            "content": (
+                "@echo off\n"
+                "echo Starting Sarthi full-stack services...\n"
+                "echo Launching FastAPI backend server...\n"
+                "start cmd /k \"cd backend && python -m venv venv && call venv\\Scripts\\activate && pip install -r requirements.txt && python main.py\"\n"
+                "echo Launching React frontend server...\n"
+                "npm install && npm run dev\n"
+            )
+        })
+
+    return codebase
+
+
 async def generate_codebase(
     project_name: str, 
     category: str, 
@@ -183,6 +621,7 @@ Generate at least 3 files (README.md, src/App.tsx, and at least one custom compo
         logger.info("==================================================")
         
         if "summary" in data and "codebase" in data:
+            data["codebase"] = inject_boilerplate_files(data["codebase"], project_name, architecture_context)
             return data
         else:
             raise ValueError("Invalid JSON structure returned by NIM model")
@@ -879,16 +1318,16 @@ export default function InteractiveBox() {{
         
     return {
         "summary": f"This is a prototype workspace for {capital_name} generated dynamically based on design requirements.",
-        "codebase": codebase
+        "codebase": inject_boilerplate_files(codebase, name, architecture_context)
     }
 
 async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None) -> List[Dict[str, Any]]:
     """
-    Generate exactly 3 custom color/style themes for the selected project blueprint using Nvidia NIM,
+    Generate exactly 3 custom color/style themes for the selected project blueprint using Gemini / fallback LLM,
     or fall back to the structured category-specific lists.
     """
-    if not settings.NVIDIA_API_KEY:
-        logger.warning("NVIDIA_API_KEY not configured. Falling back to local dynamic themes.")
+    if not (settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+        logger.warning("No LLM keys configured. Falling back to local dynamic themes.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt)
 
     custom_guideline = f"\nCRITICAL: The user has requested custom themes matching this preference: '{custom_prompt}'. Please generate themes that specifically match this style/preference (e.g. naming, descriptions, and color choices matching '{custom_prompt}')." if custom_prompt else ""
@@ -913,7 +1352,7 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
          "border": "Hex color code",
          "is_dark": true/false
        }}
-    )
+     )
     
     Return your output ONLY as a valid JSON array of objects. Do not include markdown code block syntax (like ```json ... ```). Just return the raw JSON.
     The JSON must match this structure:
@@ -934,19 +1373,15 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
     ]
     """
     try:
-        from app.services.llm_router import get_provider_client
-        client = get_provider_client("nvidia")
-        if not client:
-            raise ValueError("NVIDIA API client could not be initialized (missing key)")
-        completion = client.chat.completions.create(
-            model=settings.NVIDIA_MODEL,
+        from app.services.llm_router import get_llm_completion
+        content = await get_llm_completion(
+            agent_name="ThemeGeneratorAgent",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=2048
         )
-        content = completion.choices[0].message.content
         if not content:
-            raise ValueError("NIM returned an empty or null theme suggestions response")
+            raise ValueError("LLM returned an empty or null theme suggestions response")
         raw_content = content.strip()
         if raw_content.startswith("```"):
             lines = raw_content.splitlines()
@@ -960,9 +1395,9 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
         if isinstance(data, list) and len(data) == 3:
             return data
         else:
-            raise ValueError("Invalid themes suggestions format returned by NIM model")
+            raise ValueError("Theme suggestion JSON structure was not an array of 3 themes")
     except Exception as e:
-        logger.error(f"Error generating theme suggestions from NIM: {e}. Falling back.")
+        logger.error(f"Error generating theme suggestions from LLM: {e}. Falling back.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt)
 
 

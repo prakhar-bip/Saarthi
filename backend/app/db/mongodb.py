@@ -77,32 +77,42 @@ async def start_mongodb_process() -> bool:
         return False
 
 async def connect_to_mongo():
-    """Create MongoDB client and connect to database, spawning it if it is offline."""
-    logger.info(f"Connecting to MongoDB at: {settings.MONGODB_URI}")
-    
-    # Use a short selection timeout initially to check if MongoDB is already up
-    db.client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=2000)
-    
+    """Create MongoDB client and connect to database, falling back to local if the remote is unreachable."""
+    configured_uri = settings.MONGODB_URI
+    is_remote = not ("localhost" in configured_uri or "127.0.0.1" in configured_uri)
+
+    logger.info(f"Connecting to MongoDB at: {configured_uri}")
+    db.client = AsyncIOMotorClient(configured_uri, serverSelectionTimeoutMS=3000)
+
     try:
         await db.client.admin.command('ping')
         logger.info("Successfully connected to MongoDB.")
         return
     except Exception as e:
-        logger.warning(f"MongoDB not running or connection refused: {e}. Attempting auto-start...")
-    
-    # If ping failed, try to start the database
+        if is_remote:
+            logger.warning(
+                f"Failed to connect to remote MongoDB cluster: {e}.\n"
+                "This could be due to IP whitelist restrictions or lack of network connectivity.\n"
+                "Falling back to local MongoDB..."
+            )
+        else:
+            logger.warning(f"Local MongoDB at {configured_uri} not running: {e}. Attempting auto-start...")
+
+    # Fallback to local MongoDB
+    local_uri = "mongodb://localhost:27017"
     if await start_mongodb_process():
         # Wait a short duration for MongoDB to initialize and listen
         await asyncio.sleep(3)
         
-        # Re-initialize client and try pinging one more time
-        db.client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=5000)
+        logger.info(f"Connecting to local fallback MongoDB at: {local_uri}")
+        db.client = AsyncIOMotorClient(local_uri, serverSelectionTimeoutMS=5000)
         try:
             await db.client.admin.command('ping')
-            logger.info("Successfully started and connected to MongoDB.")
+            logger.info("Successfully connected to local fallback MongoDB.")
+            settings.MONGODB_URI = local_uri
             return
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB after auto-start: {e}")
+            logger.error(f"Failed to connect to local MongoDB after auto-start: {e}")
     else:
         logger.error("Could not auto-start MongoDB. Database connection unavailable.")
 
@@ -117,4 +127,5 @@ def get_database():
     if db.client is None:
         db.client = AsyncIOMotorClient(settings.MONGODB_URI)
     return db.client[settings.DATABASE_NAME]
+
 

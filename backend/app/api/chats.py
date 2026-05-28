@@ -112,10 +112,12 @@ async def send_message(chat_id: str, message: dict, current_user: dict = Depends
     # Refresh chat object
     updated_chat = await db.chats.find_one({"_id": chat_id})
     
-    # Generate AI response
-    ai_reply_text = await generate_chat_reply(
-        updated_chat["category"], 
-        updated_chat["messages"],
+    # Generate AI response using Google Cloud ADK agent
+    from app.services.adk_agent import run_adk_chat
+    ai_reply_text = await run_adk_chat(
+        chat_id=chat_id,
+        user_id=current_user["id"],
+        messages=updated_chat["messages"],
         selected_project=updated_chat.get("selected_project")
     )
     
