@@ -38,66 +38,88 @@ class PlannerAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Transform structured technical requirements into execution strategy, dependencies, risk analysis, and downstream agent scheduling metadata."
+            (
+                "## Role\n"
+                "You are a senior software project planner and build orchestrator. You transform technical requirements into a deterministic build execution plan with clear phases, dependency graphs, and agent scheduling.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: analyze the project type and modules, then define phases (setup → backend → frontend → integration), then map module dependencies, then identify risks.\n"
+                "2. module_execution_order must be a topologically sorted list — foundational modules (Auth, Database) before dependent ones.\n"
+                "3. parallel_execution_groups must only contain modules with NO inter-dependencies.\n"
+                "4. agent_execution_plan must reference real Sarthi agent names: DatabaseArchitectureAgent, BackendArchitectureAgent, APIAgent, FrontendArchitectureAgent, UIUXArchitectAgent, AuthArchitectureAgent.\n"
+                "5. risk_analysis must be specific to the project — avoid generic platitudes.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- project_phases must contain 3-5 phases, each with concrete tasks and expected_output.\n"
+                "- recommended_next_agents must list agents in the correct pipeline invocation order."
+            )
         )
 
         user_content = f"""
-Analyze the following project requirements:
-{json.dumps(requirements, indent=2)}
+Analyze the following project requirements and produce a build execution plan.
 
-Return ONLY valid JSON in this exact format:
+Think step by step:
+1. Determine the architecture style from the tech stack and project type.
+2. Break the build into 3-5 sequential phases (setup → core backend → frontend → integration → polish).
+3. Topologically sort modules so dependencies come first in module_execution_order.
+4. Group independent modules into parallel_execution_groups.
+5. Map each Sarthi agent to its execution stage.
+6. Identify project-specific risks and bottlenecks.
+
+Requirements: {json.dumps(requirements, indent=2)}
+
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "execution_strategy": {{
-    "project_type": "Project Type",
-    "architecture_style": "Architecture Style",
-    "development_strategy": "Development Strategy",
-    "scalability_strategy": "Scalability Strategy"
+    "project_type": "string — from requirements.project_overview.type",
+    "architecture_style": "string — e.g. 'Client-Server MVC', 'Microservices', 'Serverless'",
+    "development_strategy": "string — 1 sentence on build approach (e.g. 'Database-first with parallel frontend/backend')",
+    "scalability_strategy": "string — 1 sentence on scaling approach"
   }},
   "project_phases": [
     {{
-      "phase": 1,
-      "title": "Phase Title",
-      "description": "Phase Description",
-      "tasks": ["Task 1", "Task 2"],
-      "expected_output": ["Output 1"]
+      "phase": "integer — sequential phase number starting at 1",
+      "title": "string — short phase title",
+      "description": "string — what this phase accomplishes",
+      "tasks": ["string — specific actionable tasks"],
+      "expected_output": ["string — concrete deliverables"]
     }}
   ],
-  "module_execution_order": ["ModuleA", "ModuleB"],
+  "module_execution_order": ["string — topologically sorted module names from requirements.core_modules"],
   "parallel_execution_groups": [
-    ["ModuleX", "ModuleY"]
+    ["string — modules with no inter-dependencies that can build concurrently"]
   ],
   "module_dependencies": [
     {{
-      "module": "ModuleB",
-      "depends_on": ["ModuleA"]
+      "module": "string — dependent module name",
+      "depends_on": ["string — prerequisite module names"]
     }}
   ],
   "agent_execution_plan": [
     {{
-      "agent": "AgentName",
-      "responsibility": "Agent Responsibility",
-      "execution_stage": "Stage Name"
+      "agent": "string — exact Sarthi agent class name (e.g. 'DatabaseArchitectureAgent')",
+      "responsibility": "string — what this agent produces",
+      "execution_stage": "string — which phase this agent runs in"
     }}
   ],
   "compilation_pipeline": [
     {{
-      "stage": "Stage Name",
-      "purpose": "Stage Purpose"
+      "stage": "string — pipeline stage name",
+      "purpose": "string — what this stage achieves"
     }}
   ],
   "system_workflow": {{
-    "initialization": ["Init step 1"],
-    "backend_flow": ["Backend step 1"],
-    "frontend_flow": ["Frontend step 1"],
-    "integration_flow": ["Integration step 1"]
+    "initialization": ["string — system startup steps"],
+    "backend_flow": ["string — request processing steps"],
+    "frontend_flow": ["string — UI rendering steps"],
+    "integration_flow": ["string — third-party/async integration steps"]
   }},
   "risk_analysis": {{
-    "complex_modules": ["ComplexModule"],
-    "potential_bottlenecks": ["Bottleneck"],
-    "optimization_suggestions": ["Suggestion"]
+    "complex_modules": ["string — modules with highest implementation risk"],
+    "potential_bottlenecks": ["string — specific performance/integration risks"],
+    "optimization_suggestions": ["string — actionable mitigation strategies"]
   }},
-  "recommended_next_agents": ["Agent 1", "Agent 2"]
+  "recommended_next_agents": ["string — Sarthi agent names in invocation order"]
 }}
 """
 

@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
 
-    # CORS — comma-separated origins read from env, default to local dev
+    # CORS — allow all origins for development to prevent fetch failures
     CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"]
+        default=["*"]
     )
 
     # Frontend URL (used to build absolute links in notifications etc.)
@@ -54,7 +54,13 @@ class Settings(BaseSettings):
 
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")
-    GOOGLE_MODEL: str = Field(default="gemini-1.5-flash")
+    GOOGLE_MODEL: str = Field(default="gemini-2.5-flash")
 
 
 settings = Settings()
+
+# Ensure the underlying google-genai SDK discovers the API key
+import os
+if settings.GOOGLE_API_KEY:
+    os.environ["GEMINI_API_KEY"] = settings.GOOGLE_API_KEY
+    os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY

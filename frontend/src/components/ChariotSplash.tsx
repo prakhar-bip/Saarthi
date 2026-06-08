@@ -57,14 +57,33 @@ export const ChariotSplash: React.FC<ChariotSplashProps> = ({ onComplete }) => {
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-rose-500/10 blur-3xl animate-bg-glow" style={{ animationDelay: "4s" }} />
 
       <div className="max-w-md w-full px-8 text-center flex flex-col items-center relative z-10">
-        {/* Galloping Chariot (Animated SVG) */}
+        {/* Sarthi Animated Logo */}
         <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="mb-4"
+          animate={{
+            scale: [1, 1.05, 1],
+            boxShadow: [
+              "0 10px 25px -5px rgba(99, 102, 241, 0.25), 0 8px 10px -6px rgba(244, 63, 94, 0.15)",
+              "0 20px 35px -5px rgba(99, 102, 241, 0.4), 0 12px 15px -6px rgba(244, 63, 94, 0.25)",
+              "0 10px 25px -5px rgba(99, 102, 241, 0.25), 0 8px 10px -6px rgba(244, 63, 94, 0.15)"
+            ]
+          }}
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="mb-8 w-28 h-28 rounded-2xl overflow-hidden border border-stone-200/50 bg-white relative flex items-center justify-center shadow-lg"
         >
-          <AnimatedChariot className="w-72 h-44" />
+          <motion.div
+            className="absolute inset-0 bg-gradient-to-tr from-indigo-500/20 via-transparent to-rose-500/20 mix-blend-overlay"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+          />
+          <img
+            src="/logo.png"
+            alt="Sarthi Logo"
+            className="w-20 h-20 object-contain pointer-events-none"
+          />
         </motion.div>
 
         {/* Title */}

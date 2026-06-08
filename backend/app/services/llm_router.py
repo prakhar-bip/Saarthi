@@ -10,48 +10,54 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Core agent mapping to preferred (provider, model)
+# Reasoning-heavy agents use gemini-2.5-pro for higher quality
+# Fast utility agents use gemini-2.5-flash for speed
 AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
-    # High-reasoning and planning agents
-    "PlannerAgent": ("gemini", settings.GOOGLE_MODEL),
-    "RequirementAnalyzerAgent": ("gemini", settings.GOOGLE_MODEL),
-    "CodeGenerationPlannerAgent": ("gemini", settings.GOOGLE_MODEL),
-    "ValidationArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "DatabaseModelGenerationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "BackendCodeGenerationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "APIImplementationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "FrontendCodeGenerationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "UIComponentGenerationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "StateImplementationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "IntegrationGenerationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "BuildCompilationAgent": ("gemini", settings.GOOGLE_MODEL),
-    "ErrorCorrectionAgent": ("gemini", settings.GOOGLE_MODEL),
-    "ProjectExportAgent": ("gemini", settings.GOOGLE_MODEL),
+    # High-reasoning and planning agents → gemini-2.5-pro
+    "PlannerAgent": ("gemini", "gemini-2.5-pro"),
+    "RequirementAnalyzerAgent": ("gemini", "gemini-2.5-pro"),
+    "CodeGenerationPlannerAgent": ("gemini", "gemini-2.5-pro"),
+    "ErrorCorrectionAgent": ("gemini", "gemini-2.5-pro"),
 
-    # Code generation and architectural component agents
-    "FrontendArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "BackendArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "DatabaseArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "DevOpsArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "RealtimeArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "StateManagementAgent": ("gemini", settings.GOOGLE_MODEL),
-    "AuthArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "SecurityArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "APIAgent": ("gemini", settings.GOOGLE_MODEL),
+    # Code generation agents → gemini-2.5-flash (fast + capable)
+    "DatabaseModelGenerationAgent": ("gemini", "gemini-2.5-flash"),
+    "BackendCodeGenerationAgent": ("gemini", "gemini-2.5-flash"),
+    "APIImplementationAgent": ("gemini", "gemini-2.5-flash"),
+    "FrontendCodeGenerationAgent": ("gemini", "gemini-2.5-flash"),
+    "UIComponentGenerationAgent": ("gemini", "gemini-2.5-flash"),
+    "StateImplementationAgent": ("gemini", "gemini-2.5-flash"),
+    "IntegrationGenerationAgent": ("gemini", "gemini-2.5-flash"),
+    "BuildCompilationAgent": ("gemini", "gemini-2.5-flash"),
+    "ProjectExportAgent": ("gemini", "gemini-2.5-flash"),
+    "ValidationArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+
+    # Architecture component agents → gemini-2.5-flash
+    "FrontendArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "BackendArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "DatabaseArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "DevOpsArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "RealtimeArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "StateManagementAgent": ("gemini", "gemini-2.5-flash"),
+    "AuthArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "SecurityArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "APIAgent": ("gemini", "gemini-2.5-flash"),
 
     # Fast agents / Optimization / Testing / Styling
-    "UIUXArchitectAgent": ("gemini", settings.GOOGLE_MODEL),
-    "OptimizationArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
-    "TestingArchitectureAgent": ("gemini", settings.GOOGLE_MODEL),
+    "UIUXArchitectAgent": ("gemini", "gemini-2.5-flash"),
+    "OptimizationArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "TestingArchitectureAgent": ("gemini", "gemini-2.5-flash"),
 
-    # App core utilities / features
-    "ChatReply": ("gemini", settings.GOOGLE_MODEL),
-    "ProjectSuggestions": ("gemini", settings.GOOGLE_MODEL),
-    "CodebaseCompiler": ("gemini", settings.GOOGLE_MODEL),
-    "ThemeGeneratorAgent": ("gemini", settings.GOOGLE_MODEL),
+    # App core utilities / features — fastest path
+    "ChatReply": ("gemini", "gemini-2.5-flash"),
+    "CategoryClassifier": ("gemini", "gemini-2.5-flash"),
+    "ProjectSuggestions": ("gemini", "gemini-2.5-flash"),
+    "CodebaseCompiler": ("gemini", "gemini-2.5-pro"),
+    "ThemeGeneratorAgent": ("gemini", "gemini-2.5-flash"),
+    "DocumentGeneratorAgent": ("gemini", "gemini-2.5-flash"),
 }
 
-# Fallback sequence to try other providers if preferred fails or is not configured
-FALLBACK_PROVIDERS = ["gemini", "openrouter", "groq", "nvidia"]
+# Fallback sequence: try Groq first (fast & reliable), then OpenRouter, then Nvidia
+FALLBACK_PROVIDERS = ["gemini", "groq", "openrouter", "nvidia"]
 
 
 def get_provider_client(provider: str) -> Any:
@@ -298,7 +304,7 @@ async def get_llm_completion(
             agent=adk_agent,
             session_service=session_service
         )
-        session = session_service.create_session(app_name=f"{agent_name}App", user_id="system_user")
+        session = await session_service.create_session(app_name=f"{agent_name}App", user_id="system_user")
         user_message = Content(role="user", parts=[Part.from_text(text=user_prompt)])
         run_config = RunConfig(response_modalities=["TEXT"])
         

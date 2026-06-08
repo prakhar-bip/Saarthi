@@ -54,11 +54,33 @@ class AuthArchitectureAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design authentication, authorization, sessions, RBAC, protected frontend/backend routes, realtime auth, and security handoffs."
+            (
+                "## Role\n"
+                "You are a senior security architect specializing in authentication and authorization. Design the complete auth architecture: identity strategy, token management, RBAC, protected routes (backend + frontend), session handling, OAuth, and security middleware.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: check if requirements.authentication.required is true → choose auth strategy (JWT, session, OAuth) → derive protected backend routes from api_architecture.endpoints where requires_auth=true → derive protected frontend routes from frontend_architecture.pages where protected=true → design RBAC roles and permissions → define auth workflows (login, signup, refresh, logout) → set security rules.\n"
+                "2. protected_route_architecture MUST be derived from actual upstream contracts — list real endpoint paths from api_architecture and real page paths from frontend_architecture.\n"
+                "3. authentication_workflows must describe the full end-to-end flow from UI to database for each auth action.\n"
+                "4. security_considerations must follow OWASP best practices: bcrypt for passwords, short-lived access tokens, HttpOnly cookies for refresh tokens, XSS/CSRF protection.\n"
+                "5. If requirements.authentication.required is false, set all auth-related fields to their disabled/empty states but still return the full JSON structure.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- Token expiry values must be specific (e.g. '15 minutes', '7 days'), not vague.\n"
+                "- Role names must be PascalCase. Permission strings must use 'action:resource' format (e.g. 'read:profile').\n"
+                "- All route paths must exactly match paths from api_architecture and frontend_architecture."
+            )
         )
 
         user_content = f"""
-Analyze the following inputs:
+Design the authentication and authorization architecture. Think step by step:
+1. Check requirements.authentication.required — if false, return all auth fields as disabled/empty but preserve the full JSON structure.
+2. Choose the auth strategy based on requirements.authentication.type and backend_architecture.authentication_backend_flow.
+3. Derive backend_protected_routes by scanning api_architecture.endpoints for requires_auth=true — list each as "METHOD /path".
+4. Derive frontend_protected_routes by scanning frontend_architecture.pages for protected=true — list each as "/pagename".
+5. Define RBAC roles, permissions (action:resource format), and hierarchy.
+6. Design auth workflows: login, signup, token refresh, logout — each with full UI-to-DB execution flow.
+7. Set OWASP-aligned security rules: bcrypt hashing, short-lived tokens, HttpOnly cookies, XSS protection.
+
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 Database Architecture: {json.dumps(db_architecture, indent=2)}
@@ -67,77 +89,73 @@ API Architecture: {json.dumps(api_architecture, indent=2)}
 Frontend Architecture: {json.dumps(frontend_architecture, indent=2)}
 Theme Styling: {json.dumps(theme_styling, indent=2)}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "authentication_strategy": {{
-    "auth_type": "e.g. JWT-based stateless bearer tokens",
-    "session_strategy": "e.g. Token-based browser memory storage",
-    "token_strategy": "e.g. Access token + Refresh token rotation",
-    "authorization_model": "e.g. RBAC (Role-Based Access Control)"
+    "auth_type": "string — e.g. 'JWT-based stateless bearer tokens' or 'None'",
+    "session_strategy": "string — e.g. 'HttpOnly cookie rotation' or 'None'",
+    "token_strategy": "string — e.g. 'Access token (15min) + Refresh token (7d) rotation' or 'None'",
+    "authorization_model": "string — 'RBAC', 'ABAC', or 'None'"
   }},
   "authentication_entities": [
     {{
-      "entity_name": "User",
-      "purpose": "Stores core credentials and user access roles.",
-      "related_permissions": ["read:profile", "write:profile"]
+      "entity_name": "string — must match a db_architecture entity name",
+      "purpose": "string — what auth data this entity stores",
+      "related_permissions": ["string — action:resource format, e.g. 'read:profile'"]
     }}
   ],
   "role_based_access_control": {{
-    "enabled": true,
-    "roles": ["User", "Admin"],
-    "permission_groups": ["profile_management", "stress_logs_management"],
-    "role_hierarchy": ["Admin > User"]
+    "enabled": "boolean",
+    "roles": ["string — PascalCase role names, e.g. 'User', 'Admin'"],
+    "permission_groups": ["string — snake_case permission group names"],
+    "role_hierarchy": ["string — hierarchy expressions, e.g. 'Admin > User'"]
   }},
   "protected_route_architecture": {{
-    "backend_protected_routes": ["GET /api/v1/stresslogs"],
-    "frontend_protected_routes": ["/dashboard"],
-    "permission_based_routes": []
+    "backend_protected_routes": ["string — 'METHOD /path' from api_architecture endpoints where requires_auth=true"],
+    "frontend_protected_routes": ["string — '/route' from frontend_architecture pages where protected=true"],
+    "permission_based_routes": ["string — routes requiring specific role/permission"]
   }},
   "authentication_workflows": [
     {{
-      "workflow_name": "Email login",
-      "execution_flow": [
-        "Validate inputs on client.",
-        "POST request is verified on backend using password hashing.",
-        "Generate access and refresh tokens."
-      ]
+      "workflow_name": "string — e.g. 'Email Login', 'Token Refresh', 'Logout'",
+      "execution_flow": ["string — ordered steps from UI input to DB operation to response"]
     }}
   ],
   "session_management_architecture": {{
-    "multi_device_support": true,
-    "session_persistence": ["Refresh token saved inside HttpOnly cookies"],
-    "logout_strategy": ["Blacklist active access token key inside Redis cache"]
+    "multi_device_support": "boolean",
+    "session_persistence": ["string — where/how sessions are stored"],
+    "logout_strategy": ["string — how active sessions are invalidated"]
   }},
   "oauth_architecture": {{
-    "enabled": false,
-    "providers": [],
-    "social_login_flows": []
+    "enabled": "boolean",
+    "providers": ["string — OAuth provider names if enabled"],
+    "social_login_flows": ["string — OAuth flow descriptions"]
   }},
   "realtime_authentication": {{
-    "required": false,
-    "websocket_auth_strategy": ["Token validation during query upgrade handshake"],
-    "realtime_permission_checks": []
+    "required": "boolean",
+    "websocket_auth_strategy": ["string — how WebSocket connections are authenticated"],
+    "realtime_permission_checks": ["string — per-message permission checks"]
   }},
   "authentication_middleware_architecture": {{
-    "middlewares": ["FastAPI JWTBearer dependencies handler"],
-    "security_layers": ["CORS policy origin checker"],
-    "request_validation_layers": ["Pydantic payload constraint checkers"]
+    "middlewares": ["string — auth middleware component names"],
+    "security_layers": ["string — security middleware names (CORS, XSS, CSRF)"],
+    "request_validation_layers": ["string — input validation middleware"]
   }},
   "frontend_authentication_flow": {{
-    "auth_pages": ["/login", "/signup"],
-    "auth_states": ["isAuthenticated", "userProfile"],
-    "protected_ui_flows": ["Redirect to /login on fetch returning HTTP 401 status"]
+    "auth_pages": ["string — auth route paths from frontend_architecture"],
+    "auth_states": ["string — frontend state variable names for auth"],
+    "protected_ui_flows": ["string — how unauthorized access is handled in UI"]
   }},
   "security_considerations": {{
-    "password_security_rules": ["Minimum length 8 characters"],
-    "token_security_rules": ["Access token expiry set to 15 minutes"],
-    "authentication_risks": ["Token hijacking via client localstorage if cookies fail"]
+    "password_security_rules": ["string — specific password policy rules"],
+    "token_security_rules": ["string — specific token expiry and signing rules"],
+    "authentication_risks": ["string — known attack vectors and mitigations"]
   }},
   "future_generation_context": {{
-    "important_notes_for_backend_generation": [],
-    "important_notes_for_frontend_generation": [],
-    "important_notes_for_security_agents": []
+    "important_notes_for_backend_generation": ["string — auth implementation guidance"],
+    "important_notes_for_frontend_generation": ["string — auth UI implementation guidance"],
+    "important_notes_for_security_agents": ["string — security hardening guidance"]
   }}
 }}
 """

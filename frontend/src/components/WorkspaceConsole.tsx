@@ -52,6 +52,7 @@ export const WorkspaceConsole: React.FC = () => {
     addMessageToChat,
     editMessageText,
     generateProject,
+    generateDocuments,
     currentCategory,
     setCurrentCategory,
     currentInput,
@@ -78,6 +79,33 @@ export const WorkspaceConsole: React.FC = () => {
   const [aiTyping, setAiTyping] = useState(false);
   const [shakeLock, setShakeLock] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState("");
+
+  // Document Architect states
+  const [workspaceMode, setWorkspaceMode] = useState<"compiler" | "docs">("compiler");
+  const [docProjectName, setDocProjectName] = useState("");
+  const [docPrompt, setDocPrompt] = useState("");
+  const [loadingStep, setLoadingStep] = useState(0);
+
+  const docLoadingSteps = [
+    "Analyzing project scope & objectives...",
+    "Drafting Product Requirement Document (PRD)...",
+    "Formulating Market Requirement Document (MRD)...",
+    "Structuring Technical Design & Architecture (TRD)...",
+    "Writing final schemas & formatting markdown..."
+  ];
+
+  useEffect(() => {
+    let interval: any;
+    if (isGeneratingProject && workspaceMode === "docs") {
+      setLoadingStep(0);
+      interval = setInterval(() => {
+        setLoadingStep((prev) => (prev < 4 ? prev + 1 : prev));
+      }, 3000);
+    } else {
+      setLoadingStep(0);
+    }
+    return () => clearInterval(interval);
+  }, [isGeneratingProject, workspaceMode]);
 
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -155,19 +183,44 @@ export const WorkspaceConsole: React.FC = () => {
     }
   };
 
+  const detectCategory = (text: string): string => {
+    const t = text.toLowerCase();
+    if (/\b(startup|saas|mvp|pitch|business|product|client|customer|revenue|monetize|funding|marketing|b2b|mrr|churn)\b/.test(t)) {
+      return "startup";
+    }
+    if (/\b(finance|budget|money|invest|crypto|stock|wallet|expense|transaction|pay|payment|bank|saving|tax|ledger)\b/.test(t)) {
+      return "finance";
+    }
+    if (/\b(health|wellness|fitness|gym|workout|routine|exercise|breath|meditat|doctor|medical|diet|food|nutrition|sleep|hydrate|water)\b/.test(t)) {
+      return "health";
+    }
+    if (/\b(education|learn|study|quiz|course|school|teach|note|flashcard|memory|repetition|student|class|practice|code)\b/.test(t)) {
+      return "education";
+    }
+    if (/\b(productivity|task|todo|schedule|calendar|timeline|manage|organize|time|focus|work|efficient|habit|standup|sprint)\b/.test(t)) {
+      return "productivity";
+    }
+    if (/\b(sustainability|carbon|eco|green|recycle|nature|emission|climate|environment|waste|energy|solar|farmers|market|conserve)\b/.test(t)) {
+      return "sustainability";
+    }
+    return "other";
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     if (!currentInput.trim()) return;
-    if (!currentCategory) {
-      setValidationError(true);
-      return;
+
+    let targetCategory = currentCategory;
+    if (!targetCategory) {
+      targetCategory = detectCategory(currentInput);
+      setCurrentCategory(targetCategory);
     }
 
     let targetChatId = activeChatId;
     if (!activeChat) {
       const chatTitle = currentInput.length > 25 ? `${currentInput.slice(0, 25)}...` : currentInput;
-      targetChatId = await createNewChat(currentCategory, chatTitle);
+      targetChatId = await createNewChat(targetCategory, chatTitle);
     }
 
     if (targetChatId) {
@@ -322,255 +375,102 @@ export const WorkspaceConsole: React.FC = () => {
 
         {/* 1. Landing Welcome layout */}
         {!activeChat ? (
-          !currentCategory ? (
+          isGeneratingProject && workspaceMode === "docs" ? (
             <div className="flex-1 flex flex-col justify-center items-center p-8 select-none">
-              <div className="max-w-xl text-center space-y-8">
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
-                >
-                  <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-600 border border-indigo-100/40 text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded-full">
-                    <Sparkles className="w-3 h-3" />
-                    Your AI Development Guide
-                  </span>
-                  <h1 className="text-3xl font-bold font-display text-stone-850 mt-3 tracking-tight">
-                    Design & Build Faster with Sarthi
-                  </h1>
-                  <p className="text-xs text-stone-400 mt-2 max-w-sm mx-auto leading-relaxed">
-                    Select a category domain to brainstorm project suggestions and compile complete prototypes.
-                  </p>
-                </motion.div>
-
-                {/* Category Grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  {categories.map((cat, idx) => (
-                    <motion.button
-                      key={cat.id}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.4, delay: 0.06 * idx, ease: "easeOut" }}
-                      whileHover={{ y: -3, scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 20 } }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => handleCategorySelect(cat.id)}
-                      className="relative p-4 text-left rounded-2xl border border-stone-200/50 bg-stone-50/20 text-stone-700 hover:bg-white hover:shadow-md hover:border-stone-200 transition-all cursor-pointer overflow-hidden group"
-                    >
-                      {/* Colored left-border accent on hover */}
-                      <motion.div
-                        className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full"
-                        style={{ backgroundColor: categoryAccents[cat.id] ?? "#6366f1" }}
-                        initial={{ scaleY: 0 }}
-                        whileHover={{ scaleY: 1 }}
-                        transition={{ duration: 0.25 }}
-                      />
-                      <div className="flex items-center gap-2">
-                        <motion.div
-                          className="p-1.5 rounded-lg bg-stone-100 text-stone-500 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors duration-200"
-                          whileHover={{ rotate: [0, -8, 8, 0] }}
-                          transition={{ duration: 0.4 }}
-                        >
-                          <CategoryIcon category={cat.id} className="w-4 h-4" />
-                        </motion.div>
-                        <span className="text-xs font-bold truncate">{cat.label}</span>
-                      </div>
-                      <p className="text-[10px] text-stone-400 mt-2 leading-relaxed truncate">
-                        {cat.desc}
-                      </p>
-                    </motion.button>
-                  ))}
+              <div className="max-w-md w-full text-center space-y-6">
+                <div className="relative w-20 h-20 mx-auto">
+                  <span className="absolute inset-0 rounded-full border-4 border-indigo-100 animate-pulse" />
+                  <span className="absolute inset-0 rounded-full border-4 border-t-indigo-600 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
                 </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-stone-850">Compiling Product Requirements</h3>
+                  <p className="text-xs text-stone-500 font-semibold animate-pulse h-8">
+                    {docLoadingSteps[loadingStep]}
+                  </p>
+                </div>
+                <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-indigo-600 rounded-full"
+                    animate={{ width: `${(loadingStep + 1) * 20}%` }}
+                    transition={{ duration: 0.8, ease: "easeOut" }}
+                  />
+                </div>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-500">
+                  Sarthi documents compiler v1.0
+                </span>
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col p-8 overflow-y-auto max-w-4xl mx-auto w-full select-none justify-center">
-              <div className="w-full space-y-6">
+            <div className="flex-1 flex flex-col justify-center items-center p-8 select-none overflow-y-auto bg-white">
+              <div className="max-w-2xl w-full text-center space-y-8 my-auto">
                 <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.35 }}
-                  className="flex items-center justify-between"
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
+                  className="mx-auto w-16 h-16 relative"
                 >
-                  <div>
-                    <h2 className="text-xl font-bold font-display text-stone-850">
-                      Project Blueprints
-                    </h2>
-                    <p className="text-xs text-stone-400 mt-1">
-                      Choose an idea in <span className="capitalize font-bold text-indigo-600">{currentCategory}</span> to start interactive discussion
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <motion.button
-                      type="button"
-                      onClick={() => fetchSuggestions(currentCategory)}
-                      disabled={isFetchingSuggestions}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.96 }}
-                      className="px-3.5 py-2 border border-indigo-200 bg-indigo-50/50 rounded-xl text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/55 transition-all cursor-pointer shadow-sm flex items-center gap-1"
-                    >
-                      <motion.span
-                        animate={isFetchingSuggestions ? { rotate: 360 } : {}}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      >
-                        <Sparkles className="w-3 h-3" />
-                      </motion.span>
-                      <span>{isFetchingSuggestions ? "Suggesting..." : "Suggest More"}</span>
-                    </motion.button>
-                    <motion.button
-                      type="button"
-                      onClick={() => {
-                        setCurrentCategory("");
-                        clearSuggestions();
-                      }}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.96 }}
-                      className="px-3.5 py-2 border border-stone-200 rounded-xl text-[10px] font-bold text-stone-500 hover:text-stone-800 hover:bg-stone-50 transition-all cursor-pointer shadow-sm"
-                    >
-                      ← Back to Categories
-                    </motion.button>
-                  </div>
+                  <div className="absolute inset-0 rounded-2xl bg-indigo-500/10 animate-ping duration-1000" />
+                  <SarthiLogo className="w-16 h-16 relative z-10" />
                 </motion.div>
 
-                {isFetchingSuggestions ? (
-                  <div className="flex flex-col items-center justify-center p-8 bg-stone-50/10 border border-stone-200/60 rounded-3xl min-h-[380px] max-w-2xl mx-auto w-full space-y-6">
-                    <div className="h-6 bg-stone-200 rounded-md w-1/3 animate-shimmer" />
-                    <div className="h-8 bg-stone-200 rounded-md w-3/4 animate-shimmer" />
-                    <div className="h-4 bg-stone-100 rounded-md w-full animate-shimmer" />
-                    <div className="h-4 bg-stone-100 rounded-md w-5/6 animate-shimmer" />
-                    <div className="w-full pt-6 border-t border-stone-100 flex gap-3">
-                      <div className="h-8 bg-stone-100 rounded-lg w-20 animate-shimmer" />
-                      <div className="h-8 bg-stone-100 rounded-lg w-28 animate-shimmer" />
-                    </div>
-                  </div>
-                ) : suggestions.length > 0 ? (
-                  <div className="flex flex-col items-center justify-center py-4 w-full max-w-4xl mx-auto space-y-6">
-                    <div className="flex items-center gap-4 w-full">
-                      <motion.button
-                        type="button"
-                        onClick={() => {
-                          setDirection(-1);
-                          setCurrentSlideIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                        }}
-                        whileHover={{ scale: 1.08, x: -2 }}
-                        whileTap={{ scale: 0.92 }}
-                        className="p-3 border border-stone-200 rounded-2xl bg-white text-stone-600 hover:text-stone-850 hover:bg-stone-50 hover:border-stone-300 transition-all cursor-pointer flex items-center justify-center shrink-0 shadow-sm"
-                        aria-label="Previous Suggestion"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
-                      </motion.button>
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+                >
+                  <h1 className="text-3xl font-extrabold font-display text-stone-850 tracking-tight">
+                    Sarthi AI Workspace
+                  </h1>
+                  <p className="text-xs text-stone-450 mt-2 max-w-md mx-auto leading-relaxed font-semibold">
+                    Ask questions, discuss custom features, and build Flask prototypes directly. Sarthi will compile PRD/MRD/TRD documents and full codebases.
+                  </p>
+                </motion.div>
 
-                      <div className="flex-1 relative min-h-[420px] flex items-center justify-center overflow-hidden">
-                        <AnimatePresence initial={false} custom={direction} mode="wait">
-                          <motion.div
-                            key={currentSlideIndex}
-                            custom={direction}
-                            variants={slideVariants}
-                            initial="enter"
-                            animate="center"
-                            exit="exit"
-                            className="w-full bg-white border border-stone-200/80 rounded-3xl p-8 shadow-sm flex flex-col justify-between h-full min-h-[420px]"
-                          >
-                            <div className="space-y-5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50/60 px-3 py-1.5 rounded-md">
-                                  Blueprint {currentSlideIndex + 1} of {suggestions.length}
-                                </span>
-                                <span className="text-xs text-stone-455 capitalize font-semibold bg-stone-50 border border-stone-100 px-2.5 py-1 rounded-md">
-                                  Category: {currentCategory}
-                                </span>
-                              </div>
-
-                              <h3 className="text-2xl font-extrabold text-stone-850 font-display leading-tight tracking-tight">
-                                {suggestions[currentSlideIndex].name}
-                              </h3>
-
-                              <p className="text-base text-stone-600 leading-relaxed font-normal">
-                                {suggestions[currentSlideIndex].idea}
-                              </p>
-
-                              <div className="pt-5 border-t border-stone-100 space-y-4">
-                                <div>
-                                  <span className="text-xs font-bold uppercase tracking-wider text-stone-450 block mb-2.5">Key Features</span>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    {suggestions[currentSlideIndex].features.map((feat, fidx) => (
-                                      <motion.div
-                                        key={fidx}
-                                        initial={{ opacity: 0, x: -8 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: fidx * 0.06, duration: 0.3 }}
-                                        className="flex items-center gap-2"
-                                      >
-                                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
-                                        <span className="text-sm font-semibold text-stone-800 leading-relaxed">{feat}</span>
-                                      </motion.div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="pt-2">
-                                  <span className="text-xs font-bold uppercase tracking-wider text-stone-450 block mb-2">Suggested Tech Stack</span>
-                                  <div className="text-sm font-mono font-semibold text-indigo-655 bg-indigo-50/30 border border-indigo-100/40 px-3.5 py-2 rounded-xl inline-block">
-                                    {suggestions[currentSlideIndex].tech_stack}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="mt-8 pt-5 border-t border-stone-100 flex items-center justify-end">
-                              <motion.button
-                                type="button"
-                                onClick={() => handleSelectSuggestion(suggestions[currentSlideIndex])}
-                                whileHover={{ scale: 1.03, boxShadow: "0 8px 24px -4px rgba(99,102,241,0.35)" }}
-                                whileTap={{ scale: 0.97 }}
-                                className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-100 transition-all cursor-pointer flex items-center gap-2"
-                              >
-                                <span>Select & Start Discussion</span>
-                                <span className="text-base">→</span>
-                              </motion.button>
-                            </div>
-                          </motion.div>
-                        </AnimatePresence>
-                      </div>
-
-                      <motion.button
-                        type="button"
-                        onClick={() => {
-                          setDirection(1);
-                          setCurrentSlideIndex((prev) => (prev + 1) % suggestions.length);
-                        }}
-                        whileHover={{ scale: 1.08, x: 2 }}
-                        whileTap={{ scale: 0.92 }}
-                        className="p-3 border border-stone-200 rounded-2xl bg-white text-stone-600 hover:text-stone-855 hover:bg-stone-50 hover:border-stone-300 transition-all cursor-pointer flex items-center justify-center shrink-0 shadow-sm"
-                        aria-label="Next Suggestion"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </motion.button>
-                    </div>
-
-                    {/* Dot indicators */}
-                    <div className="flex items-center gap-2.5 select-none">
-                      {suggestions.map((_, idx) => {
-                        const isActive = idx === currentSlideIndex;
-                        return (
-                          <motion.button
-                            key={idx}
-                            type="button"
-                            onClick={() => {
-                              setDirection(idx > currentSlideIndex ? 1 : -1);
-                              setCurrentSlideIndex(idx);
-                            }}
-                            animate={isActive ? { width: 28 } : { width: 10 }}
-                            transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                            className={`h-2.5 rounded-full transition-colors duration-300 cursor-pointer ${isActive ? "bg-indigo-600" : "bg-stone-200 hover:bg-stone-350"
-                              }`}
-                            aria-label={`Go to slide ${idx + 1}`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center text-stone-400 text-xs py-8">No suggestions found</div>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-w-xl mx-auto pt-2">
+                  {[
+                    {
+                      title: "Personal Finance Tracker",
+                      desc: "Build a modular finance dashboard tracking budgets and expenses.",
+                      prompt: "Build a modular personal finance dashboard that tracks monthly budgets, categorizes expenses, charts spending trends, and alerts the user when they exceed limits."
+                    },
+                    {
+                      title: "Wellness Companion",
+                      desc: "Design a productivity tool for logging habits and managing routines.",
+                      prompt: "Create a wellness companion application for tracking daily habits, logging hydration, mapping sleep efficiency, and suggesting routine steps."
+                    },
+                    {
+                      title: "Learning Subject Mapper",
+                      desc: "Develop an educational subject mapper with study milestones.",
+                      prompt: "Develop an educational subject mapper that structures subjects into interactive learning trees, tracks progress checkmarks, and outlines study goals."
+                    },
+                    {
+                      title: "Sustainability Logger",
+                      desc: "Create a utility logger monitoring power use and energy scores.",
+                      prompt: "Create a sustainability utility logger that monitors household appliance power consumption, charts daily usage history, and suggests carbon-reducing steps."
+                    }
+                  ].map((item, idx) => (
+                    <motion.button
+                      key={idx}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: 0.15 + idx * 0.05 }}
+                      whileHover={{ y: -2, scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                      type="button"
+                      onClick={() => {
+                        setCurrentInput(item.prompt);
+                        const inputEl = document.getElementById("chat-input-bar");
+                        if (inputEl) {
+                          inputEl.focus();
+                        }
+                      }}
+                      className="p-4 text-left bg-stone-50 border border-stone-200/50 rounded-2xl hover:bg-white hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <span className="text-xs font-bold text-indigo-650 mb-1">{item.title}</span>
+                      <span className="text-[10px] text-stone-500 font-semibold leading-relaxed">{item.desc}</span>
+                    </motion.button>
+                  ))}
+                </div>
               </div>
             </div>
           )
@@ -579,6 +479,19 @@ export const WorkspaceConsole: React.FC = () => {
           <div className="flex-1 p-6 space-y-6 overflow-y-auto bg-white">
             {activeChat.messages.map((m, idx) => {
               const isUser = m.sender === "user";
+              const blueprintMatch = m.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
+              let blueprintData = null;
+              if (blueprintMatch) {
+                try {
+                  blueprintData = JSON.parse(blueprintMatch[1].trim());
+                } catch (e) {
+                  console.error("Failed to parse blueprint in chat bubble", e);
+                }
+              }
+              const cleanedText = m.text.replace(/<blueprint>[\s\S]*?<\/blueprint>/g, "").trim();
+              
+              if (!cleanedText && !blueprintData && !isUser) return null; // FIX: Prevent empty AI bubbles
+
               return (
                 <motion.div
                   key={m.id}
@@ -601,7 +514,7 @@ export const WorkspaceConsole: React.FC = () => {
                       className={`p-3.5 rounded-2xl text-xs leading-relaxed select-text ${editingMessageId === m.id ? "w-full" : ""
                         } ${isUser
                           ? "bg-indigo-600 text-white rounded-tr-none"
-                          : "bg-stone-50 text-stone-700 border border-stone-200/60 rounded-tl-none"
+                          : "bg-stone-50 text-stone-800 border border-stone-200/60 rounded-tl-none"
                         }`}
                     >
                       {editingMessageId === m.id ? (
@@ -642,8 +555,42 @@ export const WorkspaceConsole: React.FC = () => {
                             </button>
                           </div>
                         </div>
+                      ) : isUser ? (
+                        <div className="whitespace-pre-line text-white font-semibold break-words leading-relaxed select-text">{cleanedText}</div>
                       ) : (
-                        <MarkdownRenderer text={m.text} />
+                        <div className="space-y-2">
+                          {cleanedText && <MarkdownRenderer text={cleanedText} />}
+                          {blueprintData && (
+                            <div className="mt-2 p-3.5 bg-white border border-indigo-100/80 rounded-xl shadow-[0_2px_10px_-4px_rgba(79,70,229,0.1)] hover:shadow-md hover:border-indigo-200 transition-all">
+                              <div className="flex items-center justify-between mb-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-4 h-4 rounded bg-indigo-50 flex items-center justify-center text-[9px] text-indigo-600 font-bold border border-indigo-100">B</span>
+                                  <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Suggested Blueprint</h4>
+                                </div>
+                                <button 
+                                  onClick={() => setShowRightPane(true)}
+                                  className="text-[9px] bg-indigo-600 text-white px-2 py-1 rounded shadow-sm font-bold hover:bg-indigo-700 transition-colors"
+                                >
+                                  Customize & Edit
+                                </button>
+                              </div>
+                              <p className="text-xs font-bold text-stone-850 leading-tight">{blueprintData.name}</p>
+                              <p className="text-[10px] text-stone-500 mt-1 leading-relaxed line-clamp-2">{blueprintData.idea}</p>
+                              {blueprintData.features && Array.isArray(blueprintData.features) && (
+                                <div className="mt-3 flex flex-wrap gap-1.5">
+                                  {blueprintData.features.slice(0, 3).map((f: string, i: number) => (
+                                    <span key={i} className="px-2 py-1 bg-stone-50 text-stone-600 border border-stone-200/60 rounded-md text-[9px] font-medium leading-none">{f}</span>
+                                  ))}
+                                  {blueprintData.features.length > 3 && (
+                                    <span className="px-2 py-1 bg-stone-50 text-stone-600 border border-stone-200/60 rounded-md text-[9px] font-medium leading-none">
+                                      +{blueprintData.features.length - 3} more
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -652,7 +599,7 @@ export const WorkspaceConsole: React.FC = () => {
                       <span className="text-stone-300 text-[8px] select-none">•</span>
                       <button
                         type="button"
-                        onClick={() => handleCopyMessage(m.id, m.text)}
+                        onClick={() => handleCopyMessage(m.id, cleanedText)}
                         className="text-[9px] text-stone-400 hover:text-stone-700 hover:underline transition-colors font-medium cursor-pointer"
                       >
                         {copiedMessageId === m.id ? "Copied!" : "Copy"}
@@ -662,7 +609,7 @@ export const WorkspaceConsole: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setEditingMessageId(m.id);
-                          setEditingText(m.text);
+                          setEditingText(cleanedText);
                         }}
                         className="text-[9px] text-stone-400 hover:text-stone-700 hover:underline transition-colors font-medium cursor-pointer"
                       >
@@ -682,10 +629,10 @@ export const WorkspaceConsole: React.FC = () => {
                 className="flex gap-3 max-w-xl"
               >
                 <SarthiLogo className="w-7 h-7 shrink-0" />
-                <div className="bg-stone-50 text-stone-600 border border-stone-200/60 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2 shrink-0">
+                <div className="bg-stone-50 text-stone-600 border border-stone-200/60 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-2 shrink-0 shadow-sm">
                   <AiTypingWave />
-                  <span className="text-[10px] text-stone-400 font-medium ml-1">Sarthi is thinking</span>
-                  <span className="animate-cursor-blink text-stone-400 text-xs">|</span>
+                  <span className="text-[10px] text-stone-500 font-medium ml-1 animate-pulse">Sarthi is thinking...</span>
+                  <span className="animate-cursor-blink text-indigo-500 text-xs font-bold">|</span>
                 </div>
               </motion.div>
             )}
@@ -698,105 +645,18 @@ export const WorkspaceConsole: React.FC = () => {
       {/* Input Area Console */}
       <footer className="p-4 border-t border-stone-200/60 bg-white/40 backdrop-blur-md shrink-0 relative select-none transition-colors duration-300">
         <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center gap-3">
-          {/* Category Dropdown Selector */}
-          <div className="relative shrink-0">
-            <motion.button
-              type="button"
-              onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all ${validationError
-                ? "border-rose-400 bg-rose-50 text-rose-700 animate-lock-shake"
-                : currentCategory
-                  ? "border-indigo-100 bg-indigo-50/50 text-indigo-700"
-                  : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-500"
-                }`}
-            >
-              {currentCategory ? (
-                <>
-                  <CategoryIcon category={currentCategory} className="w-3.5 h-3.5" />
-                  <span className="capitalize">{currentCategory}</span>
-                </>
-              ) : (
-                <span>Choose Category</span>
-              )}
-              <motion.span animate={{ rotate: showCategoryDropdown ? 180 : 0 }} transition={{ duration: 0.25 }}>
-                <ChevronDown className="w-3.5 h-3.5" />
-              </motion.span>
-            </motion.button>
-
-            {validationError && (
-              <motion.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-stone-900 text-white rounded-lg text-[10px] leading-relaxed flex items-start gap-1.5 shadow-md z-30"
-              >
-                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-                <span>You must select a category domain to message Sarthi!</span>
-              </motion.div>
-            )}
-
-            <AnimatePresence>
-              {showCategoryDropdown && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="absolute bottom-full left-0 mb-2 w-56 bg-white border border-stone-200/80 rounded-2xl p-2 shadow-xl z-30"
-                >
-                  {categories.map((c, i) => (
-                    <motion.button
-                      key={c.id}
-                      type="button"
-                      onClick={() => handleCategorySelect(c.id)}
-                      initial={{ opacity: 0, x: -6 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-stone-50 transition-colors ${currentCategory === c.id ? "bg-indigo-50/50 text-indigo-700" : "text-stone-600"
-                        }`}
-                    >
-                      <div className="p-1 rounded bg-stone-100 text-stone-500">
-                        <CategoryIcon category={c.id} className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-xs font-semibold capitalize">{c.id}</span>
-                    </motion.button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Suggest More Button near input box */}
-          {!activeChat && currentCategory && (
-            <motion.button
-              type="button"
-              onClick={() => fetchSuggestions(currentCategory)}
-              disabled={isFetchingSuggestions}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.96 }}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-indigo-200 bg-indigo-50/50 text-indigo-600 hover:bg-indigo-100/50 hover:text-indigo-700 disabled:opacity-50 transition-all cursor-pointer shrink-0 shadow-sm"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{isFetchingSuggestions ? "Suggesting..." : "Suggest More"}</span>
-            </motion.button>
-          )}
-
           {/* Text Input with focus glow */}
           <div className="flex-1 relative">
             <input
+              id="chat-input-bar"
               type="text"
-              placeholder={
-                currentCategory
-                  ? `Discuss your ${currentCategory} project milestones...`
-                  : "Select a category first to launch Sarthi..."
-              }
+              placeholder="Share your project idea here (features, tech stack, or vision)..."
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               disabled={aiTyping}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-455 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300"
+              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300"
             />
             {/* Focus glow ring */}
             <AnimatePresence>

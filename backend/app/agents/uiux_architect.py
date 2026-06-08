@@ -52,11 +52,31 @@ class UIUXArchitectAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design the UI/UX styling architecture, visual workflows, accessibility rules, theme tokens, typography, motion, and responsive behavior."
+            (
+                "## Role\n"
+                "You are a senior UI/UX design system architect. Create a complete visual design system: color palette, typography, spacing, component styling, animations, accessibility rules, and Tailwind/shadcn configuration — all derived from the project's theme preference.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: read the theme from requirements.theme.design_style → derive a cohesive color palette (primary, secondary, accent, status colors as hex values) → define typography (font families, heading/body styles) → design component styling rules → set responsive breakpoints → define motion/animation patterns → ensure WCAG AA accessibility.\n"
+                "2. color_palette must use valid hex color codes (e.g. '#10b981'), NOT color names.\n"
+                "3. component_styling_system must cover at minimum: Button, Input, CardPanel. Each with TailwindCSS utility classes.\n"
+                "4. All styling rules must be valid TailwindCSS class strings.\n"
+                "5. visual_workflows must correspond to frontend_architecture.frontend_workflows — same workflow names, but describing the visual/animation aspects.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- Color values must be 6-digit hex codes (e.g. '#10b981'), not CSS names or RGB.\n"
+                "- Font families must be real Google Font or system font names.\n"
+                "- accessibility_system.contrast_rules must reference WCAG AA (4.5:1 minimum for text)."
+            )
         )
 
         user_content = f"""
-Analyze the following inputs:
+Design the complete UI/UX design system for this project. Think step by step:
+1. Read the theme from requirements.theme.design_style and derive a matching color palette (3 primary, 3 secondary, 2 accent, 2 background, 3 text, 4 status colors — all as hex codes).
+2. Select font families that match the theme mood (e.g. geometric sans-serif for modern, rounded for friendly).
+3. Define component styling for at minimum: Button, Input, CardPanel — each with TailwindCSS utility classes and interactive states (hover, focus, active, disabled).
+4. Create visual_workflows that match frontend_architecture.frontend_workflows by the same workflow_name but describe the animation/visual behavior.
+5. Ensure all contrast ratios meet WCAG AA (4.5:1 minimum for normal text).
+
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 Database Architecture: {json.dumps(db_architecture, indent=2)}
@@ -64,92 +84,89 @@ Backend Architecture: {json.dumps(backend_architecture, indent=2)}
 API Architecture: {json.dumps(api_architecture, indent=2)}
 Frontend Architecture: {json.dumps(frontend_architecture, indent=2)}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "design_system": {{
-    "design_style": "e.g. Minimal Emerald / Slate Soft Glow",
-    "ui_philosophy": "e.g. Calming wellness-focused UI with spacious typography and smooth state fades.",
-    "theme_strategy": "e.g. TailwindCSS custom palette config mapping semantic color names.",
-    "component_styling_approach": "e.g. shadcn/ui primitive configuration with custom micro-shadow utilities."
+    "design_style": "string — theme name, e.g. 'Minimal Emerald', 'Slate Soft Glow'",
+    "ui_philosophy": "string — 1 sentence describing the visual personality",
+    "theme_strategy": "string — how the theme is implemented (e.g. 'TailwindCSS custom palette')",
+    "component_styling_approach": "string — component library strategy (e.g. 'shadcn/ui with custom tokens')"
   }},
   "color_palette": {{
-    "primary_colors": ["#10b981", "#059669", "#047857"],
-    "secondary_colors": ["#f0fdf4", "#d1fae5", "#a7f3d0"],
-    "accent_colors": ["#3b82f6", "#60a5fa"],
-    "background_colors": ["#fafafa", "#ffffff"],
-    "text_colors": ["#0f172a", "#334155", "#64748b"],
+    "primary_colors": ["string — 3 hex codes, darkest to lightest, e.g. '#047857', '#059669', '#10b981'"],
+    "secondary_colors": ["string — 3 hex codes for backgrounds/surfaces"],
+    "accent_colors": ["string — 2 hex codes for highlights/CTAs"],
+    "background_colors": ["string — 2 hex codes for page/card backgrounds"],
+    "text_colors": ["string — 3 hex codes: heading, body, muted"],
     "status_colors": {{
-      "success": "#10b981",
-      "warning": "#f59e0b",
-      "error": "#ef4444",
-      "info": "#3b82f6"
+      "success": "string — hex code",
+      "warning": "string — hex code",
+      "error": "string — hex code",
+      "info": "string — hex code"
     }}
   }},
   "typography_system": {{
-    "font_families": ["Outfit", "Inter", "ui-sans-serif"],
-    "heading_styles": ["font-display text-slate-900 tracking-tight font-bold"],
-    "body_styles": ["font-sans text-slate-600 antialiased"],
-    "responsive_typography": true
+    "font_families": ["string — real Google Font or system font names"],
+    "heading_styles": ["string — TailwindCSS heading class combinations"],
+    "body_styles": ["string — TailwindCSS body text class combinations"],
+    "responsive_typography": "boolean"
   }},
   "spacing_layout_system": {{
-    "spacing_scale": ["0.25rem", "0.5rem", "1rem", "1.5rem", "2rem", "3rem"],
-    "container_rules": ["max-w-4xl mx-auto px-4 sm:px-6 lg:px-8"],
-    "grid_strategy": "12-column responsive flexbox layouts with gap-6 spacing",
-    "layout_consistency_rules": ["Align headers to central viewport grids", "Inject uniform cards border-radius tokens"]
+    "spacing_scale": ["string — rem values in ascending order"],
+    "container_rules": ["string — TailwindCSS container utility classes"],
+    "grid_strategy": "string — grid system description",
+    "layout_consistency_rules": ["string — visual consistency rules"]
   }},
   "component_styling_system": [
     {{
-      "component_type": "Button",
-      "styling_rules": ["px-4 py-2 rounded-xl transition-all select-none hover:scale-[1.01]"],
-      "interactive_states": ["hover:shadow-sm", "focus:ring-2 focus:ring-emerald-500", "active:scale-[0.99]"]
+      "component_type": "string — component name: Button, Input, CardPanel, etc.",
+      "styling_rules": ["string — TailwindCSS base utility classes"],
+      "interactive_states": ["string — TailwindCSS hover:/focus:/active:/disabled: variants"]
     }}
   ],
   "responsive_design_system": {{
-    "mobile_strategy": "Fluid single column container grids with bottom bar navigations.",
-    "tablet_strategy": "Flexible dual sidebar triggers.",
-    "desktop_strategy": "Side-by-side dashboard viewports.",
-    "breakpoints": ["sm: 640px", "md: 768px", "lg: 1024px"]
+    "mobile_strategy": "string — mobile layout approach",
+    "tablet_strategy": "string — tablet layout approach",
+    "desktop_strategy": "string — desktop layout approach",
+    "breakpoints": ["string — TailwindCSS breakpoint definitions"]
   }},
   "animation_motion_system": {{
-    "animation_style": "Framer Motion spring animations",
-    "transition_rules": ["duration: 0.3s, ease: easeInOut"],
-    "interactive_animations": ["pulse_expand", "slide_up"],
-    "motion_principles": ["Avoid sudden layout shifts", "Align scaling limits to a maximum of 5% increment"]
+    "animation_style": "string — animation library/approach",
+    "transition_rules": ["string — timing/easing specifications"],
+    "interactive_animations": ["string — named animation patterns"],
+    "motion_principles": ["string — UX motion design rules"]
   }},
   "theme_modes": {{
-    "dark_mode_supported": false,
-    "light_mode_supported": true,
-    "theme_switching_strategy": ["Read media settings preference on mount"]
+    "dark_mode_supported": "boolean",
+    "light_mode_supported": "boolean",
+    "theme_switching_strategy": ["string — how theme mode is detected/toggled"]
   }},
   "dashboard_styling": {{
-    "dashboard_theme": "Dashboard styling preference name",
-    "widget_styles": ["border border-slate-100 shadow-sm p-6 rounded-2xl bg-white"],
-    "analytics_ui_patterns": ["SummaryStatCardsGrid", "TrendChartTimelineWrapper"]
+    "dashboard_theme": "string — dashboard visual style name",
+    "widget_styles": ["string — TailwindCSS classes for dashboard widgets"],
+    "analytics_ui_patterns": ["string — chart/metric component pattern names"]
   }},
   "accessibility_system": {{
-    "contrast_rules": ["Contrast ratio target minimum 4.5:1"],
-    "keyboard_navigation_support": true,
-    "accessibility_features": ["Aria attributes for custom UI controls", "Screen-reader friendly text logs"]
+    "contrast_rules": ["string — WCAG compliance requirements"],
+    "keyboard_navigation_support": "boolean",
+    "accessibility_features": ["string — ARIA, screen reader, focus management features"]
   }},
   "tailwind_shadcn_architecture": {{
-    "tailwind_strategy": ["Extend themes inside tailwind.config.js"],
-    "shadcn_components": ["Button", "Dialog", "Card", "Progress"],
-    "utility_patterns": ["glassmorphic_card_bg", "soothing_green_gradient"]
+    "tailwind_strategy": ["string — tailwind.config.js customization steps"],
+    "shadcn_components": ["string — shadcn/ui component names to configure"],
+    "utility_patterns": ["string — custom utility class pattern names"]
   }},
   "visual_workflows": [
     {{
-      "workflow_name": "Submit log entry",
-      "visual_flow": [
-        "Open Form Dialog with slight spring transition.",
-        "Fade out form and pop green checklist checkmark on success."
-      ]
+      "workflow_name": "string — MUST match a frontend_architecture.frontend_workflows[].workflow_name",
+      "visual_flow": ["string — ordered animation/visual steps for this workflow"]
     }}
   ],
   "future_generation_context": {{
-    "important_notes_for_ui_generation": [],
-    "important_notes_for_component_generation": [],
-    "important_notes_for_frontend_code_generation": []
+    "important_notes_for_ui_generation": ["string — color/theme application guidance"],
+    "important_notes_for_component_generation": ["string — component styling guidance"],
+    "important_notes_for_frontend_code_generation": ["string — font/asset import guidance"]
   }}
 }}
 """

@@ -38,54 +38,74 @@ class RequirementAnalyzerAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Analyze a confirmed software project blueprint and extract structured technical requirements for every downstream architecture agent."
+            (
+                "## Role\n"
+                "You are a senior technical requirements analyst. Your job is to decompose a project blueprint into precise, actionable technical requirements that downstream architecture agents can consume without ambiguity.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: first identify the project type and complexity, then infer the optimal tech stack, then enumerate features, modules, and integrations.\n"
+                "2. Infer missing details pragmatically — choose sensible defaults for a hackathon MVP.\n"
+                "3. Classify complexity as 'Low', 'Medium', or 'High' based on feature count, integrations, and auth needs.\n"
+                "4. Populate every field — use empty arrays [] only when genuinely not applicable, never omit keys.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary, no extra keys.\n"
+                "- tech_stack arrays must contain specific library/framework names, not categories.\n"
+                "- features must be snake_case identifiers (max 30 chars each).\n"
+                "- core_modules must be PascalCase module names.\n"
+                "- project_workflow_summary must be 3-6 user-facing workflow sentences."
+            )
         )
 
         user_content = f"""
-Analyze the following project blueprint and theme:
+Analyze the following project blueprint and design theme. Think step by step:
+1. Identify the project domain, type, and complexity level.
+2. Select specific technologies for each tech_stack category based on the blueprint.
+3. Extract features as snake_case identifiers and core_modules as PascalCase names.
+4. Determine authentication and database needs from the feature set.
+5. Produce actionable recommendations for the downstream architecture agents.
+
 Blueprint: {json.dumps(blueprint, indent=2)}
 Theme: {theme or 'Slate Minimal'}
 
-Return ONLY valid JSON in this format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "project_overview": {{
-    "name": "Project Name",
-    "type": "Project Type",
-    "description": "Short Description",
-    "complexity": "Complexity Level"
+    "name": "string — project name from blueprint",
+    "type": "string — e.g. 'Fintech SaaS', 'E-commerce Platform', 'Social Network'",
+    "description": "string — 1-2 sentence summary of the project purpose",
+    "complexity": "string — one of: 'Low', 'Medium', 'High'"
   }},
   "tech_stack": {{
-    "frontend": [],
-    "backend": [],
-    "database": [],
-    "ai_tools": [],
-    "deployment": []
+    "frontend": ["specific framework/library names, e.g. 'React', 'Tailwind CSS'"],
+    "backend": ["specific framework names, e.g. 'FastAPI', 'Python'"],
+    "database": ["specific DB names, e.g. 'PostgreSQL', 'Redis'"],
+    "ai_tools": ["AI/ML libraries if needed, e.g. 'Scikit-learn', 'LangChain'"],
+    "deployment": ["deployment tools, e.g. 'Docker', 'Vercel'"]
   }},
   "theme": {{
-    "design_style": "Theme Style",
-    "ui_type": "UI Type",
-    "special_effects": []
+    "design_style": "string — the selected visual theme name",
+    "ui_type": "string — e.g. 'Dashboard', 'Landing Page', 'Admin Panel'",
+    "special_effects": ["string — CSS/animation effects, e.g. 'Smooth transitions'"]
   }},
-  "features": [],
-  "core_modules": [],
+  "features": ["snake_case feature identifiers, max 30 chars each"],
+  "core_modules": ["PascalCase module names, e.g. 'Authentication', 'UserManagement'"],
   "authentication": {{
-    "required": false,
-    "type": ""
+    "required": "boolean",
+    "type": "string — e.g. 'JWT Session Auth', 'OAuth2', '' if not required"
   }},
   "database_requirements": {{
-    "required": false,
-    "entities": [],
-    "storage_type": ""
+    "required": "boolean",
+    "entities": ["entity names derived from features, e.g. 'User', 'Order'"],
+    "storage_type": "string — 'Relational', 'Document', 'Key-Value', or ''"
   }},
-  "api_integrations": [],
+  "api_integrations": ["external API/service names needed"],
   "scalability": {{
-    "realtime_features": false,
-    "high_scalability_needed": false,
-    "microservices_ready": false
+    "realtime_features": "boolean — true if WebSocket/SSE needed",
+    "high_scalability_needed": "boolean",
+    "microservices_ready": "boolean"
   }},
-  "project_workflow_summary": [],
-  "recommendations": []
+  "project_workflow_summary": ["3-6 sentences describing the end-to-end user journey"],
+  "recommendations": ["2-4 actionable technical recommendations for downstream agents"]
 }}
 """
 
@@ -110,35 +130,11 @@ Return ONLY valid JSON in this format:
         features = blueprint.get("features", [])
         tech_stack = blueprint.get("tech_stack", "")
 
-        frontend = []
-        backend = []
-        database = []
+        frontend = ["HTML", "CSS", "Tailwind CSS"]
+        backend = ["Flask", "Python"]
+        database = ["SQLite"]
         ai_tools = []
-        
-        tech_stack_lower = tech_stack.lower()
-        if "react" in tech_stack_lower:
-            frontend.append("React")
-        if "tailwind" in tech_stack_lower:
-            frontend.append("Tailwind CSS")
-        if "node" in tech_stack_lower:
-            backend.append("Node.js")
-        if "express" in tech_stack_lower:
-            backend.append("Express")
-        if "postgresql" in tech_stack_lower:
-            database.append("PostgreSQL")
-            db_req = {"required": True, "entities": ["User", "Portfolio", "Asset", "Transaction"], "storage_type": "Relational"}
-        elif "mongodb" in tech_stack_lower:
-            database.append("MongoDB")
-            db_req = {"required": True, "entities": ["User", "Portfolio", "Asset", "Transaction"], "storage_type": "NoSQL"}
-        else:
-            db_req = {"required": False, "entities": [], "storage_type": ""}
-            
-        if "python" in tech_stack_lower:
-            backend.append("Python")
-        if "scikit-learn" in tech_stack_lower:
-            ai_tools.append("Scikit-learn")
-        if "nvidia" in tech_stack_lower or "nim" in tech_stack_lower:
-            ai_tools.append("Nvidia NIM")
+        db_req = {"required": True, "entities": ["User", "Item"], "storage_type": "Relational"}
 
         feature_identifiers = []
         for f in features:

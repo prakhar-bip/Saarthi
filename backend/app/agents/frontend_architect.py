@@ -50,101 +50,122 @@ class FrontendArchitectureAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design frontend routes, pages, layout hierarchy, component contracts, data flow, state boundaries, and API integrations."
+            (
+                "## Role\n"
+                "You are a senior frontend architect. Design the complete client-side application structure: pages, layouts, component hierarchy, routing, state management, API integration layer, and responsive strategy.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: choose framework from tech_stack → derive pages from api_architecture.endpoints (one dashboard/list page per entity + auth pages) → design layouts (auth layout, dashboard layout) → build component hierarchy → map state stores → connect API endpoints.\n"
+                "2. Every page must reference its related API endpoints from api_architecture and its data entity from db_architecture.\n"
+                "3. Component hierarchy must follow atomic design: atoms (Button, Input) → molecules (FormField, StatCard) → organisms (DataTable, Sidebar) → templates (layouts) → pages.\n"
+                "4. State management must distinguish: global states (auth, theme), entity cache states (per-entity lists), and local states (form errors, modals).\n"
+                "5. authentication_ui_flow must align with api_architecture auth endpoints and backend_architecture.authentication_backend_flow.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- Page names must be PascalCase. Route paths must be lowercase with slashes.\n"
+                "- All entity names must exactly match db_architecture.entities[].entity_name.\n"
+                "- The pages and routing_structure are the primary contract for UIUXArchitectAgent — accuracy is critical."
+            )
         )
 
         user_content = f"""
-Analyze the following inputs:
+Design the frontend architecture for this project. Think step by step:
+1. Choose framework and rendering strategy from requirements.tech_stack.frontend.
+2. Derive pages: create auth pages (Login, Signup) if auth is required, then one list/dashboard page per entity in db_architecture.entities, plus a landing page.
+3. Design layouts: AuthLayout (centered card) for auth pages, DashboardLayout (sidebar + header) for protected pages.
+4. Build component hierarchy per page — list components that each page renders.
+5. Map state stores: one global auth store, one cache store per entity, local states for form/modal visibility.
+6. Connect each page to its corresponding api_architecture.endpoints.
+
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 Database Architecture: {json.dumps(db_architecture, indent=2)}
 Backend Architecture: {json.dumps(backend_architecture, indent=2)}
 API Architecture: {json.dumps(api_architecture, indent=2)}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "frontend_strategy": {{
-    "architecture_style": "SPA / Monolithic / JAMstack",
-    "frontend_framework": "React / Next.js / Vite",
-    "rendering_strategy": "Client-side rendering (CSR) / Server-side rendering (SSR)",
-    "state_management_strategy": "Global Store / React Context Hooks"
+    "architecture_style": "string — 'SPA', 'MPA', or 'JAMstack'",
+    "frontend_framework": "string — exact framework, e.g. 'React (Vite)', 'Next.js'",
+    "rendering_strategy": "string — 'CSR', 'SSR', or 'ISR'",
+    "state_management_strategy": "string — e.g. 'Zustand stores + React Query caching'"
   }},
   "frontend_structure": {{
-    "root_modules": ["src/app", "src/components"],
-    "feature_modules": ["auth", "dashboard"],
-    "shared_components": ["Button", "Input", "Card"],
-    "core_directories": ["src/components/ui", "src/hooks"]
+    "root_modules": ["string — top-level directories like 'src/app', 'src/components'"],
+    "feature_modules": ["string — feature area names, lowercase"],
+    "shared_components": ["string — reusable UI component names (PascalCase)"],
+    "core_directories": ["string — forward-slash paths like 'src/components/ui'"]
   }},
   "pages": [
     {{
-      "page_name": "Dashboard",
-      "purpose": "Renders user metric overview and charts.",
-      "protected": true,
-      "related_modules": ["analytics", "charts"]
+      "page_name": "string — PascalCase page name, e.g. 'UserDashboard'",
+      "purpose": "string — what this page shows/does",
+      "protected": "boolean — requires authentication?",
+      "related_modules": ["string — feature modules this page uses"]
     }}
   ],
   "layouts": [
     {{
-      "layout_name": "DashboardLayout",
-      "used_for": ["/dashboard", "/settings"],
-      "components": ["Sidebar", "Header"]
+      "layout_name": "string — PascalCase, e.g. 'DashboardLayout'",
+      "used_for": ["string — route paths using this layout"],
+      "components": ["string — layout shell components like 'Sidebar', 'Header'"]
     }}
   ],
   "component_hierarchy": [
     {{
-      "component_name": "MetricsGrid",
-      "type": "Layout Component",
-      "children": ["StatCard"],
-      "reusable": true
+      "component_name": "string — PascalCase component name",
+      "type": "string — 'Page Section', 'Data Display', 'Form', 'Navigation', 'Layout'",
+      "children": ["string — child component names"],
+      "reusable": "boolean"
     }}
   ],
   "routing_structure": {{
-    "routing_style": "File-based App Router",
-    "route_groups": ["auth", "dashboard"],
-    "protected_routes": ["/dashboard", "/profile"]
+    "routing_style": "string — e.g. 'React Router DOM', 'Next.js App Router'",
+    "route_groups": ["string — route group names"],
+    "protected_routes": ["string — route paths requiring auth"]
   }},
   "state_management_architecture": {{
-    "global_states": ["auth_session", "theme_preference"],
-    "local_states": ["active_tabs_index", "form_errors"],
-    "realtime_states": ["ws_connection_status", "inbox_notifications"]
+    "global_states": ["string — snake_case global state names"],
+    "local_states": ["string — component-scoped state names"],
+    "realtime_states": ["string — WebSocket-driven state names"]
   }},
   "api_integrations": {{
-    "connected_api_groups": ["Auth API", "Metrics API"],
-    "high_frequency_routes": ["GET /api/v1/notifications"],
-    "realtime_integrations": ["Websocket alerts push"]
+    "connected_api_groups": ["string — API group names from api_architecture"],
+    "high_frequency_routes": ["string — METHOD /path for frequently polled routes"],
+    "realtime_integrations": ["string — WebSocket integration descriptions"]
   }},
   "authentication_ui_flow": {{
-    "auth_pages": ["/login", "/register"],
-    "protected_ui_modules": ["DashboardPanel"],
-    "session_handling": ["Read bearer token keys on mount"]
+    "auth_pages": ["string — auth route paths"],
+    "protected_ui_modules": ["string — protected route paths or component names"],
+    "session_handling": ["string — ordered steps for session persistence"]
   }},
   "dashboard_architecture": {{
-    "required": true,
-    "dashboard_modules": ["AnalyticsGrid", "RecentActivity"],
-    "analytics_components": ["LineChart", "PieChart"]
+    "required": "boolean",
+    "dashboard_modules": ["string — dashboard section component names"],
+    "analytics_components": ["string — chart/metric component names"]
   }},
   "responsive_strategy": {{
-    "mobile_support": true,
-    "tablet_support": true,
-    "desktop_support": true,
-    "responsive_modules": ["Collapsible Sidebar Grid"]
+    "mobile_support": "boolean",
+    "tablet_support": "boolean",
+    "desktop_support": "boolean",
+    "responsive_modules": ["string — components with responsive behavior"]
   }},
   "frontend_workflows": [
     {{
-      "workflow_name": "Submit log entry",
-      "execution_flow": ["Validate client inputs", "Dispatch API POST call", "Update query state cache"]
+      "workflow_name": "string — user action name",
+      "execution_flow": ["string — ordered UI steps: open form → validate → API call → update state → close"]
     }}
   ],
   "frontend_data_flow": {{
-    "state_updates": ["Set user session on login success"],
-    "api_to_ui_flows": ["Query GET /api/v1/metrics sets lines state"],
-    "realtime_data_flows": ["WS message pushes to activity log feed"]
+    "state_updates": ["string — what triggers state changes"],
+    "api_to_ui_flows": ["string — how API responses map to UI state"],
+    "realtime_data_flows": ["string — how WebSocket messages update UI"]
   }},
   "future_generation_context": {{
-    "important_notes_for_ui_generation": [],
-    "important_notes_for_frontend_code_generation": [],
-    "important_notes_for_testing_agents": []
+    "important_notes_for_ui_generation": ["string — styling/layout guidance for UIUXArchitectAgent"],
+    "important_notes_for_frontend_code_generation": ["string — code generation guidance"],
+    "important_notes_for_testing_agents": ["string — what to test in the frontend"]
   }}
 }}
 """

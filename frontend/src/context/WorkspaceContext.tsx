@@ -39,7 +39,7 @@ export interface Project {
   id: string;
   name: string;
   category: string;
-  status: "idle" | "generating" | "completed" | "failed";
+  status: "idle" | "generating" | "completed" | "failed" | "documents_ready";
   progress: number;
   step: string;
   summary: string;
@@ -71,6 +71,9 @@ export interface Project {
   integration_generation?: any;
   build_compilation?: any;
   agent_context?: any;
+  prd?: string;
+  mrd?: string;
+  trd?: string;
 }
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -88,6 +91,8 @@ interface WorkspaceContextType {
   addMessageToChat: (chatId: string, sender: "user" | "ai", text: string) => Promise<void>;
   editMessageText: (chatId: string, messageId: string, newText: string) => Promise<void>;
   deleteChat: (chatId: string) => Promise<void>;
+  renameChat: (chatId: string, newTitle: string) => Promise<void>;
+  updateChatSelectedProject: (chatId: string, selectedProject: ProjectSuggestion) => Promise<void>;
 
   projects: Project[];
   activeProjectId: string | null;
@@ -100,7 +105,10 @@ interface WorkspaceContextType {
     blueprint?: any,
     themePalette?: any
   ) => Promise<void>;
+  compileProjectCodebase: (projectId: string, chatId: string) => Promise<void>;
+  generateDocuments: (projectName: string, prompt: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
+  renameProject: (projectId: string, newTitle: string) => Promise<void>;
   updateProject: (projectId: string, updates: Partial<Project>) => void;
 
   currentCategory: string;
@@ -2388,6 +2396,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setActiveProjectId(null);
   };
 
+  const updateChatSelectedProject = async (chatId: string, selectedProject: ProjectSuggestion) => {
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, selected_project: selectedProject } : c))
+    );
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/api/chats/${chatId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ selected_project: selectedProject })
+      });
+    } catch (e) {
+      console.error("Update chat selected project failed:", e);
+    }
+  };
+
   const createNewChat = async (category: string, title: string, selectedProject?: ProjectSuggestion): Promise<string> => {
     const token = localStorage.getItem("token");
     if (!token) return "";
@@ -2460,6 +2488,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             return c;
           })
         );
+
+        // Auto-parse <blueprint> from AI response and update selected_project
+        const aiText = data.ai_message?.text || "";
+        const bpMatch = aiText.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
+        if (bpMatch && bpMatch[1]) {
+          try {
+            const parsed = JSON.parse(bpMatch[1].trim());
+            if (parsed.name || parsed.idea || parsed.features) {
+              const bp: ProjectSuggestion = {
+                name: parsed.name || "",
+                idea: parsed.idea || "",
+                features: parsed.features || [],
+                tech_stack: parsed.tech_stack || "Flask, HTML, CSS"
+              };
+              updateChatSelectedProject(chatId, bp);
+            }
+          } catch (_bpErr) {
+            // Blueprint parse failed, ignore silently
+          }
+        }
       }
     } catch (e) {
       console.error("Send message failed:", e);
@@ -2502,38 +2550,78 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deleteChat = async (chatId: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
+    
+    // Optimistic UI Update for instant deletion
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (activeChatId === chatId) {
+      setActiveChatId(null);
+    }
+    
     try {
-      const res = await fetch(`${API_BASE}/api/chats/${chatId}`, {
+      await fetch(`${API_BASE}/api/chats/${chatId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      if (res.ok) {
-        setChats((prev) => prev.filter((c) => c.id !== chatId));
-        if (activeChatId === chatId) {
-          setActiveChatId(null);
-        }
-      }
     } catch (e) {
       console.error("Delete chat failed:", e);
+    }
+  };
+
+  const renameChat = async (chatId: string, newTitle: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    
+    setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, title: newTitle } : c));
+    try {
+      await fetch(`${API_BASE}/api/chats/${chatId}`, {
+        method: "PUT",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ title: newTitle })
+      });
+    } catch (e) {
+      console.error("Rename chat failed:", e);
     }
   };
 
   const deleteProject = async (projectId: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
+    
+    // Optimistic UI Update
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    if (activeProjectId === projectId) {
+      setActiveProjectId(null);
+    }
+    
     try {
-      const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+      await fetch(`${API_BASE}/api/projects/${projectId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      if (res.ok) {
-        setProjects((prev) => prev.filter((p) => p.id !== projectId));
-        if (activeProjectId === projectId) {
-          setActiveProjectId(null);
-        }
-      }
     } catch (e) {
       console.error("Delete project failed:", e);
+    }
+  };
+
+  const renameProject = async (projectId: string, newTitle: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    
+    setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: newTitle } : p));
+    try {
+      await fetch(`${API_BASE}/api/projects/${projectId}`, {
+        method: "PUT",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ title: newTitle })
+      });
+    } catch (e) {
+      console.error("Rename project failed:", e);
     }
   };
 
@@ -2623,15 +2711,91 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const newProj = await res.json();
         setProjects((prev) => [newProj, ...prev]);
         setActiveProjectId(newProj.id);
-        pollProjectStatus(newProj.id, chatId);
-      } else {
-        setIsGeneratingProject(false);
+        if (newProj.status === "documents_ready") {
+          setIsGeneratingProject(false);
+        } else {
+          pollProjectStatus(newProj.id, chatId);
+        }
       }
     } catch (e) {
       console.error("Generate project failed:", e);
       setIsGeneratingProject(false);
     }
   };
+
+  const compileProjectCodebase = async (projectId: string, chatId: string) => {
+    if (isGeneratingProject) return;
+    setIsGeneratingProject(true);
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setIsGeneratingProject(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}/compile`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const updatedProj = await res.json();
+        setProjects((prev) =>
+          prev.map((p) => (p.id === projectId ? updatedProj : p))
+        );
+        pollProjectStatus(projectId, chatId);
+      } else {
+        setIsGeneratingProject(false);
+      }
+    } catch (e) {
+      console.error("Compile project codebase failed:", e);
+      setIsGeneratingProject(false);
+    }
+  };
+
+  const generateDocuments = async (projectName: string, prompt: string) => {
+    if (isGeneratingProject) return;
+    setIsGeneratingProject(true);
+    setActiveProjectId(null);
+    setShowRightPane(true);
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setIsGeneratingProject(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/generate-documents`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: projectName,
+          prompt
+        })
+      });
+      if (res.ok) {
+        const newProj = await res.json();
+        setProjects((prev) => [newProj, ...prev]);
+        setActiveProjectId(newProj.id);
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      }
+    } catch (e) {
+      console.error("Generate documents failed:", e);
+    } finally {
+      setIsGeneratingProject(false);
+    }
+  };
+
 
   return (
     <WorkspaceContext.Provider
@@ -2647,11 +2811,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         addMessageToChat,
         editMessageText,
         deleteChat,
+        renameChat,
+        updateChatSelectedProject,
         projects,
         activeProjectId,
         setActiveProjectId,
         generateProject,
+        compileProjectCodebase,
+        generateDocuments,
         deleteProject,
+        renameProject,
         updateProject,
         currentCategory,
         setCurrentCategory,
@@ -2674,6 +2843,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isFetchingSuggestions,
         fetchSuggestions,
         clearSuggestions,
+        updateChatSelectedProject,
       }}
     >
       {children}

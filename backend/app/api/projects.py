@@ -957,7 +957,10 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
             integration_generation=doc.get("integration_generation"),
             error_correction=doc.get("error_correction"),
             project_export=doc.get("project_export"),
-            agent_context=doc.get("agent_context")
+            agent_context=doc.get("agent_context"),
+            prd=doc.get("prd"),
+            mrd=doc.get("mrd"),
+            trd=doc.get("trd")
         ))
     return projects
 
@@ -1007,7 +1010,77 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         integration_generation=doc.get("integration_generation"),
         error_correction=doc.get("error_correction"),
         project_export=doc.get("project_export"),
-        agent_context=doc.get("agent_context")
+        agent_context=doc.get("agent_context"),
+        prd=doc.get("prd"),
+        mrd=doc.get("mrd"),
+        trd=doc.get("trd")
+    )
+
+from pydantic import BaseModel as PydanticBaseModel
+
+class GenerateDocumentsRequest(PydanticBaseModel):
+    name: str
+    prompt: str
+
+@router.post("/generate-documents", response_model=ProjectResponse)
+async def generate_documents_endpoint(
+    payload: GenerateDocumentsRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    project_id = f"proj-{uuid.uuid4().hex[:8]}"
+    created_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    
+    # Import generating service function
+    from app.services.ai import generate_prd_mrd_trd
+    
+    try:
+        docs = await generate_prd_mrd_trd(payload.name, payload.prompt)
+    except Exception as e:
+        logger.error(f"Failed to generate documents for project {payload.name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
+        
+    new_project = {
+        "_id": project_id,
+        "name": payload.name,
+        "category": "documents",
+        "status": "completed",
+        "progress": 100,
+        "step": "Documents Generated",
+        "summary": "Product Requirements Document (PRD), Market Requirements Document (MRD), and Technical Requirements Document (TRD) compiled successfully.",
+        "codebase": [],
+        "created": created_str,
+        "created_at_dt": datetime.now(timezone.utc),
+        "user_id": current_user["id"],
+        "chat_id": "",
+        "theme": None,
+        "blueprint": None,
+        "theme_palette": None,
+        "prd": docs.get("prd", ""),
+        "mrd": docs.get("mrd", ""),
+        "trd": docs.get("trd", "")
+    }
+    
+    await db.projects.insert_one(new_project)
+    
+    return ProjectResponse(
+        id=project_id,
+        name=new_project["name"],
+        category=new_project["category"],
+        status=new_project["status"],
+        progress=new_project["progress"],
+        step=new_project["step"],
+        summary=new_project["summary"],
+        codebase=[],
+        created=new_project["created"],
+        user_id=new_project["user_id"],
+        chat_id=new_project["chat_id"],
+        theme=None,
+        blueprint=None,
+        theme_palette=None,
+        prd=new_project["prd"],
+        mrd=new_project["mrd"],
+        trd=new_project["trd"]
     )
 
 @router.post("", response_model=ProjectResponse)
@@ -1025,14 +1098,36 @@ async def compile_project(
     if not chat_exists:
         raise HTTPException(status_code=400, detail="Invalid chat_id specified")
         
+    # Auto-identify category on the basis of conversation and user's idea
+    from app.services.ai import auto_identify_category
+    bp_dict = payload.blueprint.dict() if payload.blueprint else {}
+    detected_category = await auto_identify_category(bp_dict, chat_exists.get("messages", []))
+    logger.info(f"Project category auto-identified as: {detected_category}")
+
+    # Generate PRD, MRD, TRD documents first
+    from app.services.ai import generate_prd_mrd_trd
+    
+    idea = payload.blueprint.idea if payload.blueprint else ""
+    features = payload.blueprint.features if payload.blueprint else []
+    tech_stack = payload.blueprint.tech_stack if payload.blueprint else ""
+    features_str = ", ".join(features) if features else ""
+    prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}"
+    
+    try:
+        logger.info(f"Generating documents for project {payload.name} first...")
+        docs = await generate_prd_mrd_trd(payload.name, prompt_for_docs)
+    except Exception as e:
+        logger.error(f"Failed to generate documents during project init: {e}")
+        docs = {"prd": f"# PRD\nFailed to generate documents: {str(e)}", "mrd": "", "trd": ""}
+        
     new_project = {
         "_id": project_id,
         "name": payload.name,
-        "category": payload.category,
-        "status": "generating",
-        "progress": 5,
-        "step": "Initializing Sarthi AI engine...",
-        "summary": "",
+        "category": detected_category,
+        "status": "documents_ready",
+        "progress": 100,
+        "step": "Documents Generated",
+        "summary": "Product Requirements Document (PRD), Market Requirements Document (MRD), and Technical Requirements Document (TRD) compiled successfully.",
         "codebase": [],
         "created": created_str,
         "created_at_dt": datetime.now(timezone.utc),
@@ -1040,41 +1135,31 @@ async def compile_project(
         "chat_id": payload.chat_id,
         "theme": payload.theme,
         "blueprint": payload.blueprint.dict() if payload.blueprint else None,
-        "theme_palette": payload.theme_palette.dict() if payload.theme_palette else None
+        "theme_palette": payload.theme_palette.dict() if payload.theme_palette else None,
+        "prd": docs.get("prd", ""),
+        "mrd": docs.get("mrd", ""),
+        "trd": docs.get("trd", "")
     }
     
     await db.projects.insert_one(new_project)
     
-    # Mark chat session as confirmed and link project_id
+    # Mark chat session as confirmed, link project_id and update category
     await db.chats.update_one(
         {"_id": payload.chat_id, "user_id": current_user["id"]},
-        {"$set": {"is_confirmed": True, "project_id": project_id}}
+        {"$set": {"is_confirmed": True, "project_id": project_id, "category": detected_category}}
     )
     
-    # Notify chat that generation started
+    # Notify chat that documents were generated
     time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
     start_msg = {
         "id": f"m-{uuid.uuid4().hex[:8]}",
         "sender": "ai",
-        "text": f"Sarthi is now compiling your hackathon project: **{payload.name}** ({payload.category}). Monitoring workspace status in the right pane...",
+        "text": f"Sarthi has generated the Product, Market, and Technical specifications (PRD/MRD/TRD) for your hackathon project **{payload.name}**! You can review and download them in the right pane, then proceed to build the codebase.",
         "timestamp": time_str
     }
     await db.chats.update_one(
         {"_id": payload.chat_id},
         {"$push": {"messages": start_msg}}
-    )
-    
-    # Add project compilation task to background
-    background_tasks.add_task(
-        run_project_compilation,
-        project_id,
-        payload.chat_id,
-        payload.name,
-        payload.category,
-        current_user["id"],
-        payload.theme,
-        payload.blueprint,
-        payload.theme_palette
     )
     
     return ProjectResponse(
@@ -1084,7 +1169,7 @@ async def compile_project(
         status=new_project["status"],
         progress=new_project["progress"],
         step=new_project["step"],
-        summary="",
+        summary=new_project["summary"],
         codebase=[],
         created=new_project["created"],
         user_id=new_project["user_id"],
@@ -1092,14 +1177,113 @@ async def compile_project(
         theme=new_project["theme"],
         blueprint=payload.blueprint,
         theme_palette=payload.theme_palette,
-        optimization_architecture=None,
-        code_generation_plan=None,
-        state_implementation=None,
-        integration_generation=None,
-        error_correction=None,
-        project_export=None,
-        agent_context=None
+        prd=new_project["prd"],
+        mrd=new_project["mrd"],
+        trd=new_project["trd"]
     )
+
+@router.post("/{project_id}/compile", response_model=ProjectResponse)
+async def compile_project_codebase(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    # Set project status to generating
+    await db.projects.update_one(
+        {"_id": project_id},
+        {
+            "$set": {
+                "status": "generating",
+                "progress": 5,
+                "step": "Initializing Sarthi AI engine...",
+                "codebase": []
+            }
+        }
+    )
+    
+    # Notify chat that codebase compilation started
+    chat_id = project.get("chat_id")
+    if chat_id:
+        time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
+        comp_msg = {
+            "id": f"m-{uuid.uuid4().hex[:8]}",
+            "sender": "ai",
+            "text": f"Sarthi is now compiling your Flask codebase for project **{project['name']}** in the background...",
+            "timestamp": time_str
+        }
+        await db.chats.update_one(
+            {"_id": chat_id},
+            {"$push": {"messages": comp_msg}}
+        )
+        
+    # Parse models from dict
+    from app.models.project import ProjectBlueprint, ThemePalette
+    blueprint_dict = project.get("blueprint")
+    blueprint = None
+    if blueprint_dict:
+        blueprint = ProjectBlueprint(**blueprint_dict)
+        
+    theme_palette_dict = project.get("theme_palette")
+    theme_palette = None
+    if theme_palette_dict:
+        theme_palette = ThemePalette(**theme_palette_dict)
+
+    background_tasks.add_task(
+        run_project_compilation,
+        project_id,
+        chat_id,
+        project["name"],
+        project["category"],
+        current_user["id"],
+        project.get("theme"),
+        blueprint,
+        theme_palette
+    )
+    
+    # Return updated project dict mapped to ProjectResponse
+    updated_project = await db.projects.find_one({"_id": project_id})
+    return ProjectResponse(
+        id=updated_project["_id"],
+        name=updated_project["name"],
+        category=updated_project["category"],
+        status=updated_project["status"],
+        progress=updated_project["progress"],
+        step=updated_project["step"],
+        summary=updated_project["summary"],
+        codebase=[],
+        created=updated_project["created"],
+        user_id=updated_project["user_id"],
+        chat_id=updated_project["chat_id"],
+        theme=updated_project.get("theme"),
+        blueprint=blueprint,
+        theme_palette=theme_palette,
+        prd=updated_project.get("prd", ""),
+        mrd=updated_project.get("mrd", ""),
+        trd=updated_project.get("trd", "")
+    )
+
+@router.put("/{project_id}")
+async def update_project(project_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    updates = {}
+    if "title" in payload:
+        updates["name"] = payload["title"]  # Project schema uses 'name' for title
+    if "name" in payload:
+        updates["name"] = payload["name"]
+        
+    if updates:
+        await db.projects.update_one({"_id": project_id}, {"$set": updates})
+        
+    return {"status": "success", "updates": updates}
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
@@ -1119,15 +1303,24 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
         raise HTTPException(status_code=404, detail="Project not found")
         
     codebase = doc.get("codebase", [])
-    if not codebase:
-        raise HTTPException(status_code=400, detail="No codebase has been generated yet for this project.")
+    has_docs = any(doc.get(f) for f in ("prd", "mrd", "trd"))
+    if not codebase and not has_docs:
+        raise HTTPException(status_code=400, detail="No codebase or requirements documents have been generated yet for this project.")
         
     # Create in-memory zip
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in codebase:
-            path = file.get("path", file.get("name", "unnamed.txt"))
-            zf.writestr(path, file.get("content", ""))
+        if codebase:
+            for file in codebase:
+                path = file.get("path", file.get("name", "unnamed.txt"))
+                zf.writestr(path, file.get("content", ""))
+        
+        if doc.get("prd"):
+            zf.writestr("PRD.md", doc["prd"])
+        if doc.get("mrd"):
+            zf.writestr("MRD.md", doc["mrd"])
+        if doc.get("trd"):
+            zf.writestr("TRD.md", doc["trd"])
             
         # If ProjectExportAgent provided env templates, include an .env.example
         project_export = doc.get("project_export", {})

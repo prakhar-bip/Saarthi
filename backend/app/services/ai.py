@@ -17,31 +17,62 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
     try:
         if selected_project:
             system_prompt = (
-                f"You are Sarthi, an expert AI development partner for hackathons specializing in the '{category}' domain. "
-                f"The user has selected the project blueprint: **{selected_project.get('name')}**.\n"
-                f"Core Idea: {selected_project.get('idea')}\n"
-                f"Key Features: {', '.join(selected_project.get('features', []))}\n"
-                f"Suggested Tech Stack: {selected_project.get('tech_stack')}\n\n"
-                "First, analyze the user's message to determine their specific intent (e.g. brainstorming, refining features, writing code, technical layout discussion).\n"
-                "Maintain continuity with prior chat messages: restate relevant confirmed decisions, update assumptions when the user changes direction, and keep the blueprint internally consistent for the compiler agents.\n"
-                "When the user proposes a change, translate it into concrete feature, data, API, UI, auth, realtime, or deployment implications.\n"
-                "Decide the most suitable response format based on your analysis:\n"
-                "- Use clean, conversational paragraphs for explanations and feedback.\n"
-                "- Use bullet points / numbered lists for step-by-step guides, checklists, or pros/cons.\n"
-                "- Use code blocks for code snippets, commands, or data formats.\n"
-                "- CRITICAL: Do NOT use markdown tables to respond to general queries, questions, or refinements. Only use tables if the user explicitly requests structured tabular data.\n\n"
-                "Keep your responses concise, friendly, and structured. End with a note suggesting to confirm and compile the codebase when ready."
+                f"You are **Sarthi**, an expert AI development companion for the '{category}' domain.\n\n"
+                f"## Active Project Context\n"
+                f"- **Project Name**: {selected_project.get('name')}\n"
+                f"- **Core Idea**: {selected_project.get('idea')}\n"
+                f"- **Key Features**: {', '.join(selected_project.get('features', []))}\n"
+                f"- **Tech Stack**: {selected_project.get('tech_stack')}\n\n"
+                "## Your Role\n"
+                "You are the user's development partner for this project. You can:\n"
+                "1. Answer ANY general question (coding, debugging, concepts, career advice)\n"
+                "2. Discuss and refine the project — suggest new features, improve architecture, debug approaches\n"
+                "3. Translate vague ideas into concrete specs (APIs, UI flows, database schemas)\n\n"
+                "## Response Guidelines\n"
+                "- **Dynamic Brainstorming**: DO NOT just accept the user's idea statically. Act as a technical co-founder. Discuss their idea, suggest 2-3 innovative features, and ask for their thoughts. Emphasize that the blueprint is fully customizable.\n"
+                "- Use **markdown**: headings, bullet lists, code blocks (with language tags), bold text\n"
+                "- Be conversational and enthusiastic, not robotic\n"
+                "- For code questions: include working code snippets\n"
+                "- For project refinements: explain the trade-offs\n\n"
+                "## Blueprint Block (IMPORTANT)\n"
+                "When the user modifies project details, features, name, or tech stack, append this at the END:\n"
+                "<blueprint>\n"
+                "{\n"
+                "  \"name\": \"Updated Project Name\",\n"
+                "  \"idea\": \"Core Idea/Description\",\n"
+                "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\"\n"
+                "}\n"
+                "</blueprint>\n"
+                "Do NOT include this block for general questions unrelated to the project."
             )
         else:
             system_prompt = (
-                f"You are Sarthi, an expert AI development partner for hackathons specializing in the '{category}' domain. "
-                "First, analyze the user's message to determine their intent.\n"
-                "Use the conversation as live project memory: infer domain, target users, data needs, UI workflows, and likely integrations before answering.\n"
-                "When discussing an idea, keep outputs aligned with what Sarthi's downstream requirement, planning, architecture, and compiler agents can use.\n"
-                "Decide the most suitable response format based on your analysis:\n"
-                "- ONLY if the user explicitly asks for new project suggestions, ideas, or recommendations, suggest exactly 5 projects formatted strictly as a markdown table with the columns: | # | Project Name | Core Idea | Key Features | Suggested Tech Stack |.\n"
-                "- For all other discussions (brainstorming, answering tech questions, explaining layouts), use standard paragraphs, bulleted lists, or code blocks as appropriate. Do NOT use markdown tables.\n\n"
-                "Keep your responses concise, friendly, and structured."
+                f"You are **Sarthi**, an expert AI development companion for the '{category}' domain.\n\n"
+                "## Your Role\n"
+                "You are a versatile AI assistant that can:\n"
+                "1. Answer ANY question — coding problems, debugging, algorithms, system design, tech concepts\n"
+                "2. Brainstorm and discuss hackathon project ideas with the user\n"
+                "3. Help refine project features, architecture, and tech stack choices\n\n"
+                "## Response Guidelines\n"
+                "- **Dynamic Brainstorming**: When a user shares a project idea, DO NOT just passively accept it. Discuss it, suggest 2-3 innovative features based on their vision, and ask if they like them. Emphasize that the project blueprint is highly customizable.\n"
+                "- Use **markdown**: headings, bullet lists, code blocks (with language tags), bold text\n"
+                "- Be conversational, friendly, and enthusiastic — not robotic\n"
+                "- For code: include working, well-commented snippets\n"
+                "- For project ideas: suggest specific, modern features, not vague concepts\n"
+                "- ONLY suggest 5 projects in a table if the user EXPLICITLY asks for a list of project suggestions\n\n"
+                "## Blueprint Block (IMPORTANT)\n"
+                "When the user describes their OWN project idea, names features, or discusses their custom project, "
+                "append this structured block at the END of your response:\n"
+                "<blueprint>\n"
+                "{\n"
+                "  \"name\": \"Project Name\",\n"
+                "  \"idea\": \"Core Idea/Description\",\n"
+                "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\"\n"
+                "}\n"
+                "</blueprint>\n"
+                "Do NOT include this block for general questions, greetings, or non-project conversations."
             )
         
         chat_messages = [{"role": "system", "content": system_prompt}]
@@ -53,7 +84,7 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
             agent_name="ChatReply",
             messages=chat_messages,
             temperature=0.7,
-            max_tokens=1024
+            max_tokens=2048
         )
         return reply
     except Exception as e:
@@ -62,210 +93,86 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
         return get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
 
 
+async def auto_identify_category(blueprint: dict, messages: List[Dict[str, str]]) -> str:
+    """
+    Analyze the project blueprint and chat conversation history to identify the most fitting category:
+    'startup', 'finance', 'health', 'education', 'productivity', 'sustainability', or 'other'.
+    """
+    try:
+        # Format conversation context
+        conv_text = ""
+        for m in messages[-8:]:
+            sender = m.get("sender", "user")
+            text = m.get("text", "")
+            conv_text += f"{sender.capitalize()}: {text}\n"
+
+        blueprint_text = json.dumps(blueprint, indent=2)
+
+        prompt = (
+            "You are Sarthi's category classification assistant.\n"
+            "Given the following project blueprint details and recent chat conversation history, "
+            "classify the project into exactly one of these 7 categories:\n"
+            "'startup', 'finance', 'health', 'education', 'productivity', 'sustainability', 'other'.\n\n"
+            f"Blueprint Context:\n{blueprint_text}\n\n"
+            f"Conversation History:\n{conv_text}\n\n"
+            "Reply with ONLY the category name in lowercase, with no punctuation or additional text. Example: finance"
+        )
+
+        chat_messages = [
+            {"role": "system", "content": "You are a precise classifier. Return only one of the allowed category words in lowercase."},
+            {"role": "user", "content": prompt}
+        ]
+
+        reply = await get_llm_completion(
+            agent_name="CategoryClassifier",
+            messages=chat_messages,
+            temperature=0.1,
+            max_tokens=10
+        )
+        category = reply.strip().lower()
+        allowed_categories = {"startup", "finance", "health", "education", "productivity", "sustainability", "other"}
+        if category in allowed_categories:
+            logger.info(f"Auto-identified category: {category}")
+            return category
+    except Exception as e:
+        logger.error(f"Error classifying category: {e}")
+    
+    # Simple keyword fallback detection
+    idea_text = (blueprint.get("idea") or "").lower()
+    name_text = (blueprint.get("name") or "").lower()
+    combined = f"{name_text} {idea_text}"
+    if any(k in combined for k in ["startup", "saas", "mvp", "pitch", "business", "product", "client", "customer", "revenue", "monetize", "funding", "marketing", "b2b"]):
+        return "startup"
+    if any(k in combined for k in ["finance", "budget", "money", "invest", "crypto", "stock", "wallet", "expense", "transaction", "pay", "payment", "bank", "saving", "tax"]):
+        return "finance"
+    if any(k in combined for k in ["health", "wellness", "fitness", "gym", "workout", "routine", "exercise", "breath", "meditat", "doctor", "medical", "diet", "food", "nutrition", "sleep"]):
+        return "health"
+    if any(k in combined for k in ["education", "learn", "study", "quiz", "course", "school", "teach", "note", "flashcard", "memory", "repetition", "student", "class", "practice"]):
+        return "education"
+    if any(k in combined for k in ["productivity", "task", "todo", "schedule", "calendar", "timeline", "manage", "organize", "time", "focus", "work", "efficient", "habit"]):
+        return "productivity"
+    if any(k in combined for k in ["sustainability", "carbon", "eco", "green", "recycle", "nature", "emission", "climate", "environment", "waste", "energy", "solar"]):
+        return "sustainability"
+    
+    return "other"
+
+
+
 def inject_boilerplate_files(codebase: List[Dict[str, Any]], project_name: str, architecture_context: dict = None) -> List[Dict[str, Any]]:
     project_slug = project_name.lower().replace(" ", "-").replace("_", "-")
     existing_paths = {f.get("path") for f in codebase}
     
-    # 1. package.json
-    if "package.json" not in existing_paths:
-        codebase.append({
-            "name": "package.json",
-            "path": "package.json",
-            "language": "json",
-            "content": json.dumps({
-                "name": project_slug,
-                "private": True,
-                "version": "0.1.0",
-                "type": "module",
-                "scripts": {
-                    "dev": "vite",
-                    "build": "tsc && vite build",
-                    "preview": "vite preview"
-                },
-                "dependencies": {
-                    "react": "^18.3.1",
-                    "react-dom": "^18.3.1",
-                    "react-router-dom": "^6.22.3",
-                    "events": "^3.3.0"
-                },
-                "devDependencies": {
-                    "@types/react": "^18.3.3",
-                    "@types/react-dom": "^18.3.0",
-                    "@vitejs/plugin-react": "^4.2.1",
-                    "autoprefixer": "^10.4.18",
-                    "postcss": "^8.4.35",
-                    "tailwindcss": "^3.4.1",
-                    "typescript": "^5.2.2",
-                    "vite": "^5.2.0"
-                }
-            }, indent=2)
-        })
-
-    # 2. vite.config.ts
-    if "vite.config.ts" not in existing_paths and "vite.config.js" not in existing_paths:
-        codebase.append({
-            "name": "vite.config.ts",
-            "path": "vite.config.ts",
-            "language": "typescript",
-            "content": (
-                "import { defineConfig } from 'vite';\n"
-                "import react from '@vitejs/plugin-react';\n\n"
-                "export default defineConfig({\n"
-                "  plugins: [react()],\n"
-                "  server: {\n"
-                "    port: 3000,\n"
-                "    host: true\n"
-                "  }\n"
-                "});"
-            )
-        })
-
-    # 3. postcss.config.js
-    if "postcss.config.js" not in existing_paths and "postcss.config.mjs" not in existing_paths:
-        codebase.append({
-            "name": "postcss.config.js",
-            "path": "postcss.config.js",
-            "language": "javascript",
-            "content": (
-                "export default {\n"
-                "  plugins: {\n"
-                "    tailwindcss: {},\n"
-                "    autoprefixer: {},\n"
-                "  },\n"
-                "}"
-            )
-        })
-
-    # 4. tsconfig.json
-    if "tsconfig.json" not in existing_paths:
-        codebase.append({
-            "name": "tsconfig.json",
-            "path": "tsconfig.json",
-            "language": "json",
-            "content": json.dumps({
-                "compilerOptions": {
-                    "target": "ES2020",
-                    "useDefineForClassFields": True,
-                    "lib": ["DOM", "DOM.Iterable", "ScriptHost", "ES2020"],
-                    "module": "ESNext",
-                    "skipLibCheck": True,
-                    "moduleResolution": "bundler",
-                    "allowImportingTsExtensions": True,
-                    "resolveJsonModule": True,
-                    "isolatedModules": True,
-                    "noEmit": True,
-                    "jsx": "react-jsx",
-                    "strict": False,
-                    "noUnusedLocals": False,
-                    "noUnusedParameters": False,
-                    "noFallthroughCasesInSwitch": True,
-                    "types": ["node"]
-                },
-                "include": ["src"]
-            }, indent=2)
-        })
-
-    # 5. index.html
-    if "index.html" not in existing_paths:
-        codebase.append({
-            "name": "index.html",
-            "path": "index.html",
-            "language": "html",
-            "content": (
-                f"<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n"
-                f"    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/vite.svg\" />\n"
-                f"    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
-                f"    <title>{project_name}</title>\n  </head>\n  <body class=\"bg-background text-text antialiased\">\n"
-                f"    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.tsx\"></script>\n"
-                f"  </body>\n</html>"
-            )
-        })
-
-    # 6. src/main.tsx
-    if "src/main.tsx" not in existing_paths and "src/index.tsx" not in existing_paths:
-        app_path = "src/App.tsx" if "src/App.tsx" in existing_paths or "App.tsx" not in existing_paths else "App.tsx"
-        app_import = "./App.tsx" if app_path == "src/App.tsx" else "../App.tsx"
-        
-        css_import = "./index.css" if "src/index.css" in existing_paths else "../index.css" if "index.css" in existing_paths else ""
-        css_line = f"\nimport '{css_import}';" if css_import else ""
-        
-        codebase.append({
-            "name": "main.tsx",
-            "path": "src/main.tsx",
-            "language": "typescript",
-            "content": (
-                f"import React from 'react';\n"
-                f"import ReactDOM from 'react-dom/client';\n"
-                f"import App from '{app_import}';{css_line}\n\n"
-                f"ReactDOM.createRoot(document.getElementById('root')!).render(\n"
-                f"  <React.StrictMode>\n"
-                f"    <App />\n"
-                f"  </React.StrictMode>,\n"
-                f");"
-            )
-        })
-
-    # 7. Check if tailwind.config.js exists, if not write a default matching the colors
-    if "tailwind.config.js" not in existing_paths:
-        codebase.append({
-            "name": "tailwind.config.js",
-            "path": "tailwind.config.js",
-            "language": "javascript",
-            "content": (
-                "/** @type {import('tailwindcss').Config} */\n"
-                "module.exports = {\n"
-                "  content: ['./src/**/*.{js,jsx,ts,tsx,html}', './index.html'],\n"
-                "  theme: {\n"
-                "    extend: {\n"
-                "      colors: {\n"
-                "        primary: '#4CAF50',\n"
-                "        secondary: '#FF9800',\n"
-                "        background: '#E5E5E5',\n"
-                "        card: '#FFFFFF',\n"
-                "        text: '#666666',\n"
-                "        border: '#AAAAAA',\n"
-                "      },\n"
-                "    },\n"
-                "  },\n"
-                "  plugins: [],\n"
-                "};"
-            )
-        })
-
-    # 8. Check if index.css exists, if not write a default
-    if "src/index.css" not in existing_paths and "index.css" not in existing_paths:
-        codebase.append({
-            "name": "index.css",
-            "path": "src/index.css",
-            "language": "css",
-            "content": (
-                "@tailwind base;\n"
-                "@tailwind components;\n"
-                "@tailwind utilities;\n\n"
-                "body {\n"
-                "  @apply bg-background text-text antialiased;\n"
-                "}"
-            )
-        })
-
-    # 9. backend/requirements.txt
-    if "backend/requirements.txt" not in existing_paths:
+    # 1. requirements.txt
+    if "requirements.txt" not in existing_paths:
         codebase.append({
             "name": "requirements.txt",
-            "path": "backend/requirements.txt",
+            "path": "requirements.txt",
             "language": "plaintext",
-            "content": (
-                "fastapi>=0.100.0\n"
-                "uvicorn>=0.22.0\n"
-                "pydantic>=2.0\n"
-                "pydantic-settings>=2.0\n"
-                "motor>=3.3.0\n"
-                "pymongo>=4.5.0\n"
-            )
+            "content": "Flask>=3.0.0\n"
         })
 
-    # 10. backend/main.py (Dynamic endpoints & CORS)
-    if "backend/main.py" not in existing_paths:
+    # 2. app.py (Flask entry point & dynamic routes)
+    if "app.py" not in existing_paths:
         endpoints = []
         entities = []
         if architecture_context:
@@ -281,7 +188,7 @@ def inject_boilerplate_files(codebase: List[Dict[str, Any]], project_name: str, 
                 db_model = architecture_context.get("database_model_generation") or {}
                 entities = db_model.get("entities", [])
 
-        # Build FastAPI routes based on these endpoints
+        # Build Flask routes based on these endpoints
         routes_code = []
         added_paths = set()
         
@@ -289,40 +196,26 @@ def inject_boilerplate_files(codebase: List[Dict[str, Any]], project_name: str, 
             if not isinstance(ep, dict):
                 continue
             path = ep.get("path", "")
-            method = ep.get("method", "GET").lower()
+            flask_path = path.replace("{", "<").replace("}", ">")
+            method = ep.get("method", "GET").upper()
             desc = ep.get("description", "Sarthi API route.")
             if not path or (path, method) in added_paths:
                 continue
             added_paths.add((path, method))
             
             func_name = path.strip("/").replace("/", "_").replace("{", "").replace("}", "").replace("-", "_").replace(".", "_")
-            func_name = f"{method}_{func_name}" if func_name else f"{method}_root"
+            func_name = f"{method.lower()}_{func_name}" if func_name else f"{method.lower()}_root"
             
-            if method == "get":
-                routes_code.append(
-                    f"@app.get(\"{path}\", summary=\"{desc}\")\n"
-                    f"async def {func_name}():\n"
-                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\"}}\n"
-                )
-            elif method == "post":
-                routes_code.append(
-                    f"@app.post(\"{path}\", summary=\"{desc}\")\n"
-                    f"async def {func_name}(payload: dict):\n"
-                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\", \"data\": payload}}\n"
-                )
-            elif method == "delete":
-                routes_code.append(
-                    f"@app.delete(\"{path}\", summary=\"{desc}\")\n"
-                    f"async def {func_name}():\n"
-                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\"}}\n"
-                )
-            elif method == "put":
-                routes_code.append(
-                    f"@app.put(\"{path}\", summary=\"{desc}\")\n"
-                    f"async def {func_name}(payload: dict):\n"
-                    f"    return {{\"status\": \"success\", \"message\": \"Mock response for {path}\", \"data\": payload}}\n"
-                )
-                
+            routes_code.append(
+                f"# {desc}\n"
+                f"@app.route('{flask_path}', methods=['{method}'])\n"
+                f"def {func_name}():\n"
+                f"    if request.method in ['POST', 'PUT']:\n"
+                f"        payload = request.json or {{}}\n"
+                f"        return jsonify({{\"status\": \"success\", \"message\": \"Mock response for {path}\", \"data\": payload}})\n"
+                f"    return jsonify({{\"status\": \"success\", \"message\": \"Mock response for {path}\"}})\n"
+            )
+            
         if not routes_code and entities:
             for ent in entities:
                 if not isinstance(ent, dict):
@@ -331,134 +224,130 @@ def inject_boilerplate_files(codebase: List[Dict[str, Any]], project_name: str, 
                 ent_lower = ent_name.lower()
                 
                 routes_code.append(
-                    f"@app.get(\"/api/v1/{ent_lower}s\", summary=\"Get all {ent_name} items.\")\n"
-                    f"async def get_{ent_lower}s():\n"
-                    f"    return {{\"status\": \"success\", \"{ent_lower}s\": []}}\n"
+                    f"@app.route('/api/v1/{ent_lower}s', methods=['GET'])\n"
+                    f"def get_{ent_lower}s():\n"
+                    f"    return jsonify({{\"status\": \"success\", \"{ent_lower}s\": []}})\n"
                 )
                 routes_code.append(
-                    f"@app.post(\"/api/v1/{ent_lower}s\", summary=\"Create a new {ent_name}.\")\n"
-                    f"async def create_{ent_lower}(payload: dict):\n"
-                    f"    return {{\"status\": \"success\", \"message\": \"{ent_name} created successfully.\", \"data\": payload}}\n"
+                    f"@app.route('/api/v1/{ent_lower}s', methods=['POST'])\n"
+                    f"def create_{ent_lower}():\n"
+                    f"    payload = request.json or {{}}\n"
+                    f"    return jsonify({{\"status\": \"success\", \"message\": \"{ent_name} created successfully.\", \"data\": payload}})\n"
                 )
 
         if not routes_code:
             routes_code.append(
-                "@app.get(\"/api/v1/health\", summary=\"Health check endpoint.\")\n"
-                "async def health_check():\n"
-                "    return {\"status\": \"healthy\", \"service\": \"" + project_name + "\"}\n"
+                "@app.route('/api/v1/health', methods=['GET'])\n"
+                "def health_check():\n"
+                "    return jsonify({\"status\": \"healthy\", \"service\": \"" + project_name + "\"})\n"
             )
 
         routes_str = "\n".join(routes_code)
         
-        main_py_content = f"""from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+        app_py_content = f"""from flask import Flask, render_template, jsonify, request
+import os
 
-app = FastAPI(
-    title="{project_name} API",
-    description="Backend API services compiled dynamically by Sarthi.",
-    version="1.0.0"
-)
+app = Flask(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/")
-async def root():
-    return {{
-        "message": "Welcome to the {project_name} API!",
-        "engine": "Sarthi Codebase Compiler",
-        "status": "online"
-    }}
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 {routes_str}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
 """
         codebase.append({
-            "name": "main.py",
-            "path": "backend/main.py",
+            "name": "app.py",
+            "path": "app.py",
             "language": "python",
-            "content": main_py_content
+            "content": app_py_content
         })
 
-    # 11. backend/Dockerfile
-    if "backend/Dockerfile" not in existing_paths:
+    # 3. templates/index.html
+    if "templates/index.html" not in existing_paths and "index.html" not in existing_paths:
         codebase.append({
-            "name": "Dockerfile",
-            "path": "backend/Dockerfile",
-            "language": "dockerfile",
-            "content": (
-                "FROM python:3.10-slim\n"
-                "WORKDIR /app\n"
-                "COPY requirements.txt .\n"
-                "RUN pip install --no-cache-dir -r requirements.txt\n"
-                "COPY . .\n"
-                "EXPOSE 8000\n"
-                "CMD [\"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n"
-            )
+            "name": "index.html",
+            "path": "templates/index.html",
+            "language": "html",
+            "content": f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project_name}</title>
+    <!-- Tailwind CSS via CDN for rapid styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{{{ url_for('static', filename='style.css') }}}}">
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+    <header class="bg-white border-b border-slate-200/80 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-indigo-600 tracking-tight">{project_name}</h1>
+            <span class="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full border border-indigo-100">Prototype</span>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-6 py-12 flex-1 w-full">
+        <div class="bg-white border border-slate-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
+            <h2 class="text-2xl font-bold text-slate-900 mb-4">Welcome to {project_name}</h2>
+            <p class="text-slate-600 mb-6 leading-relaxed">This prototype is powered by a Flask backend and styled using HTML and Tailwind CSS.</p>
+            <div class="p-6 bg-slate-50 rounded-xl border border-slate-100 mb-6">
+                <h3 class="font-semibold text-slate-800 mb-2">Flask Router Status:</h3>
+                <code class="text-xs font-mono text-indigo-600">GET /api/v1/health -> returns healthy status</code>
+            </div>
+            <button onclick="checkHealth()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-all cursor-pointer shadow-sm">Check Backend Health</button>
+            <div id="health-result" class="mt-4 p-4 bg-stone-900 text-stone-100 rounded-xl text-xs font-mono hidden"></div>
+        </div>
+    </main>
+
+    <footer class="bg-white border-t border-slate-200/60 py-6 text-center text-xs text-slate-400">
+        <p>&copy; 2026 {project_name}. Powered by Sarthi.</p>
+    </footer>
+
+    <script src="{{{{ url_for('static', filename='script.js') }}}}"></script>
+</body>
+</html>"""
         })
 
-    # 12. Dockerfile.frontend
-    if "Dockerfile.frontend" not in existing_paths:
+    # 4. static/style.css
+    if "static/style.css" not in existing_paths and "style.css" not in existing_paths:
         codebase.append({
-            "name": "Dockerfile.frontend",
-            "path": "Dockerfile.frontend",
-            "language": "dockerfile",
-            "content": (
-                "FROM node:18-alpine\n"
-                "WORKDIR /app\n"
-                "COPY package.json .\n"
-                "RUN npm install\n"
-                "COPY . .\n"
-                "EXPOSE 3000\n"
-                "CMD [\"npm\", \"run\", \"dev\"]\n"
-            )
+            "name": "style.css",
+            "path": "static/style.css",
+            "language": "css",
+            "content": """/* Custom styles for Sarthi Flask Prototype */
+body {
+    scroll-behavior: smooth;
+}
+"""
         })
 
-    # 13. docker-compose.yml
-    if "docker-compose.yml" not in existing_paths:
+    # 5. static/script.js
+    if "static/script.js" not in existing_paths and "script.js" not in existing_paths:
         codebase.append({
-            "name": "docker-compose.yml",
-            "path": "docker-compose.yml",
-            "language": "yaml",
-            "content": (
-                "version: '3.8'\n\n"
-                "services:\n"
-                "  backend:\n"
-                "    build: ./backend\n"
-                "    ports:\n"
-                "      - \"8000:8000\"\n"
-                "    environment:\n"
-                "      - MONGODB_URI=mongodb://mongodb:27017/sarthi\n"
-                "    depends_on:\n"
-                "      - mongodb\n\n"
-                "  frontend:\n"
-                "    build:\n"
-                "      context: .\n"
-                "      dockerfile: Dockerfile.frontend\n"
-                "    ports:\n"
-                "      - \"3000:3000\"\n"
-                "    depends_on:\n"
-                "      - backend\n\n"
-                "  mongodb:\n"
-                "    image: mongo:latest\n"
-                "    ports:\n"
-                "      - \"27017:27017\"\n"
-                "    volumes:\n"
-                "      - mongo_data:/data/db\n\n"
-                "volumes:\n"
-                "  mongo_data:\n"
-            )
+            "name": "script.js",
+            "path": "static/script.js",
+            "language": "javascript",
+            "content": """// Sarthi Prototype Health Check
+function checkHealth() {
+    const resultDiv = document.getElementById('health-result');
+    resultDiv.textContent = 'Contacting backend...';
+    resultDiv.classList.remove('hidden');
+    fetch('/api/v1/health')
+        .then(response => response.json())
+        .then(data => {
+            resultDiv.innerHTML = '<span class="text-emerald-500 font-bold">✔ Backend is online and responding!</span><br>' + JSON.stringify(data, null, 2);
+        })
+        .catch(error => {
+            resultDiv.innerHTML = '<span class="text-rose-500 font-bold">❌ Failed to contact Flask backend:</span> ' + error;
+        });
+}
+"""
         })
 
-    # 14. start.sh
+    # 6. start.sh
     if "start.sh" not in existing_paths:
         codebase.append({
             "name": "start.sh",
@@ -466,22 +355,17 @@ if __name__ == "__main__":
             "language": "bash",
             "content": (
                 "#!/bin/bash\n"
-                "echo \"Starting Sarthi full-stack services...\"\n"
-                "echo \"Launching FastAPI backend server...\"\n"
-                "cd backend\n"
-                "python -m venv venv\n"
+                "echo \"Starting Sarthi Flask Prototype...\"\n"
+                "if [ ! -d \"venv\" ]; then\n"
+                "    python3 -m venv venv\n"
+                "fi\n"
                 "source venv/bin/activate || source venv/Scripts/activate\n"
                 "pip install -r requirements.txt\n"
-                "python main.py &\n"
-                "BACKEND_PID=$!\n\n"
-                "echo \"Launching React frontend server...\"\n"
-                "cd ..\n"
-                "npm install\n"
-                "npm run dev\n"
+                "python app.py\n"
             )
         })
 
-    # 15. start.bat
+    # 7. start.bat
     if "start.bat" not in existing_paths:
         codebase.append({
             "name": "start.bat",
@@ -489,11 +373,14 @@ if __name__ == "__main__":
             "language": "batch",
             "content": (
                 "@echo off\n"
-                "echo Starting Sarthi full-stack services...\n"
-                "echo Launching FastAPI backend server...\n"
-                "start cmd /k \"cd backend && python -m venv venv && call venv\\Scripts\\activate && pip install -r requirements.txt && python main.py\"\n"
-                "echo Launching React frontend server...\n"
-                "npm install && npm run dev\n"
+                "echo Starting Sarthi Flask Prototype...\n"
+                "if not exist venv (\n"
+                "    python -m venv venv\n"
+                ")\n"
+                "call venv\\Scripts\\activate\n"
+                "pip install -r requirements.txt\n"
+                "python app.py\n"
+                "pause\n"
             )
         })
 
@@ -539,18 +426,17 @@ async def generate_codebase(
         )
 
     prompt = f"""
-You are Sarthi AI compiler. You need to generate a high-fidelity prototype frontend codebase for a hackathon project.
+You are Sarthi AI compiler. You need to generate a high-fidelity prototype codebase for a hackathon project using HTML + CSS + Flask (Python).
 Project Name: {project_name}
 Category: {category}{theme_prompt}{blueprint_prompt}{theme_palette_prompt}{architecture_context_prompt}
 Context/Chat History:
 {context}
 
-Generate a complete, fully functional, multi-file code structure. 
+Generate a complete, fully functional, multi-file Flask Python code structure with HTML and CSS templates.
 Honor the Connected Sarthi Agent Architecture Context as the source of truth:
-- Use declared entities, endpoints, stores, pages, theme tokens, auth rules, realtime channels, and validation notes when present.
-- Keep names consistent across README, components, hooks, mock APIs, and state.
-- If backend/API/devops agents declared routes or containers, document them in README and mirror their shape in frontend service helpers or mock adapters.
-- If validation reports blocking issues, resolve them in the generated prototype or call them out as fixed assumptions in README.
+- Use declared entities, endpoints, pages, theme tokens, auth rules, and validation notes when present.
+- Keep names consistent across README, templates, CSS, and routes.
+- If backend/API/devops agents declared routes, implement them as Flask routes in app.py.
 Return your output ONLY as a valid JSON object. Do not include markdown code block syntax (like ```json ... ```). Just return the raw JSON.
 The JSON must follow this exact schema:
 {{
@@ -563,21 +449,27 @@ The JSON must follow this exact schema:
       "content": "# MarkDown content here..."
     }},
     {{
-      "name": "App.tsx",
-      "path": "src/App.tsx",
-      "language": "typescript",
-      "content": "Full React component content using clean styling..."
+      "name": "app.py",
+      "path": "app.py",
+      "language": "python",
+      "content": "Full Flask python application with routing and logic..."
     }},
     {{
-      "name": "Component1.tsx",
-      "path": "src/components/Component1.tsx",
-      "language": "typescript",
-      "content": "React component content..."
+      "name": "index.html",
+      "path": "templates/index.html",
+      "language": "html",
+      "content": "Full HTML template using Tailwind CSS (via CDN) and custom styling..."
+    }},
+    {{
+      "name": "style.css",
+      "path": "static/style.css",
+      "language": "css",
+      "content": "CSS styling definitions matching the theme palette..."
     }}
   ]
 }}
 
-Generate at least 3 files (README.md, src/App.tsx, and at least one custom component). Make sure the content uses beautiful UI layouts.
+Generate at least 4 files (README.md, app.py, templates/index.html, static/style.css). Make sure the HTML page has a beautiful UI layout, matching the color palette and styled with CSS.
 """
     try:
         content = await get_llm_completion(
@@ -586,8 +478,8 @@ Generate at least 3 files (README.md, src/App.tsx, and at least one custom compo
                 {
                     "role": "system",
                     "content": (
-                        "You are Sarthi's final compiler. Generate cohesive React/Tailwind prototype files "
-                        "from the chat, blueprint, selected theme, and connected architecture-agent context. "
+                        "You are Sarthi's final compiler. Generate cohesive Flask (Python) prototype files with "
+                        "HTML and CSS from the chat, blueprint, selected theme, and connected architecture-agent context. "
                         "Return only valid JSON."
                     )
                 },
@@ -630,7 +522,6 @@ Generate at least 3 files (README.md, src/App.tsx, and at least one custom compo
         logger.error(f"❌ [CODEBASE GENERATION FAILED] Error: {e} | Duration: {duration:.2f}s")
         return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context)
 
-
 FALLBACK_PROJECTS = {
     "startup": [
         {
@@ -668,6 +559,26 @@ FALLBACK_PROJECTS = {
                 "Unified Cohort Retention Chart: Matrix representation of active subscribers over time."
             ],
             "tech_stack": "TypeScript, Tailwind CSS, Recharts Graphics, FastAPI, PostgreSQL Relational Database, Redis Broker"
+        },
+        {
+            "name": "No-Code API Mocking & Webhook Server",
+            "idea": "A modular visual backend designer that allows hackathon developers to configure mock JSON REST endpoints, simulate dynamic delay latency, inspect incoming OAuth bearer headers, and trigger test webhooks without writing server code.",
+            "features": [
+                "Visual Endpoint Constructor: Map HTTP methods to custom JSON response templates.",
+                "Latency Simulator: Inject artificial delays to test client-side loading spinners.",
+                "Incoming Request Log: Inspect header tokens and body structures in real-time."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Node.js Express, MongoDB, Socket.io"
+        },
+        {
+            "name": "Subscription Optimizer & Churn Forecaster",
+            "idea": "A simulation control panel designed for SaaS startups to model pricing tier impacts and churn risk. It aggregates active user profiles, evaluates usage indicators, predicts drop-off trends, and recommends target promo offers to retain subscribers.",
+            "features": [
+                "Pricing Scenarios Modeler: Simulates user conversion rates when shifting pricing tiers.",
+                "Risk Analytics Engine: Flags accounts with declining login frequencies.",
+                "Discount Promos Generator: Tailors promo discounts based on customer churn profiles."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, Recharts Graphing, FastAPI, Python Scikit-learn"
         }
     ],
     "finance": [
@@ -706,6 +617,26 @@ FALLBACK_PROJECTS = {
                 "Group Activity Ledger: Auditable chronology detailing added expenses and settlements."
             ],
             "tech_stack": "React (Vite SPA), Tailwind CSS, FastAPI Backend, PostgreSQL Relational Database, JWT middleware guards"
+        },
+        {
+            "name": "AI Tax Planner & Deductions Locator",
+            "idea": "An automated micro-tax tracker that monitors freelancer income and detects deductible business expenses. It parses digital transaction records, matches vendor categories against local tax guidelines, and aggregates year-end estimates.",
+            "features": [
+                "Receipt Text Parser: Extract vendor and totals from uploaded documents.",
+                "Deduction Matching Engine: Flags tax write-off opportunities automatically.",
+                "Estimated Quarterly Calculator: Forecasts federal and state tax liabilities in real-time."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Python Flask, PostgreSQL, Tesseract OCR"
+        },
+        {
+            "name": "Gamified Investor Sandbox & Stock Simulator",
+            "idea": "A risk-free investment learning dashboard built for amateur investors. It provides mock currency credentials, updates asset prices using simulated live feeds, tracks portfolio values, and hosts group leaderboard trading challenges.",
+            "features": [
+                "Paper Trading Sandbox: Buy and sell options using mock cash balances.",
+                "Dynamic Market Simulator: Fluctuates stock valuations based on news sentiment indicators.",
+                "Peer Leaderboard Challenges: Real-time competitor standings and reward badges."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, Recharts Graphics, Node.js Express, MongoDB"
         }
     ],
     "health": [
@@ -744,6 +675,26 @@ FALLBACK_PROJECTS = {
                 "Active Share Sheet: Export workout routines as structured JSON configurations."
             ],
             "tech_stack": "TypeScript, Tailwind CSS, React Context, Node.js Express, MongoDB database"
+        },
+        {
+            "name": "NutriLog Food Scanner & Macro Tracker",
+            "idea": "A meal tracking assistant that helps users log food items and monitor macro goals. It uses mock photo scanner tools, evaluates nutrient densities, and visualizes weekly calorie balances.",
+            "features": [
+                "Appliance Macro Registry: Log protein, fat, and carb ratios easily.",
+                "Daily Calorie Score: Live counts tracking consumption against base limits.",
+                "Appliance Photo Simulator: Simulates image recognition to identify ingredients."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, React Context, Node.js, MongoDB database"
+        },
+        {
+            "name": "Sleep Phase Analyzer & Alarm Pacer",
+            "idea": "A sleep hygiene logging dashboard and timed alarm controller. It tracks user-reported sleep stages, logs caffeine intake triggers, maps daily sleep efficiency scores, and suggests paced routines to optimize recovery.",
+            "features": [
+                "Sleep Quality Log: Form recording sleep duration and morning fatigue levels.",
+                "Caffeine Decay Tracker: Calculates remaining caffeine levels in body based on time.",
+                "Paced Wind-Down Guides: Timed notifications prompting screen-free habits."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, LocalStorage APIs, Recharts, Zustand Stores"
         }
     ],
     "education": [
@@ -782,6 +733,26 @@ FALLBACK_PROJECTS = {
                 "Custom Pathway Builder: Drag-and-drop node tool enabling teachers to design roadmaps."
             ],
             "tech_stack": "React Flow Library, Tailwind CSS, Framer Motion, FastAPI, SQLite Relational Database"
+        },
+        {
+            "name": "Collaborative Study Lobby & Shared Notes",
+            "idea": "A real-time workspace for study groups to share notes and solve quizzes. It provides shared markdown editors, syncs group study timer clocks, and aggregates collective study statistics.",
+            "features": [
+                "Shared Markdown Pad: Simultaneous group note editing with user markers.",
+                "Group Focus Timer: Synchronized Pomodoro clock matching timers across group members.",
+                "Peer Study Leaderboard: Logs total active study minutes per student group."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, WebSockets, Node.js Express, Redis cache stores"
+        },
+        {
+            "name": "Code Quiz Sandbox & Technical Practice",
+            "idea": "An interactive platform for learning programming syntax and core algorithms. It provides structured language challenges, compiles code inputs locally in-browser, and charts syntax accuracy over time.",
+            "features": [
+                "Code Sandbox Console: Write JavaScript or Python snippets inside a Monaco editor.",
+                "Instant Syntax Validator: Client-side validator testing outputs against default conditions.",
+                "Coding Streaks Tracker: Visual calendar grid displaying consecutive daily practice sessions."
+            ],
+            "tech_stack": "React Flow Library, Monaco Editor, Tailwind CSS, localForage storage"
         }
     ],
     "productivity": [
@@ -820,6 +791,26 @@ FALLBACK_PROJECTS = {
                 "Clipboard Copy Formatter: Format updates as clean markdown bullet points for quick copies."
             ],
             "tech_stack": "Next.js SPA, Tailwind CSS, FastAPI Backend, SQLite relational storage, Redis pub/sub"
+        },
+        {
+            "name": "Digital Habit Builder & Streak Ledger",
+            "idea": "A habit formation assistant that logs daily checklists and tracks streaks. It allows users to set daily habits, configure notification reminders, and visualize check-in frequencies.",
+            "features": [
+                "Habit Check-In List: Simple list of daily tasks with checkbox completions.",
+                "Streak Calendar Matrix: Visualizes consecutive check-in streaks over months.",
+                "Appliance Webhook Hooks: Integrates with custom webhook routes on habit completions."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Zustand client stores, LocalStorage persistence"
+        },
+        {
+            "name": "Meeting Minutes Summarizer & Task Finder",
+            "idea": "An interactive coordination board that organizes team meeting transcripts and highlights task items. It takes raw meeting inputs, highlights key takeaways, and creates todo task cards.",
+            "features": [
+                "Transcript Text Parser: Extracts bulleted action items from transcripts.",
+                "Action Tasks Exporter: Single click button creating workspace board tickets.",
+                "Meeting Outcomes Dashboard: Displays meeting summaries, dates, and organizers."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, React Context, FastAPI, SQLite relational db"
         }
     ],
     "sustainability": [
@@ -851,13 +842,33 @@ FALLBACK_PROJECTS = {
             "name": "Energy Saver Utility Hub",
             "idea": "A smart home utility logger that monitors appliance power consumption and computes energy scores. It tracks appliance ratings, charts daily usage history, and suggests optimization steps to lower carbon outputs.",
             "features": [
-                "Appliance Power Registry: Form tracker logging appliances and standard wattage rates.",
-                "Usage Duration Log: Time input controllers recording hourly appliance activation stats.",
+                "Appliance Power Registry: Form tracker logging appliances and wattage rates.",
+                "Usage Duration Log: Time inputs recording hourly appliance activation stats.",
                 "Daily Energy Score: Algorithm computing household efficiency ratings out of 100.",
                 "Consumptions Column Chart: Recharts columns charting power usage patterns by hour.",
                 "Smart Saving Workflows: Push notifications prompting users to turn off heavy appliances."
             ],
             "tech_stack": "TypeScript, Tailwind CSS, ChartJS, Node.js Express, MongoDB, Redis cache"
+        },
+        {
+            "name": "Local Farmers Market Locator & Eco-Shop",
+            "idea": "A directory and map visualizer for local farmers markets and eco-friendly shops. It features category sorting, drop-off guidelines, and catalogs seasonal local produce items.",
+            "features": [
+                "Eco Map Dashboard: Visual Mapbox dashboard displaying farmers market pins.",
+                "Seasonal Produce Guide: Matrix grid highlighting local fruits/veggies in season.",
+                "Green Shop Reviews: Community reviews detailing sustainable shop practices."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Mapbox GL UI, FastAPI, PostgreSQL"
+        },
+        {
+            "name": "Water Conservation Monitor & Audit",
+            "idea": "An indoor water tracking application that logs household water consumption and schedules audit checks. It tracks appliance water flows, suggests conservation steps, and logs leak alerts.",
+            "features": [
+                "Appliance Flow Registry: Log kitchen, bathroom, and garden water usage inputs.",
+                "Consumptions Column Chart: Visualizes water use patterns by day and source.",
+                "Conservation Checklist: Interactive tasks detailing steps to lower home water bills."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, Recharts, FastAPI Backend, MongoDB Database"
         }
     ],
     "other": [
@@ -883,22 +894,52 @@ FALLBACK_PROJECTS = {
                 "Loopback Message Simulator: Automatically responds with simulated AI answers."
             ],
             "tech_stack": "React (Vite SPA), Tailwind CSS, WebSockets, Node.js, Redis cached logs"
+        },
+        {
+            "name": "Custom SVG Icons Editor & Code Compiler",
+            "idea": "An interactive SVG graphics editor and path compiler. It allows users to write custom SVG paths, adjust viewbox dimensions, inspect raw node hierarchies, and compile optimized XML code formats.",
+            "features": [
+                "Interactive Path Canvas: Render path edits dynamically with grid overlays.",
+                "SVG Node Tree Inspector: View tag hierarchies in collapsible tree panels.",
+                "Code Export Dialog: Quick copy options for React, Vue, or raw SVG formats."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Monaco Editor, LocalStorage APIs"
+        },
+        {
+            "name": "Markdown Blog Compiler & Static Previewer",
+            "idea": "A lightweight static markdown compiler designed for writers. It supports writing posts in markdown syntax, renders preview blocks in real-time, and generates static HTML package exports.",
+            "features": [
+                "Markdown Split-Screen Editor: Synchronized editor and markdown renderer views.",
+                "Blog Metadata Configurator: Form editor defining tags, authors, and cover image files.",
+                "Static Package Bundle Builder: Download static HTML/CSS template assets as a ZIP."
+            ],
+            "tech_stack": "React (Vite SPA), Tailwind CSS, Node.js Express, localForage"
+        },
+        {
+            "name": "Local Host DNS Mock & Redirect Panel",
+            "idea": "A local host routing manager and mockup portal. It configures target redirects, matches paths against local mock services, and prints debugging log streams.",
+            "features": [
+                "Redirect Router Table: Add source domain and redirect target address rows.",
+                "Path Matcher Engine: Custom regex matching rules for dynamic endpoint URLs.",
+                "Active Traffic Logs: Scroll view console detailing routed request methods and timestamps."
+            ],
+            "tech_stack": "TypeScript, Tailwind CSS, React Context, Node.js, SQLite"
         }
     ]
 }
 
 async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     """
-    Generate exactly 2 project suggestions in JSON format using Nvidia NIM,
+    Generate exactly 5 project suggestions in JSON format using Nvidia NIM / Google fallback,
     or fall back to the structured fallback lists.
     """
     category_lower = category.lower()
-    if not settings.NVIDIA_API_KEY:
-        logger.warning("NVIDIA_API_KEY not configured. Falling back to local structured suggestions.")
+    if not (settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+        logger.warning("No LLM keys configured. Falling back to local structured suggestions.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
     
     prompt = f"""
-You are Sarthi, an expert AI partner. Generate exactly 2 project suggestions for a hackathon under the category '{category}'.
+You are Sarthi, an expert AI partner. Generate exactly 5 project suggestions for a hackathon under the category '{category}'.
 Each suggestion must represent a detailed blueprint that can flow cleanly through Sarthi's connected agent pipeline.
 For each suggestion, provide:
 1. name (Project Name)
@@ -906,8 +947,11 @@ For each suggestion, provide:
 3. features (List of exactly 3 descriptive system features/modules, e.g., 'Real-time WebSocket dashboard with interactive SVG charts' - under 15 words each)
 4. tech_stack (Suggested Tech Stack, e.g. "React, Tailwind CSS, FastAPI, MongoDB")
 
-Return your output ONLY as a valid JSON array of objects. Do not include markdown code block syntax. Just return the raw JSON.
-The JSON must match this structure:
+CRITICAL: Return your output ONLY as a valid JSON array of objects.
+- NO trailing commas.
+- Escape all quotes inside strings.
+- Do not wrap in markdown code blocks. Just raw JSON.
+The JSON must match this structure exactly:
 [
   {{
     "name": "Project Name",
@@ -927,7 +971,7 @@ The JSON must match this structure:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are Sarthi's blueprint ideation agent. Produce detailed suggestions."
+                    "content": "You are Sarthi's blueprint ideation agent. You must output ONLY strict, valid JSON. No conversational text."
                 },
                 {"role": "user", "content": prompt}
             ],
@@ -947,9 +991,9 @@ The JSON must match this structure:
         if isinstance(data, list) and len(data) > 0:
             return data
         else:
-            raise ValueError("Invalid suggestions format returned by NIM model")
+            raise ValueError("Invalid suggestions format returned by model")
     except Exception as e:
-        logger.error(f"Error generating suggestions from NIM: {e}. Falling back.")
+        logger.error(f"Error generating suggestions from LLM: {e}. Falling back.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
 
 def get_fallback_chat_reply(category: str, user_text: str, selected_project: dict = None) -> str:
@@ -987,43 +1031,14 @@ def get_fallback_codebase(
     
     theme_lower = (theme or "").lower()
     
-    # Default is Minimal Slate
-    bg_class = "bg-slate-50 text-slate-800"
-    header_class = "text-slate-900"
-    subtext_class = "text-slate-500"
-    card_class = "bg-white border-slate-100"
-    primary_btn = "bg-indigo-600 hover:bg-indigo-700 text-white"
-    badge_class = "bg-indigo-50 text-indigo-700 border-indigo-100"
-    mrr_card_class = "bg-indigo-50 border-indigo-100 text-indigo-900"
-    churn_card_class = "bg-rose-50 border-rose-100 text-rose-900"
-    
+    # Default color styles
+    theme_color = "indigo"
     if "emerald" in theme_lower or "sage" in theme_lower or "green" in theme_lower:
-        bg_class = "bg-emerald-50 text-emerald-900"
-        header_class = "text-emerald-950"
-        subtext_class = "text-emerald-700"
-        card_class = "bg-white border-emerald-100"
-        primary_btn = "bg-emerald-600 hover:bg-emerald-700 text-white"
-        badge_class = "bg-emerald-100 text-emerald-800 border-emerald-200"
-        mrr_card_class = "bg-emerald-50 border-emerald-100 text-emerald-900"
-        churn_card_class = "bg-amber-50 border-amber-100 text-amber-900"
+        theme_color = "emerald"
     elif "synthwave" in theme_lower or "dark" in theme_lower or "cyber" in theme_lower or "neon" in theme_lower:
-        bg_class = "bg-slate-950 text-slate-100"
-        header_class = "text-pink-500"
-        subtext_class = "text-indigo-430"
-        card_class = "bg-slate-900 border-slate-800"
-        primary_btn = "bg-pink-600 hover:bg-pink-700 text-white"
-        badge_class = "bg-indigo-950 text-indigo-300 border-indigo-900"
-        mrr_card_class = "bg-slate-900 border-pink-500/30 text-pink-400"
-        churn_card_class = "bg-slate-900 border-cyan-500/30 text-cyan-400"
+        theme_color = "pink"
     elif "warm" in theme_lower or "sunrise" in theme_lower or "orange" in theme_lower:
-        bg_class = "bg-stone-50 text-stone-900"
-        header_class = "text-orange-950"
-        subtext_class = "text-stone-600"
-        card_class = "bg-white border-stone-150"
-        primary_btn = "bg-orange-600 hover:bg-orange-700 text-white"
-        badge_class = "bg-orange-50 text-orange-850 border-orange-200"
-        mrr_card_class = "bg-orange-50 border-orange-100 text-orange-900"
-        churn_card_class = "bg-amber-50 border-amber-150 text-amber-900"
+        theme_color = "orange"
 
     blueprint_json_str = json.dumps(blueprint, indent=2) if blueprint else "None"
     theme_palette_json_str = json.dumps(theme_palette, indent=2) if theme_palette else "None"
@@ -1059,265 +1074,85 @@ Welcome to your customized Sarthi hackathon prototype!
 ```
 
 ## Highlights
-- Custom dashboard elements with seamless state synchronization.
-- Built with high-fidelity React components.
-- Uses Sarthi architecture memory, optimization guidance, and code-generation planning context when available.
-- Modern modular code files, fully ready to build.
+- Clean Flask backend routes with dynamic JSON response serialization.
+- Fully styled HTML / Tailwind CSS dashboard layout.
+- Designed as a rapid prototype for hackathon pitches.
 
 ## Getting Started
-1. Run `npm install`
-2. Run `npm run dev`
-3. Deploy immediately for your hackathon pitch!"""
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Start the Flask server:
+   ```bash
+   python app.py
+   ```
+3. Open `http://localhost:5000` in your web browser.
+"""
     }
-    
-    if normalized_category == "startup":
-        codebase = [
-            readme,
-            {
-                "name": "App.tsx",
-                "path": "src/App.tsx",
-                "language": "typescript",
-                "content": f"""import React, {{ useState }} from 'react';
-import SaaSMetrics from './components/SaaSMetrics';
 
-export default function App() {{
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-8">
-      <header className="max-w-4xl mx-auto mb-8 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">{capital_name}</h1>
-          <p className="text-slate-500">Startup Launch Platform</p>
+    index_html = {
+        "name": "index.html",
+        "path": "templates/index.html",
+        "language": "html",
+        "content": f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{capital_name} - Sarthi Prototype</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{{{ url_for('static', filename='style.css') }}}}">
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+    <header class="bg-white border-b border-slate-200/85 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-{theme_color}-600 tracking-tight">{capital_name}</h1>
+            <span class="px-3 py-1 bg-{theme_color}-50 text-{theme_color}-750 text-xs font-semibold rounded-full border border-{theme_color}-100">Prototype ({category})</span>
         </div>
-      </header>
-      
-      <main className="max-w-4xl mx-auto">
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
-          <h2 className="text-xl font-semibold mb-6">SaaS Metric Dashboard</h2>
-          <SaaSMetrics />
-        </section>
-      </main>
-    </div>
-  );
-}}"""
-            },
-            {
-                "name": "SaaSMetrics.tsx",
-                "path": "src/components/SaaSMetrics.tsx",
-                "language": "typescript",
-                "content": """import React, { useState } from 'react';
+    </header>
 
-export default function SaaSMetrics() {
-  const [mrr, setMrr] = useState(12500);
-  const [churn, setChurn] = useState(2.4);
+    <main class="max-w-4xl mx-auto px-6 py-12 flex-1 w-full">
+        <div class="bg-white border border-slate-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
+            <h2 class="text-2xl font-bold text-slate-900 mb-4">{capital_name} Dashboard</h2>
+            <p class="text-slate-600 mb-6 leading-relaxed">This prototype is powered by a Flask backend and styled using HTML and Tailwind CSS.</p>
+            
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="p-4 bg-{theme_color}-50/50 rounded-xl border border-{theme_color}-100">
+                    <p class="text-xs text-{theme_color}-600 font-semibold uppercase">Category</p>
+                    <h3 class="text-lg font-bold text-slate-800 mt-1 capitalize">{category}</h3>
+                </div>
+                <div class="p-4 bg-stone-50 rounded-xl border border-stone-200">
+                    <p class="text-xs text-stone-500 font-semibold uppercase">Theme</p>
+                    <h3 class="text-lg font-bold text-slate-800 mt-1">{theme or 'Slate Minimal'}</h3>
+                </div>
+            </div>
 
-  return (
-    <div className="w-full max-w-lg">
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-          <p className="text-xs text-indigo-600 font-semibold uppercase">Monthly Recurring Revenue</p>
-          <h3 className="text-2xl font-extrabold text-indigo-900 mt-1">${mrr.toLocaleString()}</h3>
+            <div class="p-6 bg-slate-50 rounded-xl border border-slate-100 mb-6">
+                <h3 class="font-semibold text-slate-850 mb-2">Flask Router Status:</h3>
+                <code class="text-xs font-mono text-{theme_color}-600">GET /api/v1/health -> returns healthy status</code>
+            </div>
+            
+            <div class="flex gap-4">
+                <button onclick="checkHealth()" class="px-5 py-2.5 bg-{theme_color}-600 hover:bg-{theme_color}-700 text-white font-medium rounded-xl transition-all cursor-pointer shadow-sm">Check Backend Health</button>
+            </div>
+            <div id="health-result" class="mt-4 p-4 bg-stone-900 text-stone-100 rounded-xl text-xs font-mono hidden"></div>
         </div>
-        <div className="p-4 bg-rose-50 rounded-xl border border-rose-100">
-          <p className="text-xs text-rose-600 font-semibold uppercase">Customer Churn Rate</p>
-          <h3 className="text-2xl font-extrabold text-rose-900 mt-1">{churn}%</h3>
-        </div>
-      </div>
-      
-      <div className="bg-stone-50 p-4 rounded-xl border border-stone-200">
-        <label className="text-xs font-semibold text-stone-500 block mb-2">Simulate MRR Growth</label>
-        <input 
-          type="range" 
-          min="5000" 
-          max="50000" 
-          step="1000" 
-          value={mrr} 
-          onChange={(e) => setMrr(parseInt(e.target.value))}
-          className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-        />
-        <div className="flex justify-between text-[10px] text-stone-400 mt-1">
-          <span>$5k</span>
-          <span>$50k</span>
-        </div>
-      </div>
-    </div>
-  );
-}"""
-            }
-        ]
-    elif normalized_category == "finance":
-        codebase = [
-            readme,
-            {
-                "name": "Dashboard.tsx",
-                "path": "src/Dashboard.tsx",
-                "language": "typescript",
-                "content": f"""import React, {{ useState }} from 'react';
-import SavingsCalculator from './SavingsCalculator';
+    </main>
 
-export default function Dashboard() {{
-  const [balance, setBalance] = useState(2450.75);
-  
-  return (
-    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-200/60 max-w-xl mx-auto shadow-sm">
-      <h2 className="text-2xl font-bold font-display text-indigo-900 mb-2">{capital_name} Planner</h2>
-      <p className="text-stone-500 mb-6">Financial tracking & budget optimization</p>
-      
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="p-4 bg-white rounded-2xl border border-stone-100">
-          <span className="text-xs text-stone-400 font-medium uppercase tracking-wide">Total Balance</span>
-          <p className="text-xl font-bold text-stone-800 mt-1">${{balance.toFixed(2)}}</p>
-        </div>
-        <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-          <span className="text-xs text-indigo-500 font-medium uppercase tracking-wide">AI Health Score</span>
-          <p className="text-xl font-bold text-indigo-700 mt-1">Excellent (94%)</p>
-        </div>
-      </div>
-      
-      <SavingsCalculator onSavings={{(amount) => setBalance(prev => prev + amount)}} />
-    </div>
-  );
-}}"""
-            },
-            {
-                "name": "SavingsCalculator.tsx",
-                "path": "src/components/SavingsCalculator.tsx",
-                "language": "typescript",
-                "content": """import React, { useState } from 'react';
+    <footer class="bg-white border-t border-slate-200/60 py-6 text-center text-xs text-slate-400">
+        <p>&copy; 2026 {capital_name}. Powered by Sarthi.</p>
+    </footer>
 
-interface Props {
-  onSavings: (amount: number) => void;
-}
-
-export default function SavingsCalculator({ onSavings }: Props) {
-  const [deposit, setDeposit] = useState('');
-  
-  const handleSave = () => {
-    const val = parseFloat(deposit);
-    if (!isNaN(val) && val > 0) {
-      onSavings(val);
-      setDeposit('');
+    <script src="{{{{ url_for('static', filename='script.js') }}}}"></script>
+</body>
+</html>"""
     }
-  };
 
-  return (
-    <div className="bg-white p-4 rounded-2xl border border-stone-100">
-      <h3 className="text-sm font-semibold text-stone-700 mb-3">Add to Micro-Savings</h3>
-      <div className="flex gap-2">
-        <input 
-          type="number" 
-          value={deposit}
-          onChange={(e) => setDeposit(e.target.value)}
-          placeholder="Amount (e.g. 50)"
-          className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <button 
-          onClick={handleSave}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
-        >
-          Save Now
-        </button>
-      </div>
-    </div>
-  );
-}"""
-            }
-        ]
-    elif normalized_category == "health":
-        codebase = [
-            readme,
-            {
-                "name": "App.tsx",
-                "path": "src/App.tsx",
-                "language": "typescript",
-                "content": f"""import React, {{ useState }} from 'react';
-import BreathingRing from './components/BreathingRing';
-
-export default function App() {{
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-8">
-      <header className="max-w-4xl mx-auto mb-8 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">{capital_name}</h1>
-          <p className="text-slate-500">Your health companion</p>
-        </div>
-      </header>
-      
-      <main className="max-w-4xl mx-auto">
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
-          <h2 className="text-xl font-semibold mb-6">Paced Breathing Ring</h2>
-          <BreathingRing />
-        </section>
-      </main>
-    </div>
-  );
-}}"""
-            },
-            {
-                "name": "BreathingRing.tsx",
-                "path": "src/components/BreathingRing.tsx",
-                "language": "typescript",
-                "content": """import React, { useState, useEffect } from 'react';
-
-export default function BreathingRing() {
-  const [phase, setPhase] = useState<'Inhale' | 'Hold' | 'Exhale'>('Inhale');
-  const [seconds, setSeconds] = useState(4);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSeconds((prev) => {
-        if (prev <= 1) {
-          if (phase === 'Inhale') { setPhase('Hold'); return 4; }
-          if (phase === 'Hold') { setPhase('Exhale'); return 4; }
-          if (phase === 'Exhale') { setPhase('Inhale'); return 4; }
-        }
-        return prev - 1; 
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [phase]);
-
-  return (
-    <div className="flex flex-col items-center justify-center p-4">
-      <div className="w-44 h-44 rounded-full flex items-center justify-center bg-emerald-50 border-4 border-emerald-250 shadow-md">
-        <div className="text-center">
-          <h3 className="text-2xl font-bold text-slate-800">{phase}</h3>
-          <p className="text-slate-500 font-mono text-lg">{seconds}s</p>
-        </div>
-      </div>
-    </div>
-  );
-}"""
-            }
-        ]
-    else:
-        codebase = [
-            readme,
-            {
-                "name": "InteractiveBox.tsx",
-                "path": "src/InteractiveBox.tsx",
-                "language": "typescript",
-                "content": f"""import React, {{ useState }} from 'react';
-
-export default function InteractiveBox() {{
-  const [clicks, setClicks] = useState(0);
-  return (
-    <div className="p-6 bg-white rounded-3xl border border-stone-200/60 max-w-xs mx-auto text-center">
-      <h3 className="text-lg font-bold font-display text-indigo-900 mb-2">{capital_name} Hub</h3>
-      <p className="text-xs text-stone-400 mb-6">Custom compiled hackathon module</p>
-      <button 
-        onClick={{() => setClicks(c => c + 1)}}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl py-3 text-sm font-semibold transition-all hover:shadow-lg active:scale-95"
-      >
-        Trigger Action ({{clicks}})
-      </button>
-    </div>
-  );
-}}"""
-            }
-        ]
-        
+    codebase = [readme, index_html]
     return {
-        "summary": f"This is a prototype workspace for {capital_name} generated dynamically based on design requirements.",
+        "summary": f"This is a Flask prototype workspace for {capital_name} generated dynamically based on design requirements.",
         "codebase": inject_boilerplate_files(codebase, name, architecture_context)
     }
 
@@ -1660,3 +1495,154 @@ def get_fallback_theme_suggestions(blueprint: dict, custom_prompt: str = None) -
                 }
             }
         ]
+
+async def generate_prd_mrd_trd(project_name: str, prompt: str) -> Dict[str, str]:
+    """
+    Generate high-quality PRD, MRD, and TRD markdown files in parallel.
+    """
+    import asyncio
+    
+    # 1. PRD Prompt
+    prd_system = (
+        "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
+        "in Markdown format for the proposed project."
+    )
+    prd_user = f"""
+    Project Name: {project_name}
+    Project Core Idea/Description: {prompt}
+    
+    Write a detailed PRD containing the following sections:
+    # Product Requirement Document (PRD) - {project_name}
+    ## 1. Executive Summary & Objectives
+    What problem are we solving? What are the core goals and metrics of this product?
+    ## 2. Target Audience & User Personas
+    Who are the target users? Detail at least two user personas.
+    ## 3. Product Scope & Out of Scope
+    What are the minimum viable features (MVP)? What features are deferred to V2?
+    ## 4. Key Functional Features
+    Detail user flows, requirements, and specifications for each core feature.
+    ## 5. Non-Functional Requirements
+    Usability, accessibility, responsiveness, performance parameters.
+    ## 6. Success Metrics & Key Performance Indicators (KPIs)
+    What does success look like? What metrics should we track?
+    
+    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
+    """
+
+    # 2. MRD Prompt
+    mrd_system = (
+        "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
+        "in Markdown format for the proposed project."
+    )
+    mrd_user = f"""
+    Project Name: {project_name}
+    Project Core Idea/Description: {prompt}
+    
+    Write a detailed MRD containing the following sections:
+    # Market Requirement Document (MRD) - {project_name}
+    ## 1. Market Opportunity & Size
+    Define the target addressable market (TAM), serviceable addressable market (SAM), and serviceable obtainable market (SOM).
+    ## 2. Competitor Landscape & Differentiation
+    Identify at least three competitors (direct and indirect). What is our unique selling proposition (USP)?
+    ## 3. Positioning & Messaging
+    How will we position the product in the market? Include key brand pillars.
+    ## 4. Go-To-Market (GTM) Strategy
+    What marketing channels, content strategies, and acquisition tactics will we employ?
+    ## 5. Pricing & Monetization Model
+    How will the product generate revenue? Describe subscription tiers or transaction models.
+    
+    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
+    """
+
+    # 3. TRD Prompt
+    trd_system = (
+        "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
+        "in Markdown format for the proposed project."
+    )
+    trd_user = f"""
+    Project Name: {project_name}
+    Project Core Idea/Description: {prompt}
+    
+    Write a detailed TRD containing the following sections:
+    # Technical Requirement Document (TRD) - {project_name}
+    ## 1. Architectural Overview & System Design
+    Describe the high-level system architecture, client-server models, and design patterns.
+    ## 2. Tech Stack & Dependencies
+    What frontend libraries, backend frameworks, databases, and third-party APIs are required? Explain why.
+    ## 3. Database Schema & Data Models
+    Provide a detailed database schema. List entities, properties, data types, and relations.
+    ## 4. API Endpoints & Payload Contracts
+    Define REST/WebSocket routes (methods, paths, request bodies, response payloads).
+    ## 5. Security, Authentication & Compliance
+    JWT policies, rate limiting, encryption at rest/transit, GDPR/compliance notes.
+    ## 6. Deployment, Infrastructure & CI/CD
+    Docker configurations, cloud providers, caching layers (Redis), and pipeline steps.
+    
+    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
+    """
+
+
+    async def run_prd():
+        try:
+            return await get_llm_completion(
+                agent_name="PlannerAgent",
+                messages=[
+                    {"role": "system", "content": prd_system},
+                    {"role": "user", "content": prd_user}
+                ],
+                temperature=0.3,
+                max_tokens=3500
+            )
+        except Exception as e:
+            logger.error(f"PRD Generation failed: {e}")
+            return f"# PRD - {project_name}\\n\\nFailed to generate Product Requirement Document: {e}"
+
+    async def run_mrd():
+        try:
+            return await get_llm_completion(
+                agent_name="PlannerAgent",
+                messages=[
+                    {"role": "system", "content": mrd_system},
+                    {"role": "user", "content": mrd_user}
+                ],
+                temperature=0.3,
+                max_tokens=3500
+            )
+        except Exception as e:
+            logger.error(f"MRD Generation failed: {e}")
+            return f"# MRD - {project_name}\\n\\nFailed to generate Market Requirement Document: {e}"
+
+    async def run_trd():
+        try:
+            return await get_llm_completion(
+                agent_name="PlannerAgent",
+                messages=[
+                    {"role": "system", "content": trd_system},
+                    {"role": "user", "content": trd_user}
+                ],
+                temperature=0.3,
+                max_tokens=3500
+            )
+        except Exception as e:
+            logger.error(f"TRD Generation failed: {e}")
+            return f"# TRD - {project_name}\\n\\nFailed to generate Technical Requirement Document: {e}"
+
+    prd_doc, mrd_doc, trd_doc = await asyncio.gather(run_prd(), run_mrd(), run_trd())
+    
+    def clean_doc(doc: str) -> str:
+        d = doc.strip()
+        if d.startswith("```"):
+            lines = d.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            d = "\\n".join(lines).strip()
+        return d
+        
+    return {
+        "prd": clean_doc(prd_doc),
+        "mrd": clean_doc(mrd_doc),
+        "trd": clean_doc(trd_doc)
+    }
+

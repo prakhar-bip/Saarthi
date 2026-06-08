@@ -37,96 +37,116 @@ class DatabaseArchitectureAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design the database architecture layer for backend, API, authentication, frontend, state, testing, and validation agents."
+            (
+                "## Role\n"
+                "You are a senior database architect. Design the complete persistence layer: entities, fields, relationships, indexes, caching, and data contracts that all downstream agents will consume.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: first choose the primary database based on the tech stack, then derive entities from requirements.database_requirements.entities and core_modules, then define fields with proper types and constraints, then map relationships.\n"
+                "2. Every entity MUST have: id (primary key), created_at (timestamp). Include foreign key fields for relationships.\n"
+                "3. Apply 3NF normalization for relational DBs. For document DBs, design embedded vs referenced patterns explicitly.\n"
+                "4. Index all foreign keys and fields used in WHERE/ORDER BY clauses.\n"
+                "5. backend_integration_context and api_integration_context are critical contracts — downstream agents rely on these names exactly.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- Entity names must be PascalCase. Field names must be snake_case.\n"
+                "- field.type must be one of: UUID, ObjectID, String, Integer, Decimal, Boolean, DateTime, JSON, Text.\n"
+                "- relationship_type must be one of: One-to-One, One-to-Many, Many-to-Many."
+            )
         )
 
         user_content = f"""
-Analyze the following inputs:
+Design the database architecture for this project. Think step by step:
+1. Choose the primary database from requirements.tech_stack.database. Justify the choice.
+2. Derive entities from requirements.database_requirements.entities — create complete field definitions for each.
+3. Map relationships between entities (include foreign key fields in the child entity).
+4. Design indexes for all foreign keys, unique fields, and frequently queried columns.
+5. Define integration contracts that downstream BackendArchitectureAgent, APIAgent, and FrontendArchitectureAgent will consume.
+
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "database_strategy": {{
-    "primary_database": "PostgreSQL / MongoDB / etc.",
-    "secondary_databases": [],
-    "cache_layer": "Redis / Memcached / None",
-    "vector_database": "Pinecone / pgvector / None",
-    "database_reasoning": ["Reason 1"]
+    "primary_database": "string — exact DB name, e.g. 'PostgreSQL', 'MongoDB', 'SQLite'",
+    "secondary_databases": ["string — additional DBs if needed, otherwise []"],
+    "cache_layer": "string — 'Redis', 'Memcached', or 'None'",
+    "vector_database": "string — 'pgvector', 'Pinecone', or 'None'",
+    "database_reasoning": ["string — 1-3 justifications for the database choices"]
   }},
   "entities": [
     {{
-      "entity_name": "User",
-      "entity_type": "Table / Collection",
-      "description": "User profile table",
+      "entity_name": "string — PascalCase entity name",
+      "entity_type": "string — 'Table' for SQL, 'Collection' for NoSQL",
+      "description": "string — what this entity stores",
       "fields": [
         {{
-          "name": "id",
-          "type": "UUID / String / Integer",
-          "required": true,
-          "unique": true,
-          "indexed": true,
-          "default": "uuid_generate_v4()"
+          "name": "string — snake_case field name",
+          "type": "string — one of: UUID, ObjectID, String, Integer, Decimal, Boolean, DateTime, JSON, Text",
+          "required": "boolean",
+          "unique": "boolean",
+          "indexed": "boolean",
+          "default": "string or null — default value expression"
         }}
       ]
     }}
   ],
   "relationships": [
     {{
-      "from_entity": "User",
-      "to_entity": "Portfolio",
-      "relationship_type": "One-to-Many / One-to-One",
-      "description": "A user has one or more portfolios"
+      "from_entity": "string — parent entity PascalCase name",
+      "to_entity": "string — child entity PascalCase name",
+      "relationship_type": "string — 'One-to-One', 'One-to-Many', or 'Many-to-Many'",
+      "description": "string — describes the relationship"
     }}
   ],
   "authentication_storage": {{
-    "required": true,
-    "auth_entities": ["User"],
-    "security_requirements": ["Hash passwords using bcrypt", "Encrypt refresh tokens"],
-    "token_storage_strategy": "Store active JWT refresh tokens in Redis cache"
+    "required": "boolean",
+    "auth_entities": ["string — entities storing credentials"],
+    "security_requirements": ["string — hashing, encryption rules"],
+    "token_storage_strategy": "string — where/how tokens are persisted"
   }},
   "indexing_strategy": {{
-    "indexes": ["idx_users_email"],
-    "search_optimization": [],
-    "vector_indexes": []
+    "indexes": ["string — index names in format idx_tablename_column"],
+    "search_optimization": ["string — full-text or search index descriptions"],
+    "vector_indexes": ["string — vector index descriptions, or []"]
   }},
   "realtime_architecture": {{
-    "required": false,
-    "sync_strategy": [],
-    "event_driven_entities": []
+    "required": "boolean",
+    "sync_strategy": ["string — how realtime data sync works"],
+    "event_driven_entities": ["string — entities triggering realtime events"]
   }},
   "scalability_strategy": {{
-    "horizontal_scaling": false,
-    "sharding_required": false,
-    "high_write_load_entities": [],
-    "caching_targets": []
+    "horizontal_scaling": "boolean",
+    "sharding_required": "boolean",
+    "high_write_load_entities": ["string — entities with frequent writes"],
+    "caching_targets": ["string — data worth caching"]
   }},
   "backend_integration_context": {{
-    "important_models": ["UserModel", "PortfolioModel"],
-    "service_dependencies": [],
-    "repository_patterns": ["UserRepository", "PortfolioRepository"]
+    "important_models": ["string — ORM model class names: EntityNameModel"],
+    "service_dependencies": ["string — infrastructure services needed"],
+    "repository_patterns": ["string — repository class names: EntityNameRepository"]
   }},
   "api_integration_context": {{
-    "crud_entities": ["User", "Portfolio"],
-    "protected_entities": ["Portfolio"],
-    "high_frequency_routes": ["GET /api/portfolio/stats"]
+    "crud_entities": ["string — entities needing CRUD endpoints"],
+    "protected_entities": ["string — entities requiring auth to access"],
+    "high_frequency_routes": ["string — METHOD /path for frequently called routes"]
   }},
   "frontend_data_contracts": {{
-    "stateful_entities": ["User", "Portfolio"],
-    "realtime_entities": [],
-    "dashboard_entities": ["Portfolio"]
+    "stateful_entities": ["string — entities stored in frontend state"],
+    "realtime_entities": ["string — entities updated via WebSocket"],
+    "dashboard_entities": ["string — entities displayed on dashboards"]
   }},
   "workflow_mappings": [
     {{
-      "workflow": "User registration",
-      "database_interactions": ["Insert into User table"]
+      "workflow": "string — user workflow name",
+      "database_interactions": ["string — specific DB operations for this workflow"]
     }}
   ],
   "future_agent_context": {{
-    "important_notes_for_backend_agents": ["Implement soft deletes on User table"],
-    "important_notes_for_api_agents": [],
-    "important_notes_for_frontend_agents": []
+    "important_notes_for_backend_agents": ["string — ORM/ODM guidance"],
+    "important_notes_for_api_agents": ["string — endpoint design notes"],
+    "important_notes_for_frontend_agents": ["string — data fetching notes"]
   }}
 }}
 """

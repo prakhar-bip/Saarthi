@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { SarthiLogo, CategoryIcon, EmptyStateIllustration } from "./CustomSvgs";
-import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose } from "lucide-react";
+import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2 } from "lucide-react";
 
 export const Sidebar: React.FC = () => {
   const {
@@ -24,10 +24,14 @@ export const Sidebar: React.FC = () => {
     setCurrentCategory,
     clearSuggestions,
     showLeftPane,
-    setShowLeftPane
+    setShowLeftPane,
+    renameChat,
+    renameProject
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"chats" | "projects">("chats");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const handleAuthClick = () => {
     setAuthMode("login");
@@ -211,22 +215,60 @@ export const Sidebar: React.FC = () => {
                         >
                           <CategoryIcon category={c.category} className="w-4 h-4" />
                         </motion.div>
-                        <div className="overflow-hidden">
-                          <p className="text-xs font-semibold truncate leading-tight">{c.title}</p>
+                        <div className="overflow-hidden flex-1">
+                          {editingId === c.id ? (
+                            <input 
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  renameChat(c.id, editValue);
+                                  setEditingId(null);
+                                } else if (e.key === 'Escape') {
+                                  setEditingId(null);
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-indigo-400"
+                            />
+                          ) : (
+                            <p className="text-xs font-semibold truncate leading-tight" title={c.title}>{c.title}</p>
+                          )}
                           <span className="text-[9px] text-stone-400 block mt-0.5">{c.created}</span>
                         </div>
                       </div>
-                      <motion.button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteChat(c.id);
-                        }}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.85 }}
-                        className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50/80 transition-all cursor-pointer opacity-60 hover:opacity-100 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </motion.button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (editingId === c.id) {
+                              renameChat(c.id, editValue);
+                              setEditingId(null);
+                            } else {
+                              setEditingId(c.id);
+                              setEditValue(c.title);
+                            }
+                          }}
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.85 }}
+                          className="p-1 rounded-md text-stone-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </motion.button>
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChat(c.id);
+                          }}
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.85 }}
+                          className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </motion.button>
+                      </div>
                     </motion.div>
                   );
                 })
@@ -277,7 +319,26 @@ export const Sidebar: React.FC = () => {
                         <CategoryIcon category={p.category} className="w-4 h-4" />
                       </div>
                       <div className="overflow-hidden flex-1 min-w-0">
-                        <p className="text-xs font-semibold truncate leading-tight">{p.name}</p>
+                        {editingId === p.id ? (
+                          <input 
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                renameProject(p.id, editValue);
+                                setEditingId(null);
+                              } else if (e.key === 'Escape') {
+                                setEditingId(null);
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            autoFocus
+                            className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-indigo-400 mb-1"
+                          />
+                        ) : (
+                          <p className="text-xs font-semibold truncate leading-tight" title={p.name}>{p.name}</p>
+                        )}
                         {isCompiling ? (
                           <div className="mt-1">
                             {/* Live progress bar strip */}
@@ -297,17 +358,36 @@ export const Sidebar: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <motion.button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteProject(p.id);
-                      }}
-                      whileHover={{ scale: 1.15 }}
-                      whileTap={{ scale: 0.85 }}
-                      className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50/80 transition-all cursor-pointer opacity-60 hover:opacity-100 group-hover:opacity-100 ml-1 shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </motion.button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (editingId === p.id) {
+                            renameProject(p.id, editValue);
+                            setEditingId(null);
+                          } else {
+                            setEditingId(p.id);
+                            setEditValue(p.name);
+                          }
+                        }}
+                        whileHover={{ scale: 1.15 }}
+                        whileTap={{ scale: 0.85 }}
+                        className="p-1 rounded-md text-stone-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </motion.button>
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteProject(p.id);
+                        }}
+                        whileHover={{ scale: 1.15 }}
+                        whileTap={{ scale: 0.85 }}
+                        className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </motion.button>
+                    </div>
                   </motion.div>
                 );
               })

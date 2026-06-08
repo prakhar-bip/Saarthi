@@ -4,12 +4,28 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project } from "@/context/WorkspaceContext";
 import { CategoryIcon, CircuitDecor } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus } from "lucide-react";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 export const ProjectViewer: React.FC = () => {
-  const { chats, activeChatId, projects, activeProjectId, generateProject, isGeneratingProject, setShowRightPane, updateProject } = useWorkspace();
+  const { 
+    chats, 
+    activeChatId, 
+    projects, 
+    activeProjectId, 
+    generateProject, 
+    compileProjectCodebase,
+    isGeneratingProject, 
+    setShowRightPane, 
+    updateProject,
+    updateChatSelectedProject,
+    suggestions,
+    isFetchingSuggestions,
+    fetchSuggestions
+  } = useWorkspace();
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd">("prd");
 
   // Theme selection states
   const [viewStage, setViewStage] = useState<"blueprint" | "theme">("blueprint");
@@ -19,11 +35,19 @@ export const ProjectViewer: React.FC = () => {
   const [activePreviewPage, setActivePreviewPage] = useState<"home" | "dashboard" | "analytics" | "settings" | "login">("home");
   const [customThemeInput, setCustomThemeInput] = useState("");
 
+  // Custom project blueprint form and tab states
+  const [sidebarTab] = useState<"custom">("custom");
+  const [customName, setCustomName] = useState("");
+  const [customIdea, setCustomIdea] = useState("");
+  const [customFeatures, setCustomFeatures] = useState<string[]>(["", "", ""]);
+  const [customTechStack, setCustomTechStack] = useState("React, Tailwind CSS, Node.js");
+
   // Export action states
   const [isDownloading, setIsDownloading] = useState(false);
   const [isPushingToGithub, setIsPushingToGithub] = useState(false);
   const [githubResult, setGithubResult] = useState<{ url: string; error?: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const lastParsedMessageIdRef = useRef<string | null>(null);
 
   const handleSuggestMoreThemes = async () => {
     if (!activeChatId) return;
@@ -70,6 +94,37 @@ export const ProjectViewer: React.FC = () => {
   const activeProj = projects.find((p) => p.id === (activeProjectId || activeChat?.project_id)) ||
     (activeChatId ? projects.find((p) => p.chat_id === activeChatId) : undefined);
 
+  useEffect(() => {
+    if (!activeChat || !activeChat.messages || activeChat.messages.length === 0) return;
+
+    // Find the latest AI message containing a blueprint block
+    const latestAiMessage = [...activeChat.messages]
+      .reverse()
+      .find((m) => m.sender === "ai" && m.text.includes("<blueprint>"));
+
+    if (latestAiMessage && latestAiMessage.id !== lastParsedMessageIdRef.current) {
+      lastParsedMessageIdRef.current = latestAiMessage.id;
+      
+      // Extract the block content
+      const match = latestAiMessage.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
+      if (match && match[1]) {
+        try {
+          const parsed = JSON.parse(match[1].trim());
+          if (parsed.name) setCustomName(parsed.name);
+          if (parsed.idea) setCustomIdea(parsed.idea);
+          if (parsed.features && Array.isArray(parsed.features)) {
+            const newFeatures = [...parsed.features];
+            while (newFeatures.length < 3) newFeatures.push("");
+            setCustomFeatures(newFeatures);
+          }
+          if (parsed.tech_stack) setCustomTechStack(parsed.tech_stack);
+        } catch (err) {
+          console.error("Failed to parse blueprint JSON from message:", err);
+        }
+      }
+    }
+  }, [activeChat?.messages]);
+
   // Animated counter for progress percentage
   const progressCount = useMotionValue(0);
   const progressRounded = useTransform(progressCount, Math.round);
@@ -84,6 +139,12 @@ export const ProjectViewer: React.FC = () => {
     setViewStage("blueprint");
     setGithubResult(null);
   }, [activeChatId]);
+
+  useEffect(() => {
+    if (activeChat && !activeChat.selected_project && activeChat.category && suggestions.length === 0) {
+      fetchSuggestions(activeChat.category);
+    }
+  }, [activeChat?.id, activeChat?.selected_project, activeChat?.category, suggestions.length]);
 
   // WebSocket: connect when a project is generating, disconnect when done
   useEffect(() => {
@@ -158,14 +219,21 @@ export const ProjectViewer: React.FC = () => {
   // Set the first file active by default when project changes or completes
   useEffect(() => {
     if (activeProj && activeProj.status === "completed") {
-      if (activeProj.requirements) {
+      if (activeProj.category === "documents" || activeProj.prd) {
+        setSelectedFile({
+          name: "Product Requirement Document (PRD).md",
+          path: "PRD.md",
+          language: "markdown",
+          content: activeProj.prd || "# Product Requirement Document (PRD)\n*No content generated.*",
+        });
+      } else if (activeProj.requirements) {
         setSelectedFile({
           name: "AI Requirements.json",
           path: "sarthi-internal/AI_Requirements.json",
           language: "json",
           content: JSON.stringify(activeProj.requirements, null, 2),
         });
-      } else if (activeProj.codebase.length > 0) {
+      } else if (activeProj.codebase && activeProj.codebase.length > 0) {
         setSelectedFile(activeProj.codebase[0]);
       } else {
         setSelectedFile(null);
@@ -173,9 +241,47 @@ export const ProjectViewer: React.FC = () => {
     } else {
       setSelectedFile(null);
     }
-  }, [activeProjectId, activeProj?.status]);
+  }, [activeProjectId, activeProj?.status, activeProj?.prd]);
 
   if (!activeProj) {
+    if (isGeneratingProject) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-stone-50/30 overflow-y-auto">
+          <motion.div
+            animate={{
+              scale: [1, 1.05, 1],
+              boxShadow: [
+                "0 4px 20px rgba(99, 102, 241, 0.15)",
+                "0 10px 30px rgba(99, 102, 241, 0.35)",
+                "0 4px 20px rgba(99, 102, 241, 0.15)"
+              ]
+            }}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+            className="mb-6 w-24 h-24 rounded-2xl overflow-hidden border border-stone-200/50 bg-white relative flex items-center justify-center shadow-md"
+          >
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-tr from-indigo-500/20 via-transparent to-rose-500/20 mix-blend-overlay"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+            />
+            <img
+              src="/logo.png"
+              alt="Sarthi Logo"
+              className="w-16 h-16 object-contain pointer-events-none"
+            />
+          </motion.div>
+          <h3 className="text-xs font-bold text-stone-800 uppercase tracking-wider text-center">Generating Specifications...</h3>
+          <p className="text-center text-[10px] text-stone-500 mt-2.5 max-w-xs leading-relaxed">
+            Sarthi is analyzing your requirements to compile the Product, Market, and Technical Requirements Documents.
+          </p>
+        </div>
+      );
+    }
+
     if (activeChat && activeChat.selected_project) {
       const blueprint = activeChat.selected_project;
 
@@ -757,13 +863,143 @@ export const ProjectViewer: React.FC = () => {
       );
     }
 
+    if (activeChat) {
+      return (
+        <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
+          {/* Header */}
+          <div className="p-6 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+                <CategoryIcon category={activeChat.category} className="w-5 h-5" />
+              </div>
+              <div className="overflow-hidden">
+                <h2 className="text-lg font-bold font-display text-stone-850 truncate leading-tight">
+                  Design Blueprint
+                </h2>
+                <p className="text-[10px] text-stone-400 capitalize mt-0.5">
+                  Category: {activeChat.category}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowRightPane(false)}
+                className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+                title="Collapse Panel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Contents */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <form onSubmit={async (e) => {
+                e.preventDefault();
+                if (!customName.trim() || !customIdea.trim()) return;
+                const newBlueprint = {
+                  name: customName.trim(),
+                  idea: customIdea.trim(),
+                  features: customFeatures.map(f => f.trim()).filter(Boolean),
+                  tech_stack: customTechStack.trim()
+                };
+                await updateChatSelectedProject(activeChat.id, newBlueprint);
+              }} className="space-y-4 bg-white p-5 rounded-2xl border border-stone-200/70 shadow-sm">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 'Personal Finance Manager'"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="Describe the application's vision and value proposition..."
+                    value={customIdea}
+                    onChange={(e) => setCustomIdea(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-455">Key Features</label>
+                  {customFeatures.map((feat, fidx) => (
+                    <div key={fidx} className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder={`Feature ${fidx + 1} (e.g. 'Stripe Payment Sync')`}
+                        value={feat}
+                        onChange={(e) => {
+                          const updated = [...customFeatures];
+                          updated[fidx] = e.target.value;
+                          setCustomFeatures(updated);
+                        }}
+                        className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                      />
+                      {customFeatures.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = customFeatures.filter((_, i) => i !== fidx);
+                            setCustomFeatures(updated);
+                          }}
+                          className="p-2 text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setCustomFeatures([...customFeatures, ""])}
+                    className="w-full mt-2 py-2 border border-dashed border-stone-300 text-stone-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> Add Feature
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Tech Stack</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 'React, Tailwind CSS, Node.js'"
+                    value={customTechStack}
+                    onChange={(e) => setCustomTechStack(e.target.value)}
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-mono font-semibold text-indigo-650"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-center"
+                >
+                  Save Blueprint & Choose Theme
+                </button>
+              </form>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-stone-50/50">
         <div className="text-center max-w-sm">
           <AlertCircle className="w-10 h-10 text-stone-300 mx-auto mb-3" />
           <h4 className="text-sm font-semibold text-stone-700">No project active</h4>
           <p className="text-xs text-stone-400 mt-1">
-            Select a project idea suggestion from the landing screen to start.
+            Describe your project idea in the chatbox to start.
           </p>
         </div>
       </div>
@@ -862,6 +1098,27 @@ export const ProjectViewer: React.FC = () => {
             >
               Compiling ({activeProj.progress}%)
             </motion.span>
+          ) : activeProj.status === "documents_ready" ? (
+            <>
+              <motion.span
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 border border-indigo-100 text-indigo-700"
+              >
+                ✓ Requirements Ready
+              </motion.span>
+              <motion.button
+                onClick={handleDownloadZip}
+                disabled={isDownloading}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                title="Download documents as ZIP"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+              >
+                {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>{isDownloading ? "Zipping…" : "Download Documents"}</span>
+              </motion.button>
+            </>
           ) : (
             <>
               <motion.span
@@ -909,6 +1166,88 @@ export const ProjectViewer: React.FC = () => {
 
       {/* Main Area */}
       <div className="flex-1 flex overflow-hidden">
+        {/* DOCUMENTS REVIEW PANEL (when documents are ready) */}
+        {activeProj.status === "documents_ready" && (
+          <div className="flex-1 flex overflow-hidden bg-stone-50/50">
+            {/* Left Content Area */}
+            <div className="flex-1 flex flex-col overflow-hidden border-r border-stone-200/60">
+              {/* Tab Navigation */}
+              <div className="px-6 py-4 bg-white/80 border-b border-stone-200/60 flex items-center justify-between">
+                <div className="flex gap-2">
+                  {(["prd", "mrd", "trd"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveDocTab(tab)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
+                        activeDocTab === tab
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                      }`}
+                    >
+                      {tab.toUpperCase()} Spec
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Document Text View */}
+              <div className="flex-1 overflow-y-auto p-8 bg-white/40">
+                <div className="max-w-3xl mx-auto bg-white p-10 rounded-3xl border border-stone-200/60 shadow-sm">
+                  {activeDocTab === "prd" && (
+                    <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
+                  )}
+                  {activeDocTab === "mrd" && (
+                    <MarkdownRenderer text={activeProj.mrd || "# Market Requirements\nNo MRD generated."} />
+                  )}
+                  {activeDocTab === "trd" && (
+                    <MarkdownRenderer text={activeProj.trd || "# Technical Requirements\nNo TRD generated."} />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Action Sidebar */}
+            <div className="w-85 bg-white/80 p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">Specifications Review</h3>
+                  <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
+                    Sarthi has generated complete Product, Market, and Technical specifications. Please review them before proceeding to the code generation phase.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-100/50 space-y-3">
+                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Prototype Tech Stack</span>
+                  <div className="flex items-center gap-2 text-stone-750">
+                    <FileCode className="w-4 h-4 text-indigo-500 font-bold" />
+                    <span className="text-xs font-semibold">HTML5 + CSS3 + Flask (Python)</span>
+                  </div>
+                  <p className="text-[10px] text-stone-500 leading-normal">
+                    This prototype is configured to be compiled into a lightweight Python/Flask backend and a modern HTML/CSS frontend.
+                  </p>
+                </div>
+              </div>
+
+              {activeProj.category !== "documents" && (
+                <div className="mt-8 border-t border-stone-200/60 pt-6 space-y-4">
+                  <div className="text-[11px] text-stone-500 leading-normal">
+                    Everything looks good? Proceed to generate the codebase and assemble the working application.
+                  </div>
+                  <motion.button
+                    onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                    <span>Proceed to Build Codebase</span>
+                  </motion.button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* PROGRESS TRACKER VIEW (when generating) */}
         {activeProj.status === "generating" && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-stone-50/30">
@@ -1158,7 +1497,31 @@ export const ProjectViewer: React.FC = () => {
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-1 select-none">
                 {(() => {
-                  const filesToRender = [...activeProj.codebase];
+                  const filesToRender = [...(activeProj.codebase || [])];
+                  if (activeProj.trd) {
+                    filesToRender.unshift({
+                      name: "Technical Requirement Document (TRD).md",
+                      path: "TRD.md",
+                      language: "markdown",
+                      content: activeProj.trd,
+                    });
+                  }
+                  if (activeProj.mrd) {
+                    filesToRender.unshift({
+                      name: "Market Requirement Document (MRD).md",
+                      path: "MRD.md",
+                      language: "markdown",
+                      content: activeProj.mrd,
+                    });
+                  }
+                  if (activeProj.prd) {
+                    filesToRender.unshift({
+                      name: "Product Requirement Document (PRD).md",
+                      path: "PRD.md",
+                      language: "markdown",
+                      content: activeProj.prd,
+                    });
+                  }
                   if (activeProj.build_compilation) {
                     filesToRender.unshift({
                       name: "AI_BuildCompilation.json",
@@ -1414,19 +1777,27 @@ export const ProjectViewer: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  {/* Code Block Container */}
-                  <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-700 leading-relaxed bg-stone-900/5 select-text select-all border-b border-transparent">
-                    <pre className="overflow-x-auto whitespace-pre-wrap md:whitespace-pre">
-                      {selectedFile.content.split("\n").map((line, i) => (
-                        <div key={i} className="table-row">
-                          <span className="table-cell text-right pr-4 text-stone-300 select-none text-[10px] w-6">
-                            {i + 1}
-                          </span>
-                          <span className="table-cell text-stone-850">{line}</span>
-                        </div>
-                      ))}
-                    </pre>
-                  </div>
+                  {/* Code Block Container or Markdown Viewer */}
+                  {selectedFile.language === "markdown" ? (
+                    <div className="flex-1 overflow-y-auto p-8 bg-stone-50/30 text-stone-850 select-text leading-relaxed border-b border-transparent transition-colors duration-300">
+                      <div className="max-w-3xl mx-auto bg-white border border-stone-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
+                        <MarkdownRenderer text={selectedFile.content} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-700 leading-relaxed bg-stone-900/5 select-text select-all border-b border-transparent">
+                      <pre className="overflow-x-auto whitespace-pre-wrap md:whitespace-pre">
+                        {selectedFile.content.split("\n").map((line, i) => (
+                          <div key={i} className="table-row">
+                            <span className="table-cell text-right pr-4 text-stone-300 select-none text-[10px] w-6">
+                              {i + 1}
+                            </span>
+                            <span className="table-cell text-stone-850">{line}</span>
+                          </div>
+                        ))}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center p-8">

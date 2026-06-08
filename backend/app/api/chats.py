@@ -159,6 +159,26 @@ async def edit_message(chat_id: str, message_id: str, payload: dict, current_use
         
     return {"status": "success", "text": new_text}
 
+@router.put("/{chat_id}")
+async def update_chat(chat_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    db = get_database()
+    chat = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+        
+    updates = {}
+    if "selected_project" in payload:
+        updates["selected_project"] = payload["selected_project"]
+    if "category" in payload:
+        updates["category"] = payload["category"]
+    if "title" in payload:
+        updates["title"] = payload["title"]
+        
+    if updates:
+        await db.chats.update_one({"_id": chat_id}, {"$set": updates})
+        
+    return {"status": "success", "updates": updates}
+
 @router.get("/{chat_id}/themes")
 async def get_chat_themes(chat_id: str, prompt: str = None, current_user: dict = Depends(get_current_user)):
     db = get_database()

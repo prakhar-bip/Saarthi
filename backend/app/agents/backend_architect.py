@@ -37,91 +37,110 @@ class BackendArchitectureAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design backend folders, routers, services, repositories, middleware, dependencies, and workflows that preserve database and planning contracts."
+            (
+                "## Role\n"
+                "You are a senior backend architect. Design the complete server-side architecture: module structure, service layer, repository patterns, middleware stack, dependency injection, and business workflows.\n\n"
+                "## Instructions\n"
+                "1. Think step by step: select framework from tech_stack → define folder structure → create one Service + Repository per entity from db_architecture → design middleware stack → map authentication flow → define workflows.\n"
+                "2. Service names MUST follow the pattern: {EntityName}Service. Repository names MUST follow: {EntityName}Repository. These must match db_architecture.backend_integration_context exactly.\n"
+                "3. Middleware must include CORS, auth, and error handling at minimum.\n"
+                "4. backend_workflows must map real user actions to concrete execution steps.\n\n"
+                "## Constraints\n"
+                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
+                "- backend_structure.core_directories must use forward-slash paths (e.g. 'app/core').\n"
+                "- All entity names, route groups, and module names must be consistent with upstream db_architecture contracts."
+            )
         )
 
         user_content = f"""
-Analyze the following inputs:
+Design the backend architecture for this project. Think step by step:
+1. Choose the architecture style and framework from requirements.tech_stack.backend.
+2. Create a service and repository for each entity in db_architecture.entities.
+3. Design the middleware stack (CORS, auth, error handling, logging).
+4. Map the authentication flow using db_architecture.authentication_storage.
+5. Define backend workflows that trace user actions through service → repository → database.
+6. Populate future_agent_context with guidance for APIAgent and FrontendArchitectureAgent.
+
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 Database Architecture: {json.dumps(db_architecture, indent=2)}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
   "backend_strategy": {{
-    "architecture_style": "MVC / Clean Architecture / modular",
-    "backend_framework": "FastAPI / Express / etc.",
-    "execution_model": "Asynchronous / Multi-threaded",
-    "scalability_model": "Stateless horizontal scaling / microservice-ready"
+    "architecture_style": "string — e.g. 'Modular MVC', 'Clean Architecture', 'Hexagonal'",
+    "backend_framework": "string — exact framework name, e.g. 'FastAPI (Uvicorn)'",
+    "execution_model": "string — 'Asynchronous', 'Multi-threaded', or 'Synchronous'",
+    "scalability_model": "string — scaling strategy description"
   }},
   "backend_structure": {{
-    "root_modules": ["core", "db", "api"],
-    "feature_modules": ["auth", "users"],
-    "shared_modules": ["helpers"],
-    "core_directories": ["app/core", "app/api"]
+    "root_modules": ["string — top-level module names like 'core', 'db', 'api', 'models', 'services'"],
+    "feature_modules": ["string — feature area names matching core_modules, lowercase"],
+    "shared_modules": ["string — utility/helper module names"],
+    "core_directories": ["string — forward-slash directory paths like 'app/core', 'app/api'"]
   }},
   "service_architecture": [
     {{
-      "service_name": "AuthService",
-      "responsibility": "Handles login and hashing",
-      "dependencies": ["UserRepository", "JWTTokenHelper"]
+      "service_name": "string — format: {{EntityName}}Service",
+      "responsibility": "string — what business logic this service handles",
+      "dependencies": ["string — repository/helper class names this service depends on"]
     }}
   ],
   "repository_patterns": {{
-    "pattern_type": "Data Mapper / Active Record / None",
-    "repositories": ["UserRepository"]
+    "pattern_type": "string — 'Repository', 'Data Mapper', 'Active Record', or 'None'",
+    "repositories": ["string — format: {{EntityName}}Repository, one per entity"]
   }},
   "middleware_architecture": [
     {{
-      "middleware": "CORSMiddleware",
-      "purpose": "Enables cross-origin frontend requests"
+      "middleware": "string — middleware class/component name",
+      "purpose": "string — what this middleware does"
     }}
   ],
   "authentication_backend_flow": {{
-    "auth_strategy": "OAuth2 password bearer with JWT tokens",
-    "protected_modules": ["portfolio"],
-    "token_flow": ["Receive credentials", "Generate access token", "Store session"],
-    "session_management": ["Stateless JWT expiration"]
+    "auth_strategy": "string — e.g. 'OAuth2 Password Bearer with JWT tokens'",
+    "protected_modules": ["string — lowercase module names requiring auth"],
+    "token_flow": ["string — ordered steps in token generation"],
+    "session_management": "string — session/token persistence strategy"
   }},
   "api_groupings": [
     {{
-      "group_name": "Authentication Routes",
-      "related_entities": ["User"],
-      "priority": "High"
+      "group_name": "string — route group label",
+      "related_entities": ["string — entity names this group operates on"],
+      "priority": "string — 'High', 'Medium', or 'Low'"
     }}
   ],
   "websocket_architecture": {{
-    "required": false,
-    "channels": [],
-    "realtime_modules": []
+    "required": "boolean",
+    "channels": ["string — WebSocket channel paths"],
+    "realtime_modules": ["string — modules using realtime features"]
   }},
   "async_task_architecture": {{
-    "required": false,
-    "background_jobs": [],
-    "queue_strategy": ""
+    "required": "boolean",
+    "background_jobs": ["string — background task descriptions"],
+    "queue_strategy": "string — queue/worker strategy description"
   }},
   "dependency_injection_strategy": {{
-    "required": false,
-    "shared_dependencies": [],
-    "service_bindings": []
+    "required": "boolean",
+    "shared_dependencies": ["string — injectable dependency function names"],
+    "service_bindings": ["string — how services are injected into routes"]
   }},
   "backend_workflows": [
     {{
-      "workflow_name": "User registration",
-      "execution_flow": ["Validate username", "Hash password", "Persist user"]
+      "workflow_name": "string — user action name",
+      "execution_flow": ["string — ordered steps: validate → service → repository → respond"]
     }}
   ],
   "scalability_architecture": {{
-    "microservice_ready": false,
-    "horizontal_scaling": false,
-    "high_load_modules": [],
-    "optimization_targets": []
+    "microservice_ready": "boolean",
+    "horizontal_scaling": "boolean",
+    "high_load_modules": ["string — modules with heaviest traffic"],
+    "optimization_targets": ["string — specific optimization actions"]
   }},
   "future_agent_context": {{
-    "important_notes_for_api_agents": [],
-    "important_notes_for_frontend_agents": [],
-    "important_notes_for_devops_agents": []
+    "important_notes_for_api_agents": ["string — route design guidance for APIAgent"],
+    "important_notes_for_frontend_agents": ["string — API consumption guidance for frontend"],
+    "important_notes_for_devops_agents": ["string — deployment/container guidance"]
   }}
 }}
 """

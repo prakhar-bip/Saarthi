@@ -72,6 +72,9 @@ class ProjectResponse(BaseModel):
     error_correction: Optional[Dict[str, Any]] = None
     project_export: Optional[Dict[str, Any]] = None
     agent_context: Optional[Dict[str, Any]] = None
+    prd: Optional[str] = None
+    mrd: Optional[str] = None
+    trd: Optional[str] = None
 
     class Config:
         from_attributes = True

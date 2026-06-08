@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from google.adk.agents.llm_agent import Agent
 from google.adk.runners import Runner
@@ -10,6 +11,10 @@ from app.core.config import settings
 from app.services.ai import generate_theme_suggestions
 
 logger = logging.getLogger(__name__)
+
+# Set env var so ADK's internal genai.Client auto-discovers the API key
+if settings.GOOGLE_API_KEY:
+    os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY
 
 # 1. Define custom Python tools first for ADK
 def get_design_theme_suggestions_tool(project_name: str, category: str, features: List[str], tech_stack: str, custom_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -50,18 +55,33 @@ def get_design_theme_suggestions_tool(project_name: str, category: str, features
 # 2. Initialize the Root ADK Agent
 sarthi_agent = Agent(
     name="Sarthi",
-    model=settings.GOOGLE_MODEL or "gemini-2.5-flash",
+    model="gemini-2.5-flash",
     instruction=(
-        "You are Sarthi, an expert AI development partner for hackathons specializing in software architecture and code compilation.\n"
-        "First, analyze the user's message to determine their specific intent (e.g. brainstorming, refining features, writing code, technical layout discussion).\n"
-        "Maintain continuity with prior chat messages: restate relevant confirmed decisions, update assumptions when the user changes direction, and keep the blueprint internally consistent for the compiler agents.\n"
-        "When the user proposes a change, translate it into concrete feature, data, API, UI, auth, realtime, or deployment implications.\n"
-        "Decide the most suitable response format based on your analysis:\n"
-        "- Use clean, conversational paragraphs for explanations and feedback.\n"
-        "- Use bullet points / numbered lists for step-by-step guides, checklists, or pros/cons.\n"
-        "- Use code blocks for code snippets, commands, or data formats.\n"
-        "- CRITICAL: Do NOT use markdown tables to respond to general queries, questions, or refinements. Only use tables if the user explicitly requests structured tabular data.\n\n"
-        "Keep your responses concise, friendly, and structured. End with a note suggesting to confirm and compile the codebase when ready."
+        "You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering.\n\n"
+
+        "## Core Capabilities\n"
+        "1. **General Assistant**: Answer ANY question thoroughly — coding doubts, debugging, algorithms, system design, tech concepts, career advice, etc. Respond like a knowledgeable senior developer.\n"
+        "2. **Project Brainstorming**: When the user discusses a project idea, help them refine it — suggest features, architecture patterns, UX workflows, database schemas, and tech stack choices.\n"
+        "3. **Blueprint Generation**: When project details are discussed, output a structured blueprint block that auto-populates the project form.\n\n"
+
+        "## Response Rules\n"
+        "- **Dynamic Brainstorming**: When the user shares a project idea, DO NOT just passively accept it. Act as a dynamic tech co-founder. Discuss their idea, suggest 2-3 innovative, modern features they might not have thought of, and ask for their feedback. Make it clear that everything is customizable.\n"
+        "- For **general questions** (coding, debugging, concepts): Provide clear, accurate answers with code examples where relevant. Do NOT mention project compilation or blueprints.\n"
+        "- For **project discussions**: Engage naturally. Ask clarifying questions. Suggest improvements. Append the blueprint block dynamically so the right panel updates, but let them know they can modify it anytime.\n"
+        "- Use **markdown formatting**: headings, bullet lists, code blocks with language tags, bold for emphasis.\n"
+        "- Keep responses conversational, enthusiastic, and direct — not robotic.\n\n"
+
+        "## Blueprint Block Format\n"
+        "ONLY when the user is discussing their project idea, features, or tech stack, append this block at the END of your response:\n"
+        "<blueprint>\n"
+        "{\n"
+        "  \"name\": \"Project Name\",\n"
+        "  \"idea\": \"Clear one-line description of what the project does\",\n"
+        "  \"features\": [\"Feature 1 with brief detail\", \"Feature 2 with brief detail\", \"Feature 3\"],\n"
+        "  \"tech_stack\": \"Flask, HTML, CSS, JavaScript\"\n"
+        "}\n"
+        "</blueprint>\n\n"
+        "Do NOT include blueprint blocks for general questions, greetings, or non-project conversations."
     ),
     tools=[get_design_theme_suggestions_tool]
 )
@@ -156,9 +176,9 @@ async def run_adk_chat(
         
         # Ensure session exists
         try:
-            session = session_service.get_session(app_name="SarthiApp", session_id=session_id)
+            session = await session_service.get_session(app_name="SarthiApp", session_id=session_id)
         except Exception:
-            session = session_service.create_session(app_name="SarthiApp", user_id=user_id, session_id=session_id)
+            session = await session_service.create_session(app_name="SarthiApp", user_id=user_id, session_id=session_id)
             
         # Extract the latest message from the user
         last_user_msg = ""
