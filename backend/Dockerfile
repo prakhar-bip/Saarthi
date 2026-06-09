@@ -1,19 +1,25 @@
-FROM python:3.13-slim
+# ============================================================
+# Sarthi Backend - Production Dockerfile
+# Python FastAPI application served via Uvicorn
+# ============================================================
+
+FROM python:3.11-slim
+
+# Prevent Python from buffering stdout/stderr (useful for Cloud Run logs)
+ENV PYTHONUNBUFFERED=1
+# Cloud Run injects PORT; default to 8080
+ENV PORT=8080
 
 WORKDIR /app
 
-# Install system dependencies if any are needed
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy and install python dependencies
+# ---- Dependency layer (cached unless requirements.txt changes) ----
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# ---- Application code ----
+COPY app/ ./app/
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start the FastAPI server
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

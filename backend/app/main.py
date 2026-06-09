@@ -6,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.redis_client import connect_to_redis, close_redis_connection
-from app.api import auth, chats, projects
+from app.api import auth, chats, projects, mcp
 from app.services.ws_manager import manager
+from app.services.mcp_service import mcp_client
 
 # Setup logger
 logging.basicConfig(
@@ -21,8 +22,16 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing services on startup...")
     await connect_to_mongo()
     await connect_to_redis()
+    
+    logger.info("Starting MongoDB partner MCP bridge...")
+    try:
+        await mcp_client.start()
+    except Exception as exc:
+        logger.warning("MongoDB MCP bridge startup failed; continuing without blocking API startup: %s", exc)
+    
     yield
     logger.info("Closing services on shutdown...")
+    await mcp_client.stop()
     await close_mongo_connection()
     await close_redis_connection()
 
@@ -31,6 +40,18 @@ app = FastAPI(
     lifespan=lifespan,
     version="1.0.0"
 )
+
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "message": str(exc)},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 # ──────────────────────────────────────────────────────────────
 # CORS  — restrict to configured frontend origin in production
@@ -47,6 +68,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(chats.router)
 app.include_router(projects.router)
+app.include_router(mcp.router)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -58,6 +80,8 @@ async def health_check():
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": "1.0.0",
+        "partner_track": settings.PARTNER_TRACK,
+        "mcp": mcp_client.get_status(),
     }
 
 
@@ -70,6 +94,8 @@ async def root():
         "status": "online",
         "service": settings.PROJECT_NAME,
         "version": "1.0.0",
+        "partner_track": settings.PARTNER_TRACK,
+        "mcp_status": "/api/mcp/status",
         "documentation": "/docs",
     }
 

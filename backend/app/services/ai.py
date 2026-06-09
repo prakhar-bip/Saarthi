@@ -987,7 +987,21 @@ The JSON must match this structure exactly:
                 lines = lines[:-1]
             raw_content = "\n".join(lines).strip()
         
-        data = json.loads(raw_content)
+        try:
+            data = json.loads(raw_content)
+        except json.JSONDecodeError as decode_err:
+            try:
+                repaired = raw_content.rstrip(", \n\t")
+                if not repaired.endswith('"') and not repaired.endswith('}') and not repaired.endswith(']'):
+                    repaired += '"'
+                if not repaired.endswith('}'):
+                    repaired += '}'
+                if not repaired.endswith(']'):
+                    repaired += ']'
+                data = json.loads(repaired)
+            except Exception:
+                raise ValueError(f"Could not parse JSON. Original error: {decode_err}")
+
         if isinstance(data, list) and len(data) > 0:
             return data
         else:

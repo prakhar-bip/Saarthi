@@ -70,13 +70,17 @@ export interface Project {
   state_implementation?: any;
   integration_generation?: any;
   build_compilation?: any;
+  error_correction?: any;
+  project_export?: any;
   agent_context?: any;
+  hackathon_metadata?: any;
+  mcp_evidence?: any;
   prd?: string;
   mrd?: string;
   trd?: string;
 }
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 interface WorkspaceContextType {
   user: { id: string; name: string; email: string } | null;
@@ -2474,6 +2478,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
         body: JSON.stringify({ text })
       });
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.error("Unauthorized: Token might be expired.");
+          localStorage.removeItem("token");
+          // Optionally trigger a reload or show auth modal to re-login
+          window.location.reload();
+          return;
+        }
+        throw new Error(`API returned status: ${res.status}`);
+      }
+      
       if (res.ok) {
         const data = await res.json();
         setChats((prev) =>
@@ -2843,7 +2858,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isFetchingSuggestions,
         fetchSuggestions,
         clearSuggestions,
-        updateChatSelectedProject,
       }}
     >
       {children}

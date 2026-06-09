@@ -34,9 +34,17 @@ services:
       - DATABASE_NAME=sarthi
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - NVIDIA_API_KEY=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
-      - NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-      - NVIDIA_MODEL=openai/gpt-oss-20b
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-3-pro-preview}
+      - GOOGLE_FAST_MODEL=${GOOGLE_FAST_MODEL:-gemini-3-flash-preview}
+      - GOOGLE_REASONING_MODEL=${GOOGLE_REASONING_MODEL:-gemini-3-pro-preview}
+      - PARTNER_TRACK=MongoDB
+      - PARTNER_MCP_SERVER=mongodb-mcp-server@latest
+      - MONGODB_MCP_ENABLED=true
+      - MONGODB_MCP_READ_ONLY=true
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      - NVIDIA_BASE_URL=${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      - NVIDIA_MODEL=${NVIDIA_MODEL:-openai/gpt-oss-20b}
     depends_on:
       - mongodb
       - redis

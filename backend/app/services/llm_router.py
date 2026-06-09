@@ -9,51 +9,52 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Core agent mapping to preferred (provider, model)
-# Reasoning-heavy agents use gemini-2.5-pro for higher quality
-# Fast utility agents use gemini-2.5-flash for speed
+# Core agent mapping to preferred (provider, model). Hackathon builds default to Gemini 3.
+REASONING_MODEL = settings.GOOGLE_REASONING_MODEL or settings.GOOGLE_MODEL
+FAST_MODEL = settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL
+
 AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     # High-reasoning and planning agents → gemini-2.5-pro
-    "PlannerAgent": ("gemini", "gemini-2.5-pro"),
-    "RequirementAnalyzerAgent": ("gemini", "gemini-2.5-pro"),
-    "CodeGenerationPlannerAgent": ("gemini", "gemini-2.5-pro"),
-    "ErrorCorrectionAgent": ("gemini", "gemini-2.5-pro"),
+    "PlannerAgent": ("gemini", REASONING_MODEL),
+    "RequirementAnalyzerAgent": ("gemini", REASONING_MODEL),
+    "CodeGenerationPlannerAgent": ("gemini", REASONING_MODEL),
+    "ErrorCorrectionAgent": ("gemini", REASONING_MODEL),
 
     # Code generation agents → gemini-2.5-flash (fast + capable)
-    "DatabaseModelGenerationAgent": ("gemini", "gemini-2.5-flash"),
-    "BackendCodeGenerationAgent": ("gemini", "gemini-2.5-flash"),
-    "APIImplementationAgent": ("gemini", "gemini-2.5-flash"),
-    "FrontendCodeGenerationAgent": ("gemini", "gemini-2.5-flash"),
-    "UIComponentGenerationAgent": ("gemini", "gemini-2.5-flash"),
-    "StateImplementationAgent": ("gemini", "gemini-2.5-flash"),
-    "IntegrationGenerationAgent": ("gemini", "gemini-2.5-flash"),
-    "BuildCompilationAgent": ("gemini", "gemini-2.5-flash"),
-    "ProjectExportAgent": ("gemini", "gemini-2.5-flash"),
-    "ValidationArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "DatabaseModelGenerationAgent": ("gemini", FAST_MODEL),
+    "BackendCodeGenerationAgent": ("gemini", FAST_MODEL),
+    "APIImplementationAgent": ("gemini", FAST_MODEL),
+    "FrontendCodeGenerationAgent": ("gemini", FAST_MODEL),
+    "UIComponentGenerationAgent": ("gemini", FAST_MODEL),
+    "StateImplementationAgent": ("gemini", FAST_MODEL),
+    "IntegrationGenerationAgent": ("gemini", FAST_MODEL),
+    "BuildCompilationAgent": ("gemini", FAST_MODEL),
+    "ProjectExportAgent": ("gemini", FAST_MODEL),
+    "ValidationArchitectureAgent": ("gemini", FAST_MODEL),
 
     # Architecture component agents → gemini-2.5-flash
-    "FrontendArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "BackendArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "DatabaseArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "DevOpsArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "RealtimeArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "StateManagementAgent": ("gemini", "gemini-2.5-flash"),
-    "AuthArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "SecurityArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "APIAgent": ("gemini", "gemini-2.5-flash"),
+    "FrontendArchitectureAgent": ("gemini", FAST_MODEL),
+    "BackendArchitectureAgent": ("gemini", FAST_MODEL),
+    "DatabaseArchitectureAgent": ("gemini", FAST_MODEL),
+    "DevOpsArchitectureAgent": ("gemini", FAST_MODEL),
+    "RealtimeArchitectureAgent": ("gemini", FAST_MODEL),
+    "StateManagementAgent": ("gemini", FAST_MODEL),
+    "AuthArchitectureAgent": ("gemini", FAST_MODEL),
+    "SecurityArchitectureAgent": ("gemini", FAST_MODEL),
+    "APIAgent": ("gemini", FAST_MODEL),
 
     # Fast agents / Optimization / Testing / Styling
-    "UIUXArchitectAgent": ("gemini", "gemini-2.5-flash"),
-    "OptimizationArchitectureAgent": ("gemini", "gemini-2.5-flash"),
-    "TestingArchitectureAgent": ("gemini", "gemini-2.5-flash"),
+    "UIUXArchitectAgent": ("gemini", FAST_MODEL),
+    "OptimizationArchitectureAgent": ("gemini", FAST_MODEL),
+    "TestingArchitectureAgent": ("gemini", FAST_MODEL),
 
     # App core utilities / features — fastest path
-    "ChatReply": ("gemini", "gemini-2.5-flash"),
-    "CategoryClassifier": ("gemini", "gemini-2.5-flash"),
-    "ProjectSuggestions": ("gemini", "gemini-2.5-flash"),
-    "CodebaseCompiler": ("gemini", "gemini-2.5-pro"),
-    "ThemeGeneratorAgent": ("gemini", "gemini-2.5-flash"),
-    "DocumentGeneratorAgent": ("gemini", "gemini-2.5-flash"),
+    "ChatReply": ("gemini", FAST_MODEL),
+    "CategoryClassifier": ("gemini", FAST_MODEL),
+    "ProjectSuggestions": ("gemini", FAST_MODEL),
+    "CodebaseCompiler": ("gemini", REASONING_MODEL),
+    "ThemeGeneratorAgent": ("gemini", FAST_MODEL),
+    "DocumentGeneratorAgent": ("gemini", FAST_MODEL),
 }
 
 # Fallback sequence: try Groq first (fast & reliable), then OpenRouter, then Nvidia
@@ -83,6 +84,12 @@ def get_provider_client(provider: str) -> Any:
         )
     
     elif provider in ("google", "gemini"):
+        if settings.GCP_PROJECT_ID:
+            return genai.Client(
+                vertexai=True,
+                project=settings.GCP_PROJECT_ID,
+                location=settings.GCP_LOCATION
+            )
         if not settings.GOOGLE_API_KEY:
             return None
         return genai.Client(api_key=settings.GOOGLE_API_KEY)
@@ -290,13 +297,44 @@ async def get_llm_completion(
         from google.adk.sessions.in_memory_session_service import InMemorySessionService
         from google.adk.agents.run_config import RunConfig
         from google.genai.types import Content, Part
+        from app.services.mcp_service import mcp_client
+        import json
         
         logger.info(f"🔌 [ADK RUNNER] Invoking {agent_name}...")
         
+        async def mongodb_mcp_tool(tool_name: str, arguments_json: str = "{}") -> str:
+            """
+            Query the MongoDB database via the MCP protocol. 
+            Use this tool to inspect schemas, read user data, or update records to accomplish real-world tasks.
+            """
+            try:
+                args = json.loads(arguments_json) if arguments_json else {}
+                return await mcp_client.execute_tool(tool_name, args)
+            except Exception as e:
+                return f"Failed to execute MongoDB MCP tool: {e}"
+        
+        # Inject MCP superpowers into planning, architecture, generation, build, and export agents.
+        mcp_enabled_agents = [
+            "PlannerAgent",
+            "RequirementAnalyzerAgent",
+            "DatabaseArchitectureAgent",
+            "BackendArchitectureAgent",
+            "APIAgent",
+            "CodeGenerationPlannerAgent",
+            "DatabaseModelGenerationAgent",
+            "BackendCodeGenerationAgent",
+            "APIImplementationAgent",
+            "BuildCompilationAgent",
+            "ProjectExportAgent",
+            "CodebaseCompiler",
+        ]
+        agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else None
+
         adk_agent = ADKAgent(
             name=agent_name,
             model=pref_model,
-            instruction=system_instruction or "You are a helpful software compiler agent."
+            instruction=system_instruction or "You are a helpful software compiler agent.",
+            tools=agent_tools
         )
         session_service = InMemorySessionService()
         runner = ADKRunner(

@@ -10,7 +10,9 @@ import zipfile
 from app.models.project import ProjectResponse, ProjectCreate, CodeFileSchema, BlueprintSchema, ThemePaletteSchema
 from app.db.mongodb import get_database
 from app.api.auth import get_current_user
+from app.core.config import settings
 from app.services.ai import generate_codebase, generate_project_suggestions
+from app.services.mcp_service import mcp_client
 from app.services.ws_manager import manager
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent
 from app.agents.planner import PlannerAgent
@@ -38,7 +40,7 @@ from app.agents.integration_generator import IntegrationGenerationAgent
 from app.agents.build_compiler import BuildCompilationAgent
 from app.agents.error_correction import ErrorCorrectionAgent
 from app.agents.project_export import ProjectExportAgent
-from app.agents.context import build_compilation_context
+from app.agents.context import AGENT_PIPELINE, AGENT_ROLES, build_compilation_context
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 logger = logging.getLogger(__name__)
@@ -71,6 +73,54 @@ ARCHITECTURE_CONTEXT_FIELDS = (
     "error_correction",
     "project_export",
 )
+
+
+def build_hackathon_metadata(
+    project_id: str,
+    name: str,
+    category: str,
+    blueprint: dict | None = None,
+) -> dict:
+    """Create Devpost/judging metadata for Sarthi and generated projects."""
+    return {
+        "challenge": "Building Agents for Real-World Challenges",
+        "project": name,
+        "project_id": project_id,
+        "category": category,
+        "partner_track": settings.PARTNER_TRACK,
+        "partner_bucket": settings.PARTNER_TRACK,
+        "partner_mcp_server": settings.PARTNER_MCP_SERVER,
+        "mcp_protocol": "Model Context Protocol",
+        "mcp_integration": "MongoDB MCP tools are exposed to Sarthi planning, database, API, code generation, build, and export agents.",
+        "gemini_powered": True,
+        "primary_model": settings.GOOGLE_REASONING_MODEL or settings.GOOGLE_MODEL,
+        "fast_model": settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL,
+        "agent_builder_runtime": "Google Cloud Agent Builder compatible orchestration using Google ADK-style agent runners.",
+        "human_oversight": [
+            "User confirms blueprint before documents are generated.",
+            "User reviews PRD/MRD/TRD before codebase compilation.",
+            "User manually downloads or pushes the generated project.",
+        ],
+        "move_beyond_chat": [
+            "Creates requirements documents.",
+            "Runs a multi-agent software architecture pipeline.",
+            "Uses MongoDB MCP tools for database context and evidence.",
+            "Generates runnable project files, env templates, and submission artifacts.",
+        ],
+        "sub_agent_pipeline": [
+            {"name": agent_name, "role": AGENT_ROLES.get(agent_name, "")}
+            for agent_name in AGENT_PIPELINE
+        ],
+        "submission_checklist": [
+            "Hosted project URL",
+            "Public open-source repository URL",
+            "Root LICENSE file visible to GitHub",
+            "Approximately 3 minute demo video",
+            "Selected partner track: MongoDB",
+            "Completed Devpost submission form",
+        ],
+        "blueprint": blueprint or {},
+    }
 
 
 def extract_architecture_context(project_doc: dict) -> dict:
@@ -492,10 +542,10 @@ async def run_project_compilation(
     db = get_database()
     
     stages = [
-        {"progress": 15, "step": "Brainstorming & User Experience Mapping", "delay": 1.5},
-        {"progress": 35, "step": "Structuring Software Requirements & Data Flow", "delay": 2.0},
-        {"progress": 60, "step": "Generating Interactive UI Components & Styling", "delay": 2.5},
-        {"progress": 85, "step": "Assembling Full Application Architecture & Modules", "delay": 2.0},
+        {"progress": 15, "step": "Gemini agent planning and user oversight checkpoint", "delay": 1.5},
+        {"progress": 35, "step": "MongoDB MCP context plus requirements/data-flow architecture", "delay": 2.0},
+        {"progress": 60, "step": "Sub-agent UI, API, auth, realtime, state, security, and testing design", "delay": 2.5},
+        {"progress": 85, "step": "Build, correction, export, and hackathon packaging agents", "delay": 2.0},
     ]
     
     try:
@@ -819,22 +869,38 @@ async def run_project_compilation(
         logger.info(f"Requesting AI codebase generation for project {name} ({category}) with theme {theme}")
         latest_project_doc = await db.projects.find_one({"_id": project_id, "user_id": user_id}) or {}
         architecture_context = extract_architecture_context(latest_project_doc)
+        blueprint_dict = blueprint.dict() if blueprint else latest_project_doc.get("blueprint")
+        hackathon_metadata = build_hackathon_metadata(
+            project_id=project_id,
+            name=name,
+            category=category,
+            blueprint=blueprint_dict,
+        )
+        mcp_evidence = await mcp_client.build_evidence_snapshot(project_id=project_id)
         if architecture_context:
             await db.projects.update_one(
                 {"_id": project_id},
-                {"$set": {"agent_context": build_compilation_context(architecture_context)}}
+                {
+                    "$set": {
+                        "agent_context": build_compilation_context(architecture_context),
+                        "hackathon_metadata": hackathon_metadata,
+                        "mcp_evidence": mcp_evidence,
+                    }
+                }
             )
         ai_data = await generate_codebase(
             name, 
             category, 
             chat_history, 
             theme,
-            blueprint.dict() if blueprint else None,
+            blueprint_dict,
             theme_palette.dict() if theme_palette else None,
-            architecture_context=architecture_context
+            architecture_context=architecture_context,
+            hackathon_metadata=hackathon_metadata,
+            mcp_evidence=mcp_evidence,
         )
         
-        summary = ai_data.get("summary", "Complete React codebase compiled successfully.")
+        summary = ai_data.get("summary", "Complete hackathon-ready Flask codebase compiled successfully.")
         codebase_list = ai_data.get("codebase", [])
         
         # Parse CodeFiles
@@ -856,7 +922,9 @@ async def run_project_compilation(
                     "status": "completed",
                     "step": "Deployment Complete",
                     "summary": summary,
-                    "codebase": codefiles_db
+                    "codebase": codefiles_db,
+                    "hackathon_metadata": hackathon_metadata,
+                    "mcp_evidence": mcp_evidence,
                 }
             }
         )
@@ -955,9 +1023,12 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
             ui_component_generation=doc.get("ui_component_generation"),
             state_implementation=doc.get("state_implementation"),
             integration_generation=doc.get("integration_generation"),
+            build_compilation=doc.get("build_compilation"),
             error_correction=doc.get("error_correction"),
             project_export=doc.get("project_export"),
             agent_context=doc.get("agent_context"),
+            hackathon_metadata=doc.get("hackathon_metadata"),
+            mcp_evidence=doc.get("mcp_evidence"),
             prd=doc.get("prd"),
             mrd=doc.get("mrd"),
             trd=doc.get("trd")
@@ -1008,9 +1079,12 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         ui_component_generation=doc.get("ui_component_generation"),
         state_implementation=doc.get("state_implementation"),
         integration_generation=doc.get("integration_generation"),
+        build_compilation=doc.get("build_compilation"),
         error_correction=doc.get("error_correction"),
         project_export=doc.get("project_export"),
         agent_context=doc.get("agent_context"),
+        hackathon_metadata=doc.get("hackathon_metadata"),
+        mcp_evidence=doc.get("mcp_evidence"),
         prd=doc.get("prd"),
         mrd=doc.get("mrd"),
         trd=doc.get("trd")
@@ -1030,6 +1104,13 @@ async def generate_documents_endpoint(
     db = get_database()
     project_id = f"proj-{uuid.uuid4().hex[:8]}"
     created_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    hackathon_metadata = build_hackathon_metadata(
+        project_id=project_id,
+        name=payload.name,
+        category="documents",
+        blueprint={"name": payload.name, "idea": payload.prompt},
+    )
+    mcp_evidence = await mcp_client.build_evidence_snapshot(project_id=project_id)
     
     # Import generating service function
     from app.services.ai import generate_prd_mrd_trd
@@ -1058,7 +1139,9 @@ async def generate_documents_endpoint(
         "theme_palette": None,
         "prd": docs.get("prd", ""),
         "mrd": docs.get("mrd", ""),
-        "trd": docs.get("trd", "")
+        "trd": docs.get("trd", ""),
+        "hackathon_metadata": hackathon_metadata,
+        "mcp_evidence": mcp_evidence,
     }
     
     await db.projects.insert_one(new_project)
@@ -1080,7 +1163,9 @@ async def generate_documents_endpoint(
         theme_palette=None,
         prd=new_project["prd"],
         mrd=new_project["mrd"],
-        trd=new_project["trd"]
+        trd=new_project["trd"],
+        hackathon_metadata=new_project["hackathon_metadata"],
+        mcp_evidence=new_project["mcp_evidence"]
     )
 
 @router.post("", response_model=ProjectResponse)
@@ -1112,6 +1197,14 @@ async def compile_project(
     tech_stack = payload.blueprint.tech_stack if payload.blueprint else ""
     features_str = ", ".join(features) if features else ""
     prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}"
+    blueprint_payload = payload.blueprint.dict() if payload.blueprint else None
+    hackathon_metadata = build_hackathon_metadata(
+        project_id=project_id,
+        name=payload.name,
+        category=detected_category,
+        blueprint=blueprint_payload,
+    )
+    mcp_evidence = await mcp_client.build_evidence_snapshot(project_id=project_id)
     
     try:
         logger.info(f"Generating documents for project {payload.name} first...")
@@ -1134,11 +1227,13 @@ async def compile_project(
         "user_id": current_user["id"],
         "chat_id": payload.chat_id,
         "theme": payload.theme,
-        "blueprint": payload.blueprint.dict() if payload.blueprint else None,
+        "blueprint": blueprint_payload,
         "theme_palette": payload.theme_palette.dict() if payload.theme_palette else None,
         "prd": docs.get("prd", ""),
         "mrd": docs.get("mrd", ""),
-        "trd": docs.get("trd", "")
+        "trd": docs.get("trd", ""),
+        "hackathon_metadata": hackathon_metadata,
+        "mcp_evidence": mcp_evidence,
     }
     
     await db.projects.insert_one(new_project)
@@ -1179,7 +1274,9 @@ async def compile_project(
         theme_palette=payload.theme_palette,
         prd=new_project["prd"],
         mrd=new_project["mrd"],
-        trd=new_project["trd"]
+        trd=new_project["trd"],
+        hackathon_metadata=new_project["hackathon_metadata"],
+        mcp_evidence=new_project["mcp_evidence"]
     )
 
 @router.post("/{project_id}/compile", response_model=ProjectResponse)
@@ -1264,7 +1361,9 @@ async def compile_project_codebase(
         theme_palette=theme_palette,
         prd=updated_project.get("prd", ""),
         mrd=updated_project.get("mrd", ""),
-        trd=updated_project.get("trd", "")
+        trd=updated_project.get("trd", ""),
+        hackathon_metadata=updated_project.get("hackathon_metadata"),
+        mcp_evidence=updated_project.get("mcp_evidence")
     )
 
 @router.put("/{project_id}")
@@ -1310,23 +1409,39 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
     # Create in-memory zip
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        written_paths = set()
         if codebase:
             for file in codebase:
                 path = file.get("path", file.get("name", "unnamed.txt"))
-                zf.writestr(path, file.get("content", ""))
+                if path not in written_paths:
+                    zf.writestr(path, file.get("content", ""))
+                    written_paths.add(path)
         
-        if doc.get("prd"):
+        if doc.get("prd") and "PRD.md" not in written_paths:
             zf.writestr("PRD.md", doc["prd"])
-        if doc.get("mrd"):
+            written_paths.add("PRD.md")
+        if doc.get("mrd") and "MRD.md" not in written_paths:
             zf.writestr("MRD.md", doc["mrd"])
-        if doc.get("trd"):
+            written_paths.add("MRD.md")
+        if doc.get("trd") and "TRD.md" not in written_paths:
             zf.writestr("TRD.md", doc["trd"])
+            written_paths.add("TRD.md")
+
+        from app.services.hackathon import build_hackathon_files
+        for artifact in build_hackathon_files(
+            doc.get("name", "Sarthi Project"),
+            doc.get("hackathon_metadata") or {},
+            doc.get("mcp_evidence") or {},
+        ):
+            if artifact["path"] not in written_paths:
+                zf.writestr(artifact["path"], artifact["content"])
+                written_paths.add(artifact["path"])
             
         # If ProjectExportAgent provided env templates, include an .env.example
         project_export = doc.get("project_export", {})
         if project_export:
             env_templates = project_export.get("environment_generation", {}).get("env_templates", [])
-            if env_templates:
+            if env_templates and ".env.example" not in written_paths:
                 zf.writestr(".env.example", "\n".join(env_templates))
     
     zip_buffer.seek(0)
@@ -1406,4 +1521,3 @@ async def push_project_to_github(project_id: str, current_user: dict = Depends(g
     except Exception as e:
         logger.error(f"GitHub Push failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to push to GitHub: {str(e)}")
-

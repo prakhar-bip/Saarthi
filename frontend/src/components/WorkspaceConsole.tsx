@@ -422,31 +422,31 @@ export const WorkspaceConsole: React.FC = () => {
                     Sarthi AI Workspace
                   </h1>
                   <p className="text-xs text-stone-450 mt-2 max-w-md mx-auto leading-relaxed font-semibold">
-                    Ask questions, discuss custom features, and build Flask prototypes directly. Sarthi will compile PRD/MRD/TRD documents and full codebases.
+                    Build action-taking agents with Gemini orchestration, MongoDB MCP evidence, PRD/MRD/TRD specs, and runnable Flask prototypes.
                   </p>
                 </motion.div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-w-xl mx-auto pt-2">
                   {[
                     {
-                      title: "Personal Finance Tracker",
-                      desc: "Build a modular finance dashboard tracking budgets and expenses.",
-                      prompt: "Build a modular personal finance dashboard that tracks monthly budgets, categorizes expenses, charts spending trends, and alerts the user when they exceed limits."
+                      title: "Fraud Review Agent",
+                      desc: "Route suspicious transactions into approval workflows.",
+                      prompt: "Build a financial services fraud review agent that stores transactions, flags suspicious activity, opens human approval tasks, and records every decision for audit review using MongoDB."
                     },
                     {
-                      title: "Wellness Companion",
-                      desc: "Design a productivity tool for logging habits and managing routines.",
-                      prompt: "Create a wellness companion application for tracking daily habits, logging hydration, mapping sleep efficiency, and suggesting routine steps."
+                      title: "World Cup Fan Ops",
+                      desc: "Coordinate match-day travel, queues, and alerts.",
+                      prompt: "Create a 2026 World Cup fan logistics agent that plans stadium arrival windows, tracks crowd alerts, recommends transit routes, and updates a MongoDB-backed itinerary checklist."
                     },
                     {
-                      title: "Learning Subject Mapper",
-                      desc: "Develop an educational subject mapper with study milestones.",
-                      prompt: "Develop an educational subject mapper that structures subjects into interactive learning trees, tracks progress checkmarks, and outlines study goals."
+                      title: "Mall Ops Agent",
+                      desc: "Automate tenant campaigns and facility tasks.",
+                      prompt: "Build a brick-and-mortar mall operations agent that logs maintenance requests, schedules tenant promotions, monitors shopper traffic surges, and assigns follow-up tasks."
                     },
                     {
-                      title: "Sustainability Logger",
-                      desc: "Create a utility logger monitoring power use and energy scores.",
-                      prompt: "Create a sustainability utility logger that monitors household appliance power consumption, charts daily usage history, and suggests carbon-reducing steps."
+                      title: "Local Business Surge",
+                      desc: "Help stores react to tourist demand spikes.",
+                      prompt: "Design a local business surge assistant that forecasts tourist demand, creates staffing checklists, records inventory risks, and drafts hyper-local campaign actions."
                     }
                   ].map((item, idx) => (
                     <motion.button

@@ -7,6 +7,8 @@
   --card-border: rgba(231, 229, 228, 0.6); /* Stone 200/60 */
   --accent-primary: #6366f1; /* Indigo 500 */
   --accent-secondary: #f43f5e; /* Rose 500 */
+  --font-plus-jakarta: "Inter", "Segoe UI", Arial, sans-serif;
+  --font-space-grotesk: "Inter", "Segoe UI", Arial, sans-serif;
 }
 
 @theme {

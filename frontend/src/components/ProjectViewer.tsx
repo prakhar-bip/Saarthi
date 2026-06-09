@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project } from "@/context/WorkspaceContext";
 import { CategoryIcon, CircuitDecor } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus } from "lucide-react";
+import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 export const ProjectViewer: React.FC = () => {
@@ -93,6 +93,13 @@ export const ProjectViewer: React.FC = () => {
   const activeChat = chats.find((c) => c.id === activeChatId);
   const activeProj = projects.find((p) => p.id === (activeProjectId || activeChat?.project_id)) ||
     (activeChatId ? projects.find((p) => p.chat_id === activeChatId) : undefined);
+  const hackathonMetadata = activeProj?.hackathon_metadata || {};
+  const mcpEvidence = activeProj?.mcp_evidence || {};
+  const mcpStatus = mcpEvidence?.mcp_status || {};
+  const subAgentCount = Array.isArray(hackathonMetadata?.sub_agent_pipeline)
+    ? hackathonMetadata.sub_agent_pipeline.length
+    : 0;
+  const partnerTrack = hackathonMetadata?.partner_track || "MongoDB";
 
   useEffect(() => {
     if (!activeChat || !activeChat.messages || activeChat.messages.length === 0) return;
@@ -1086,6 +1093,18 @@ export const ProjectViewer: React.FC = () => {
             <p className="text-[10px] text-stone-400 capitalize mt-0.5">
               Category: {activeProj.category}
             </p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700">
+                <Database className="w-3 h-3" />
+                {partnerTrack} MCP
+              </span>
+              {subAgentCount > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-700">
+                  <ClipboardCheck className="w-3 h-3" />
+                  {subAgentCount} sub-agents
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1226,6 +1245,23 @@ export const ProjectViewer: React.FC = () => {
                     This prototype is configured to be compiled into a lightweight Python/Flask backend and a modern HTML/CSS frontend.
                   </p>
                 </div>
+
+                <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100/70 space-y-3">
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Hackathon Track</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-white/70 border border-emerald-100 p-3">
+                      <span className="text-[9px] uppercase font-bold text-emerald-600 block">Partner</span>
+                      <span className="text-xs font-semibold text-stone-800">{partnerTrack}</span>
+                    </div>
+                    <div className="rounded-xl bg-white/70 border border-emerald-100 p-3">
+                      <span className="text-[9px] uppercase font-bold text-emerald-600 block">MCP Mode</span>
+                      <span className="text-xs font-semibold text-stone-800">{mcpStatus.mode || "pending"}</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-stone-500 leading-normal">
+                    The download includes a LICENSE, HACKATHON_SUBMISSION.md, and MCP_EVIDENCE.json for judging.
+                  </p>
+                </div>
               </div>
 
               {activeProj.category !== "documents" && (
@@ -1268,6 +1304,10 @@ export const ProjectViewer: React.FC = () => {
               <div className="text-center mb-6">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-500">Sarthi Compiler</span>
                 <h3 className="text-xl font-bold font-display text-stone-800 mt-1">Generating Prototype</h3>
+                <div className="mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                  <Database className="w-3.5 h-3.5" />
+                  <span>{partnerTrack} MCP + Gemini Agents</span>
+                </div>
                 {/* Typewriter-style current step label */}
                 <motion.p
                   key={activeProj.step}
@@ -1498,6 +1538,22 @@ export const ProjectViewer: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-3 space-y-1 select-none">
                 {(() => {
                   const filesToRender = [...(activeProj.codebase || [])];
+                  if (activeProj.mcp_evidence && !filesToRender.some((file) => file.path === "sarthi-internal/MCP_EVIDENCE.json")) {
+                    filesToRender.unshift({
+                      name: "MCP_EVIDENCE.json",
+                      path: "sarthi-internal/MCP_EVIDENCE.json",
+                      language: "json",
+                      content: JSON.stringify(activeProj.mcp_evidence, null, 2),
+                    });
+                  }
+                  if (activeProj.hackathon_metadata && !filesToRender.some((file) => file.path === "sarthi-internal/HACKATHON_METADATA.json")) {
+                    filesToRender.unshift({
+                      name: "HACKATHON_METADATA.json",
+                      path: "sarthi-internal/HACKATHON_METADATA.json",
+                      language: "json",
+                      content: JSON.stringify(activeProj.hackathon_metadata, null, 2),
+                    });
+                  }
                   if (activeProj.trd) {
                     filesToRender.unshift({
                       name: "Technical Requirement Document (TRD).md",

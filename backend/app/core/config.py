@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # MongoDB Configuration
     MONGODB_URI: str = Field(default="mongodb://localhost:27017")
     DATABASE_NAME: str = Field(default="sarthi")
+    PARTNER_TRACK: str = Field(default="MongoDB")
+    PARTNER_MCP_SERVER: str = Field(default="mongodb-mcp-server@latest")
+    MONGODB_MCP_ENABLED: bool = Field(default=True)
+    MONGODB_MCP_READ_ONLY: bool = Field(default=True)
+    MONGODB_MCP_STARTUP_TIMEOUT_SECONDS: int = Field(default=15)
 
     # Redis Configuration
     REDIS_HOST: str = Field(default="localhost")
@@ -54,13 +59,22 @@ class Settings(BaseSettings):
 
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")
-    GOOGLE_MODEL: str = Field(default="gemini-2.5-flash")
+    GOOGLE_MODEL: str = Field(default="gemini-3-pro-preview")
+    GOOGLE_FAST_MODEL: str = Field(default="gemini-3-flash-preview")
+    GOOGLE_REASONING_MODEL: str = Field(default="gemini-3-pro-preview")
+
+    # Google Cloud Vertex AI
+    GCP_PROJECT_ID: str = Field(default="")
+    GCP_LOCATION: str = Field(default="us-central1")
 
 
 settings = Settings()
 
 # Ensure the underlying google-genai SDK discovers the API key
 import os
-if settings.GOOGLE_API_KEY:
+if settings.GCP_PROJECT_ID:
+    os.environ["GEMINI_VERTEX_PROJECT"] = settings.GCP_PROJECT_ID
+    os.environ["GEMINI_VERTEX_LOCATION"] = settings.GCP_LOCATION
+elif settings.GOOGLE_API_KEY:
     os.environ["GEMINI_API_KEY"] = settings.GOOGLE_API_KEY
     os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY
