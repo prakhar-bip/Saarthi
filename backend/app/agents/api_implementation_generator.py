@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 import logging
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
@@ -6,7 +7,6 @@ from app.core.config import settings
 from app.services.llm_router import get_llm_completion
 from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
 
-logger = logging.getLogger(__name__)
 
 
 class APIImplementationAgent:
@@ -71,7 +71,11 @@ class APIImplementationAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design production-grade FastAPI endpoints, router modules mappings, request/response payload schemas, CRUD routing groups, and exception mappings."
+            "Design production-grade FastAPI endpoints, router modules mappings, request/response payload schemas, CRUD routing groups, and exception mappings. "
+            "CRITICAL RULES:\n"
+            "1. NEVER use raw datetime parsing without strict try-except validation blocks to prevent 500 server crashes.\n"
+            "2. ALL API routes MUST have strict Pydantic payload validation.\n"
+            "3. AVOID dummy logic or API stubs. Routes must contain complete real-world logic."
         )
 
         user_content = f"""

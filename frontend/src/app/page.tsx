@@ -11,8 +11,14 @@ import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function Home() {
-  const { activeChatId, activeProjectId, showRightPane, showLeftPane } = useWorkspace();
+  const { activeChatId, activeProjectId, showRightPane, showLeftPane, projects, chats } = useWorkspace();
   const [showSplash, setShowSplash] = useState(true);
+
+  // Compute finalized state
+  const activeChat = chats.find((c) => c.id === activeChatId);
+  const activeProj = projects.find((p) => p.id === (activeProjectId || activeChat?.project_id)) ||
+    (activeChatId ? projects.find((p) => p.chat_id === activeChatId) : undefined);
+  const isProjectFinalized = activeProj?.status === "documents_ready" || activeProj?.status === "generating" || activeProj?.status === "completed";
 
   // Resize Width States
   const [leftWidth, setLeftWidth] = useState<number>(320);
@@ -118,7 +124,7 @@ export default function Home() {
                 className="h-full flex shrink-0 overflow-visible relative"
               >
                 <div className="w-full h-full overflow-hidden">
-                  <Sidebar />
+                  <Sidebar isCollapsed={leftWidth < 200} />
                 </div>
 
                 {/* Left Resizer Handle */}
@@ -134,7 +140,7 @@ export default function Home() {
                   <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
                   
                   {/* Visual grab handle */}
-                  <div className="absolute top-1/2 right-1/2 translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-white border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
+                  <div className="absolute top-1/2 right-1/2 translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
                     <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
                     <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
                     <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
@@ -145,22 +151,24 @@ export default function Home() {
           </AnimatePresence>
 
           {/* Main Console Arena */}
-          <main className="flex-1 flex overflow-hidden">
+          <main className="flex-1 flex overflow-hidden relative">
             {/* Chat / Interaction Console (Center) */}
-            <WorkspaceConsole />
+            <WorkspaceConsole isMinimized={isProjectFinalized} />
 
             {/* Dynamic Project Details / Compiling Board (Right pane) */}
             <AnimatePresence initial={false}>
               {(activeProjectId || activeChatId) && showRightPane && (
                 <motion.div
                   initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: `${rightWidth}px`, opacity: 1 }}
+                  animate={isProjectFinalized ? { width: "100%", opacity: 1 } : { width: `${rightWidth}px`, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ duration: isDraggingRight ? 0 : 0.4, ease: [0.4, 0, 0.2, 1] }}
-                  className="border-l border-stone-200/60 h-full flex shrink-0 overflow-visible relative"
+                  className={`${isProjectFinalized ? "w-full" : "border-l"} border-stone-200/60 h-full flex shrink-0 overflow-visible relative`}
+                  style={isProjectFinalized ? { flex: 1 } : {}}
                 >
-                  {/* Right Resizer Handle */}
-                  <div
+                  {/* Right Resizer Handle (Only show if not finalized) */}
+                  {!isProjectFinalized && (
+                    <div
                     onMouseDown={startResizeRight}
                     onDoubleClick={() => {
                       setRightWidth(550);
@@ -172,12 +180,13 @@ export default function Home() {
                     <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
 
                     {/* Visual grab handle */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-white border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
                       <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
                       <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
                       <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
                     </div>
                   </div>
+                  )}
 
                   <div className="w-full h-full overflow-hidden">
                     <ProjectViewer />

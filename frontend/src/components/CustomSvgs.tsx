@@ -3,51 +3,17 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 
-// 1. Sarthi Animated Logo
-export const SarthiLogo: React.FC<{ className?: string }> = ({ className = "w-10 h-10" }) => {
-  const [isHovered, setIsHovered] = useState(false);
-
+// 1. Sarthi Animated Logo (Peacock Script Theme)
+export const SarthiLogo: React.FC<{ className?: string }> = ({ className = "text-3xl" }) => {
   return (
-    <div
-      className={`relative flex items-center justify-center ${className} select-none`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+    <motion.div
+      className={`font-[family-name:var(--font-dancing-script)] font-bold select-none whitespace-nowrap bg-gradient-to-r from-[#1e1b4b] via-[#0f766e] to-[#4338ca] bg-clip-text text-transparent drop-shadow-sm ${className}`}
+      style={{ backgroundSize: "200% auto" }}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
     >
-      {/* Ambient Rotating Glowing Ring Behind the Logo Image */}
-      <motion.div
-        className="absolute inset-0 -m-1.5 rounded-xl opacity-0 bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500 blur-[6px] pointer-events-none"
-        animate={isHovered ? { scale: 1.15, opacity: 0.65, rotate: 360 } : { scale: 1, opacity: 0, rotate: 0 }}
-        transition={isHovered ? {
-          scale: { duration: 0.3, ease: "easeOut" },
-          opacity: { duration: 0.3, ease: "easeOut" },
-          rotate: { duration: 10, repeat: Infinity, ease: "linear" }
-        } : { duration: 0.3 }}
-      />
-
-      {/* Main Logo Image wrapper */}
-      <motion.div
-        className="w-full h-full rounded-xl overflow-hidden bg-white shadow-sm border border-stone-200/50 relative z-10 flex items-center justify-center"
-        animate={isHovered ? { 
-          scale: 1.08, 
-          rotateY: 15,
-          rotateX: -10,
-          boxShadow: "0 10px 25px -5px rgba(99, 102, 241, 0.25), 0 8px 10px -6px rgba(244, 63, 94, 0.15)"
-        } : { 
-          scale: 1, 
-          rotateY: 0,
-          rotateX: 0,
-          boxShadow: "0 1px 3px 0 rgba(0,0,0,0.05)"
-        }}
-        transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-        style={{ transformStyle: "preserve-3d", perspective: "1000px" }}
-      >
-        <img
-          src="/logo.png"
-          alt="Sarthi Logo"
-          className="w-full h-full object-cover pointer-events-none"
-        />
-      </motion.div>
-    </div>
+      Sarthi
+    </motion.div>
   );
 };
 
@@ -180,7 +146,7 @@ export const LockIllustration: React.FC<{ className?: string }> = ({ className =
         cx="150"
         cy="60"
         r="3"
-        fill="#10b981"
+        fill="#eab308"
         animate={{ scale: [1, 1.4, 1] }}
         transition={{ duration: 2.5, repeat: Infinity }}
       />
@@ -478,6 +444,76 @@ export const AiTypingWave: React.FC<{ className?: string }> = ({ className = "fl
           }}
         />
       ))}
+    </div>
+  );
+};
+
+// 10. Floating Bot GIF / SVG replacement
+export const FloatingBot: React.FC<{ className?: string }> = ({ className = "w-10 h-10" }) => (
+  <motion.div
+    className={`relative flex items-center justify-center ${className}`}
+    animate={{ y: [-3, 3, -3] }}
+    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+  >
+    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full drop-shadow-md">
+      {/* Bot Body */}
+      <rect x="25" y="35" width="50" height="40" rx="10" fill="url(#bot-grad)" stroke="#4f46e5" strokeWidth="2" />
+      {/* Bot Screen/Eye container */}
+      <rect x="35" y="45" width="30" height="15" rx="5" fill="#1e1b4b" />
+      {/* Animated Eyes */}
+      <motion.circle cx="43" cy="52.5" r="3" fill="#60a5fa"
+        animate={{ scaleY: [1, 0.1, 1], opacity: [1, 0.8, 1] }}
+        transition={{ duration: 3, repeat: Infinity, times: [0, 0.1, 0.2] }}
+      />
+      <motion.circle cx="57" cy="52.5" r="3" fill="#60a5fa"
+        animate={{ scaleY: [1, 0.1, 1], opacity: [1, 0.8, 1] }}
+        transition={{ duration: 3, repeat: Infinity, times: [0, 0.1, 0.2] }}
+      />
+      {/* Antenna */}
+      <line x1="50" y1="35" x2="50" y2="20" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" />
+      <motion.circle cx="50" cy="16" r="4" fill="#fbbf24"
+        animate={{ scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] }}
+        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+      />
+      {/* Little floating orbs around the bot */}
+      <motion.circle cx="15" cy="45" r="2" fill="#818cf8"
+        animate={{ y: [-5, 5, -5] }} transition={{ duration: 2, repeat: Infinity }} />
+      <motion.circle cx="85" cy="55" r="2" fill="#34d399"
+        animate={{ y: [5, -5, 5] }} transition={{ duration: 2.5, repeat: Infinity }} />
+      <defs>
+        <linearGradient id="bot-grad" x1="25" y1="35" x2="75" y2="75" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#e0e7ff" />
+          <stop offset="1" stopColor="#c7d2fe" />
+        </linearGradient>
+      </defs>
+</svg>
+  </motion.div>
+);
+
+// 11. Morpankh (Peacock Feather) Global Animated Background
+export const MorpankhBg: React.FC<{ className?: string }> = ({ className = "" }) => {
+  return (
+    <div className={`absolute inset-0 pointer-events-none overflow-hidden z-0 bg-stone-50 ${className}`}>
+      {/* The Photorealistic Image with Framer Motion for continuous Ken Burns effect */}
+      <motion.img
+        src="/morpankh-bg.png"
+        alt="Sarthi Morpankh Background"
+        className="absolute w-[110vw] h-[110vw] max-w-[150vw] max-h-[150vh] object-cover origin-center opacity-80 left-[-5vw] top-[-5vh]"
+        initial={{ scale: 1, rotate: -2 }}
+        animate={{ 
+          scale: [1, 1.1, 1],
+          rotate: [-2, 2, -2],
+          x: [0, -20, 0],
+          y: [0, 10, 0]
+        }}
+        transition={{ duration: 60, repeat: Infinity, ease: "easeInOut" }}
+      />
+      
+      {/* Softening Overlay to ensure perfect text readability (Glassmorphism layer) */}
+      <div className="absolute inset-0 bg-stone-50/60 backdrop-blur-[4px]" />
+      
+      {/* Subtle color blending overlay to tie it back to the Sarthi theme */}
+      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-teal-500/5 to-amber-500/10 mix-blend-overlay" />
     </div>
   );
 };

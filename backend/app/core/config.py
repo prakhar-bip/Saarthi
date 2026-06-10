@@ -59,22 +59,40 @@ class Settings(BaseSettings):
 
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")
-    GOOGLE_MODEL: str = Field(default="gemini-3-pro-preview")
-    GOOGLE_FAST_MODEL: str = Field(default="gemini-3-flash-preview")
-    GOOGLE_REASONING_MODEL: str = Field(default="gemini-3-pro-preview")
+    GOOGLE_MODEL: str = Field(default="gemini-3.1-pro-preview")
+    GOOGLE_FAST_MODEL: str = Field(default="gemini-3.1-pro-preview")
+    GOOGLE_REASONING_MODEL: str = Field(default="gemini-3.1-pro-preview")
 
     # Google Cloud Vertex AI
     GCP_PROJECT_ID: str = Field(default="")
     GCP_LOCATION: str = Field(default="us-central1")
+    USE_VERTEX_AI: bool = Field(default=False)
 
 
 settings = Settings()
 
-# Ensure the underlying google-genai SDK discovers the API key
+# Auto-detect if we should default to Vertex AI (when GCP project is configured but no API key is provided)
+if not settings.GOOGLE_API_KEY and settings.GCP_PROJECT_ID:
+    settings.USE_VERTEX_AI = True
+
+# Ensure the underlying google-genai SDK discovers the API key or Vertex configurations
 import os
-if settings.GCP_PROJECT_ID:
+if settings.USE_VERTEX_AI and settings.GCP_PROJECT_ID:
     os.environ["GEMINI_VERTEX_PROJECT"] = settings.GCP_PROJECT_ID
     os.environ["GEMINI_VERTEX_LOCATION"] = settings.GCP_LOCATION
-elif settings.GOOGLE_API_KEY:
-    os.environ["GEMINI_API_KEY"] = settings.GOOGLE_API_KEY
-    os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+    # Clear developer API key env variables to prevent SDK conflict
+    if "GEMINI_API_KEY" in os.environ:
+        del os.environ["GEMINI_API_KEY"]
+    if "GOOGLE_GENAI_API_KEY" in os.environ:
+        del os.environ["GOOGLE_GENAI_API_KEY"]
+else:
+    # Use standard developer Gemini API key
+    if settings.GOOGLE_API_KEY:
+        os.environ["GEMINI_API_KEY"] = settings.GOOGLE_API_KEY
+        os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY
+    # Clear vertex env variables to prevent SDK from forcing Vertex mode
+    if "GEMINI_VERTEX_PROJECT" in os.environ:
+        del os.environ["GEMINI_VERTEX_PROJECT"]
+    if "GEMINI_VERTEX_LOCATION" in os.environ:
+        del os.environ["GEMINI_VERTEX_LOCATION"]

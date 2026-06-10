@@ -1,4 +1,5 @@
 import time
+from loguru import logger
 import logging
 import json
 from typing import List, Dict, Any, Tuple
@@ -7,20 +8,17 @@ from google import genai
 from google.genai import types
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
 
 # Core agent mapping to preferred (provider, model). Hackathon builds default to Gemini 3.
 REASONING_MODEL = settings.GOOGLE_REASONING_MODEL or settings.GOOGLE_MODEL
 FAST_MODEL = settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL
 
 AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
-    # High-reasoning and planning agents → gemini-2.5-pro
-    "PlannerAgent": ("gemini", REASONING_MODEL),
-    "RequirementAnalyzerAgent": ("gemini", REASONING_MODEL),
+    # ---------------------------------------------------------
+    # TIER 1: COMPLEX TASKS (Code Generation & Compilation)
+    # Routed to Vertex AI / Gemini 3.1 Pro Preview
+    # ---------------------------------------------------------
     "CodeGenerationPlannerAgent": ("gemini", REASONING_MODEL),
-    "ErrorCorrectionAgent": ("gemini", REASONING_MODEL),
-
-    # Code generation agents → gemini-2.5-flash (fast + capable)
     "DatabaseModelGenerationAgent": ("gemini", FAST_MODEL),
     "BackendCodeGenerationAgent": ("gemini", FAST_MODEL),
     "APIImplementationAgent": ("gemini", FAST_MODEL),
@@ -30,34 +28,41 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     "IntegrationGenerationAgent": ("gemini", FAST_MODEL),
     "BuildCompilationAgent": ("gemini", FAST_MODEL),
     "ProjectExportAgent": ("gemini", FAST_MODEL),
+    "CodebaseCompiler": ("gemini", REASONING_MODEL),
     "ValidationArchitectureAgent": ("gemini", FAST_MODEL),
 
-    # Architecture component agents → gemini-2.5-flash
-    "FrontendArchitectureAgent": ("gemini", FAST_MODEL),
-    "BackendArchitectureAgent": ("gemini", FAST_MODEL),
-    "DatabaseArchitectureAgent": ("gemini", FAST_MODEL),
-    "DevOpsArchitectureAgent": ("gemini", FAST_MODEL),
-    "RealtimeArchitectureAgent": ("gemini", FAST_MODEL),
-    "StateManagementAgent": ("gemini", FAST_MODEL),
-    "AuthArchitectureAgent": ("gemini", FAST_MODEL),
-    "SecurityArchitectureAgent": ("gemini", FAST_MODEL),
-    "APIAgent": ("gemini", FAST_MODEL),
+    # ---------------------------------------------------------
+    # TIER 2: NORMAL & EASY-INTERMEDIATE TASKS
+    # Routed to OpenRouter (e.g. gpt-oss-120b)
+    # Includes Chat, Planning, Ideation, Architecture & Styling
+    # ---------------------------------------------------------
+    "ChatReply": ("openrouter", settings.OPENROUTER_MODEL),
+    "CategoryClassifier": ("openrouter", settings.OPENROUTER_MODEL),
+    "ProjectSuggestions": ("openrouter", settings.OPENROUTER_MODEL),
+    "PlannerAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "RequirementAnalyzerAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "ErrorCorrectionAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    
+    # Architecture component agents
+    "FrontendArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "BackendArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "DatabaseArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "DevOpsArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "RealtimeArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "StateManagementAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "AuthArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "SecurityArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "APIAgent": ("openrouter", settings.OPENROUTER_MODEL),
 
     # Fast agents / Optimization / Testing / Styling
-    "UIUXArchitectAgent": ("gemini", FAST_MODEL),
-    "OptimizationArchitectureAgent": ("gemini", FAST_MODEL),
-    "TestingArchitectureAgent": ("gemini", FAST_MODEL),
-
-    # App core utilities / features — fastest path
-    "ChatReply": ("gemini", FAST_MODEL),
-    "CategoryClassifier": ("gemini", FAST_MODEL),
-    "ProjectSuggestions": ("gemini", FAST_MODEL),
-    "CodebaseCompiler": ("gemini", REASONING_MODEL),
-    "ThemeGeneratorAgent": ("gemini", FAST_MODEL),
-    "DocumentGeneratorAgent": ("gemini", FAST_MODEL),
+    "UIUXArchitectAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "OptimizationArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "TestingArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "ThemeGeneratorAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "DocumentGeneratorAgent": ("openrouter", settings.OPENROUTER_MODEL),
 }
 
-# Fallback sequence: try Groq first (fast & reliable), then OpenRouter, then Nvidia
+# Base global fallback (will be dynamically adjusted based on pref_provider)
 FALLBACK_PROVIDERS = ["gemini", "groq", "openrouter", "nvidia"]
 
 
@@ -84,7 +89,7 @@ def get_provider_client(provider: str) -> Any:
         )
     
     elif provider in ("google", "gemini"):
-        if settings.GCP_PROJECT_ID:
+        if settings.USE_VERTEX_AI and settings.GCP_PROJECT_ID:
             return genai.Client(
                 vertexai=True,
                 project=settings.GCP_PROJECT_ID,
@@ -165,11 +170,24 @@ async def get_raw_llm_completion(
     # Sequence of providers to try (preferred first, then cascade through fallbacks)
     seen = set()
     providers_to_try = []
-    for p in [pref_provider] + FALLBACK_PROVIDERS:
+    
+    # Dynamically build fallback list so we don't fallback to Gemini immediately if we wanted OpenRouter
+    fallback_sequence = []
+    if pref_provider == "openrouter":
+        fallback_sequence = ["groq", "gemini", "nvidia"]
+    elif pref_provider in ("google", "gemini"):
+        fallback_sequence = ["openrouter", "groq", "nvidia"]
+    else:
+        fallback_sequence = FALLBACK_PROVIDERS
+
+    for p in [pref_provider] + fallback_sequence:
         norm_p = "google" if p in ("google", "gemini") else p
         if norm_p not in seen:
             seen.add(norm_p)
             providers_to_try.append(p)
+            
+    if agent_name == "ChatReply":
+        providers_to_try = [pref_provider]
     
     last_error = None
     input_str_len = sum(len(m.get("content", "")) for m in messages)
@@ -290,102 +308,114 @@ async def get_llm_completion(
     if not user_prompt:
         user_prompt = "Perform action according to instructions."
 
-    # 1. Primary path: Google Cloud ADK Agent Runner
-    try:
-        from google.adk.agents.llm_agent import Agent as ADKAgent
-        from google.adk.runners import Runner as ADKRunner
-        from google.adk.sessions.in_memory_session_service import InMemorySessionService
-        from google.adk.agents.run_config import RunConfig
-        from google.genai.types import Content, Part
-        from app.services.mcp_service import mcp_client
-        import json
-        
-        logger.info(f"🔌 [ADK RUNNER] Invoking {agent_name}...")
-        
-        async def mongodb_mcp_tool(tool_name: str, arguments_json: str = "{}") -> str:
-            """
-            Query the MongoDB database via the MCP protocol. 
-            Use this tool to inspect schemas, read user data, or update records to accomplish real-world tasks.
-            """
-            try:
-                args = json.loads(arguments_json) if arguments_json else {}
-                return await mcp_client.execute_tool(tool_name, args)
-            except Exception as e:
-                return f"Failed to execute MongoDB MCP tool: {e}"
-        
-        # Inject MCP superpowers into planning, architecture, generation, build, and export agents.
-        mcp_enabled_agents = [
-            "PlannerAgent",
-            "RequirementAnalyzerAgent",
-            "DatabaseArchitectureAgent",
-            "BackendArchitectureAgent",
-            "APIAgent",
-            "CodeGenerationPlannerAgent",
-            "DatabaseModelGenerationAgent",
-            "BackendCodeGenerationAgent",
-            "APIImplementationAgent",
-            "BuildCompilationAgent",
-            "ProjectExportAgent",
-            "CodebaseCompiler",
-        ]
-        agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else None
+    # 1. Primary path: Google Cloud ADK Agent Runner (Only for Gemini)
+    if pref_provider in ("google", "gemini"):
+        try:
+            import os
+            # Cleanly skip ADK if credentials are missing to avoid noisy thread stack traces
+            if not settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get("GEMINI_API_KEY"):
+                logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (No Google Credentials found). Deferring to Fallback.")
+                raise ValueError("Google Credentials missing for local dev.")
 
-        adk_agent = ADKAgent(
-            name=agent_name,
-            model=pref_model,
-            instruction=system_instruction or "You are a helpful software compiler agent.",
-            tools=agent_tools
-        )
-        session_service = InMemorySessionService()
-        runner = ADKRunner(
-            app_name=f"{agent_name}App",
-            agent=adk_agent,
-            session_service=session_service
-        )
-        session = await session_service.create_session(app_name=f"{agent_name}App", user_id="system_user")
-        user_message = Content(role="user", parts=[Part.from_text(text=user_prompt)])
-        run_config = RunConfig(response_modalities=["TEXT"])
-        
-        events = runner.run(
-            user_id=session.user_id,
-            session_id=session.id,
-            new_message=user_message,
-            run_config=run_config
-        )
-        
-        response_text = ""
-        for event in events:
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.text:
-                        response_text += part.text
-                        
-        if not response_text:
-            raise ValueError("ADK runner returned empty response")
+            from google.adk.agents.llm_agent import Agent as ADKAgent
+            from google.adk.runners import Runner as ADKRunner
+            from google.adk.sessions.in_memory_session_service import InMemorySessionService
+            from google.adk.agents.run_config import RunConfig
+            from google.genai.types import Content, Part
+            from app.services.mcp_service import mcp_client
+            import json
             
-        logger.info(f"✅ [ADK RUNNER] Completed {agent_name} successfully.")
-        return response_text
-        
-    except Exception as adk_err:
-        logger.warning(f"⚠️ [ADK RUNNER] Failed for {agent_name}: {adk_err}. Cascading to LangGraph Fallback...")
+            logger.info(f"🔌 [ADK RUNNER] Invoking {agent_name}...")
+            
+            async def mongodb_mcp_tool(tool_name: str, arguments_json: str = "{}") -> str:
+                """
+                Query the MongoDB database via the MCP protocol. 
+                Use this tool to inspect schemas, read user data, or update records to accomplish real-world tasks.
+                """
+                try:
+                    args = json.loads(arguments_json) if arguments_json else {}
+                    return await mcp_client.execute_tool(tool_name, args)
+                except Exception as e:
+                    return f"Failed to execute MongoDB MCP tool: {e}"
+            
+            # Inject MCP superpowers into planning, architecture, generation, build, and export agents.
+            mcp_enabled_agents = [
+                "PlannerAgent",
+                "RequirementAnalyzerAgent",
+                "DatabaseArchitectureAgent",
+                "BackendArchitectureAgent",
+                "APIAgent",
+                "CodeGenerationPlannerAgent",
+                "DatabaseModelGenerationAgent",
+                "BackendCodeGenerationAgent",
+                "APIImplementationAgent",
+                "BuildCompilationAgent",
+                "ProjectExportAgent",
+                "CodebaseCompiler",
+            ]
+            agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else None
+
+            adk_agent = ADKAgent(
+                name=agent_name,
+                model=pref_model,
+                instruction=system_instruction or "You are a helpful software compiler agent.",
+                tools=agent_tools
+            )
+            session_service = InMemorySessionService()
+            runner = ADKRunner(
+                app_name=f"{agent_name}App",
+                agent=adk_agent,
+                session_service=session_service
+            )
+            session = await session_service.create_session(app_name=f"{agent_name}App", user_id="system_user")
+            user_message = Content(role="user", parts=[Part.from_text(text=user_prompt)])
+            run_config = RunConfig(response_modalities=["TEXT"])
+            
+            events = runner.run(
+                user_id=session.user_id,
+                session_id=session.id,
+                new_message=user_message,
+                run_config=run_config
+            )
+            
+            response_text = ""
+            for event in events:
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response_text += part.text
+                            
+            if not response_text:
+                raise ValueError("ADK runner returned empty response")
+                
+            logger.info(f"✅ [ADK RUNNER] Completed {agent_name} successfully.")
+            return response_text
+            
+        except Exception as adk_err:
+            logger.warning(f"⚠️ [ADK RUNNER] Failed for {agent_name}: {adk_err}. Cascading to LangGraph Fallback...")
 
     # 2. Secondary path: LangGraph StateGraph Workflow
     try:
         from langgraph.graph import StateGraph, END
+        from typing import TypedDict
         
+        class RouterState(TypedDict):
+            messages: List[Dict[str, str]]
+            response: str
+            
         logger.info(f"🔌 [LANGGRAPH FALLBACK] Orchestrating {agent_name}...")
         
-        async def call_router_fallback(state: dict) -> dict:
-            res = await get_raw_llm_completion(agent_name, messages, temperature, max_tokens)
+        async def call_router_fallback(state: RouterState) -> dict:
+            res = await get_raw_llm_completion(agent_name, state.get("messages", []), temperature, max_tokens)
             return {"response": res}
             
-        workflow = StateGraph(dict)
+        workflow = StateGraph(RouterState)
         workflow.add_node("call_llm", call_router_fallback)
         workflow.set_entry_point("call_llm")
         workflow.add_edge("call_llm", END)
         fallback_app = workflow.compile()
         
-        result = await fallback_app.ainvoke({"messages": messages})
+        result = await fallback_app.ainvoke({"messages": messages, "response": ""})
         response_text = result.get("response", "")
         if not response_text:
             raise ValueError("LangGraph fallback returned empty response")

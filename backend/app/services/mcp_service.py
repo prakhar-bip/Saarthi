@@ -1,5 +1,6 @@
 import asyncio
 import json
+from loguru import logger
 import logging
 import os
 import shutil
@@ -22,7 +23,6 @@ except ImportError as import_error:
 
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
 
 
 def _jsonable(value: Any) -> Any:
@@ -129,12 +129,29 @@ class MCPManager:
         self.tools_cache = list(result.tools or [])
 
     async def _reset_exit_stack(self) -> None:
+        import sys
+        if sys.platform == "win32":
+            try:
+                import subprocess
+                cmd = [
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Get-WmiObject Win32_Process -Filter \"CommandLine like '%mongodb-mcp-server%'\" | ForEach-Object { $_.Terminate() }"
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                logger.debug(f"Failed to kill orphaned MCP processes: {e}")
+
         try:
-            await self.exit_stack.aclose()
+            # Wrap aclose in a timeout to prevent uvicorn shutdown from hanging if npx gets stuck
+            await asyncio.wait_for(self.exit_stack.aclose(), timeout=5.0)
         except Exception:
             logger.debug("Ignoring MCP exit stack cleanup error.", exc_info=True)
         self.exit_stack = AsyncExitStack()
         self.session = None
+
 
     async def stop(self) -> None:
         """Close the MCP session and subprocess if they are running."""
@@ -163,6 +180,12 @@ class MCPManager:
 
     async def list_tools(self) -> List[Any]:
         """Fetch available tools from the MCP server or fallback adapter."""
+        if self.mode == "official_mcp_stdio":
+            if not self.is_connected or getattr(self.session, '_closed', False):
+                logger.warning("MCP session appears disconnected. Attempting auto-reconnect...")
+                await self.stop()
+                await self.start()
+
         if self.is_connected and self.session:
             try:
                 result = await asyncio.wait_for(self.session.list_tools(), timeout=8)
@@ -210,6 +233,13 @@ class MCPManager:
             "mode": self.mode,
             "called_at": datetime.now(timezone.utc).isoformat(),
         }
+
+        if self.mode == "official_mcp_stdio":
+            # Check if session is closed or unresponsive and auto-reconnect
+            if not self.is_connected or getattr(self.session, '_closed', False):
+                logger.warning("MCP session appears disconnected. Attempting auto-reconnect...")
+                await self.stop()
+                await self.start()
 
         if self.is_connected and self.session:
             try:

@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 import logging
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
@@ -6,7 +7,6 @@ from app.core.config import settings
 from app.services.llm_router import get_llm_completion
 from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
 
-logger = logging.getLogger(__name__)
 
 
 class BackendCodeGenerationAgent:
@@ -69,7 +69,12 @@ class BackendCodeGenerationAgent:
 
         system_prompt = build_agent_system_prompt(
             self.agent_name,
-            "Design production-grade FastAPI backend code structures, service wrappers, async dependencies, and worker loops."
+            "Design production-grade FastAPI backend code structures, service wrappers, async dependencies, and worker loops. "
+            "CRITICAL RULES:\n"
+            "1. ALWAYS include 'python-dotenv' and database drivers like 'motor', 'pymongo', or 'Flask-PyMongo' in requirements.txt.\n"
+            "2. ALWAYS generate a full '.env' file template alongside '.env.example' containing MONGODB_URI and SECRET_KEY.\n"
+            "3. Database connections must use robust try-except blocks to catch connection failures and handle them gracefully.\n"
+            "4. AVOID dummy logic or stubs. Generate complete business logic using real external APIs or comprehensive algorithms when required."
         )
 
         user_content = f"""

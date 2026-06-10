@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 import logging
 import time
 from typing import List, Dict, Any
@@ -6,7 +7,6 @@ from app.core.config import settings
 from app.agents.context import build_compilation_context
 from app.services.llm_router import get_llm_completion
 
-logger = logging.getLogger(__name__)
 
 async def generate_chat_reply(category: str, messages: List[Dict[str, str]], selected_project: dict = None) -> str:
     """
@@ -17,62 +17,52 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
     try:
         if selected_project:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development companion for the '{category}' domain.\n\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
                 f"## Active Project Context\n"
                 f"- **Project Name**: {selected_project.get('name')}\n"
                 f"- **Core Idea**: {selected_project.get('idea')}\n"
                 f"- **Key Features**: {', '.join(selected_project.get('features', []))}\n"
                 f"- **Tech Stack**: {selected_project.get('tech_stack')}\n\n"
-                "## Your Role\n"
-                "You are the user's development partner for this project. You can:\n"
-                "1. Answer ANY general question (coding, debugging, concepts, career advice)\n"
-                "2. Discuss and refine the project — suggest new features, improve architecture, debug approaches\n"
-                "3. Translate vague ideas into concrete specs (APIs, UI flows, database schemas)\n\n"
-                "## Response Guidelines\n"
-                "- **Dynamic Brainstorming**: DO NOT just accept the user's idea statically. Act as a technical co-founder. Discuss their idea, suggest 2-3 innovative features, and ask for their thoughts. Emphasize that the blueprint is fully customizable.\n"
-                "- Use **markdown**: headings, bullet lists, code blocks (with language tags), bold text\n"
-                "- Be conversational and enthusiastic, not robotic\n"
-                "- For code questions: include working code snippets\n"
-                "- For project refinements: explain the trade-offs\n\n"
-                "## Blueprint Block (IMPORTANT)\n"
-                "When the user modifies project details, features, name, or tech stack, append this at the END:\n"
+                "## Mindset & Semantic Routing\n"
+                "Analyze the user's intent semantically across messages:\n"
+                "1. **Casual/General Chat**: Talk naturally and warmly. Do not force technical jargon, templates, or blueprint blocks.\n"
+                "2. **Learning/Concept Q&A**: Explain clearly with code snippets and markdown formatting, focusing on the specific question.\n"
+                "3. **Refining & Brainstorming**: Discuss ideas as a co-founder. Suggest features gradually and listen to feedback. Do not dump complete structures immediately.\n\n"
+                "## Blueprint Block (Locking in Configuration)\n"
+                "ONLY append the `<blueprint>` block at the very end of your message if the user has EXPLICITLY requested to save, finalize, update, or compile the project blueprint, OR if they agree on a specific feature set configuration. Otherwise, chat normally without any blocks.\n"
+                "Format of the block when requested:\n"
                 "<blueprint>\n"
                 "{\n"
                 "  \"name\": \"Updated Project Name\",\n"
                 "  \"idea\": \"Core Idea/Description\",\n"
                 "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
-                "  \"tech_stack\": \"Flask, HTML, CSS\"\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\",\n"
+                "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
                 "}\n"
-                "</blueprint>\n"
-                "Do NOT include this block for general questions unrelated to the project."
+                "</blueprint>"
             )
         else:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development companion for the '{category}' domain.\n\n"
-                "## Your Role\n"
-                "You are a versatile AI assistant that can:\n"
-                "1. Answer ANY question — coding problems, debugging, algorithms, system design, tech concepts\n"
-                "2. Brainstorm and discuss hackathon project ideas with the user\n"
-                "3. Help refine project features, architecture, and tech stack choices\n\n"
-                "## Response Guidelines\n"
-                "- **Dynamic Brainstorming**: When a user shares a project idea, DO NOT just passively accept it. Discuss it, suggest 2-3 innovative features based on their vision, and ask if they like them. Emphasize that the project blueprint is highly customizable.\n"
-                "- Use **markdown**: headings, bullet lists, code blocks (with language tags), bold text\n"
-                "- Be conversational, friendly, and enthusiastic — not robotic\n"
-                "- For code: include working, well-commented snippets\n"
-                "- For project ideas: suggest specific, modern features, not vague concepts\n"
-                "- ONLY suggest 5 projects in a table if the user EXPLICITLY asks for a list of project suggestions\n\n"
-                "## Blueprint Block (IMPORTANT)\n"
-                "When the user describes their OWN project idea, names features, or discusses their custom project, "
-                "append this structured block at the END of your response:\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
+                "## Your Role & Vibe\n"
+                "You are an empathetic, intelligent, and conversational co-pilot. Listen carefully, analyze the user's mindset, and build context step-by-step over the chat history.\n\n"
+                "## Mindset & Semantic Routing\n"
+                "Analyze the user's intent semantically across messages:\n"
+                "1. **Casual/General Chat**: Talk naturally, enthusiastically, and warmly. Do not force templates or project planning.\n"
+                "2. **Learning/Concept Q&A**: Provide clear, direct, and well-commented code snippets with concise explanations.\n"
+                "3. **Brainstorming Project Ideas**: Engage in active, friendly brainstorming. Suggest 1-2 creative directions rather than overloading the user. Build on their ideas.\n\n"
+                "## Blueprint Block (Locking in Configuration)\n"
+                "ONLY append the `<blueprint>` block at the very end of your message if the user has EXPLICITLY requested to finalize, save, or compile a project blueprint. Do NOT output this block for greetings, casual chat, brainstorming, or normal Q&A.\n"
+                "Format of the block when requested:\n"
                 "<blueprint>\n"
                 "{\n"
                 "  \"name\": \"Project Name\",\n"
                 "  \"idea\": \"Core Idea/Description\",\n"
                 "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
-                "  \"tech_stack\": \"Flask, HTML, CSS\"\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\",\n"
+                "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
                 "}\n"
-                "</blueprint>\n"
-                "Do NOT include this block for general questions, greetings, or non-project conversations."
+                "</blueprint>"
             )
         
         chat_messages = [{"role": "system", "content": system_prompt}]
@@ -394,7 +384,9 @@ async def generate_codebase(
     theme: str = None,
     blueprint: dict = None,
     theme_palette: dict = None,
-    architecture_context: dict = None
+    architecture_context: dict = None,
+    hackathon_metadata: dict = None,
+    mcp_evidence: dict = None
 ) -> Dict[str, Any]:
     """
     Generate files for a project using Nvidia NIM.
@@ -405,7 +397,7 @@ async def generate_codebase(
     
     if not settings.NVIDIA_API_KEY:
         logger.warning("NVIDIA_API_KEY not configured. Generating template codebase.")
-        return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context)
+        return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context, hackathon_metadata, mcp_evidence)
 
     blueprint_prompt = ""
     if blueprint:
@@ -425,10 +417,18 @@ async def generate_codebase(
             f"{json.dumps(compiled_context, indent=2)}"
         )
 
+    hackathon_prompt = ""
+    if hackathon_metadata:
+        hackathon_prompt = f"\n\nHackathon Metadata & Constraints:\n{json.dumps(hackathon_metadata, indent=2)}"
+
+    mcp_prompt = ""
+    if mcp_evidence:
+        mcp_prompt = f"\n\nMCP Evidence Data:\n{json.dumps(mcp_evidence, indent=2)}"
+
     prompt = f"""
 You are Sarthi AI compiler. You need to generate a high-fidelity prototype codebase for a hackathon project using HTML + CSS + Flask (Python).
 Project Name: {project_name}
-Category: {category}{theme_prompt}{blueprint_prompt}{theme_palette_prompt}{architecture_context_prompt}
+Category: {category}{theme_prompt}{blueprint_prompt}{theme_palette_prompt}{architecture_context_prompt}{hackathon_prompt}{mcp_prompt}
 Context/Chat History:
 {context}
 
@@ -1038,7 +1038,9 @@ def get_fallback_codebase(
     theme: str = None,
     blueprint: dict = None,
     theme_palette: dict = None,
-    architecture_context: dict = None
+    architecture_context: dict = None,
+    hackathon_metadata: dict = None,
+    mcp_evidence: dict = None
 ) -> Dict[str, Any]:
     capital_name = name.capitalize()
     normalized_category = category.lower()

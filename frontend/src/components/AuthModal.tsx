@@ -45,7 +45,7 @@ export const AuthModal: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => setShowAuthModal(false)}
-          className="absolute inset-0 bg-stone-900/30 backdrop-blur-md"
+          className="absolute inset-0 bg-indigo-900/30 backdrop-blur-md"
         />
 
         {/* Modal content */}
@@ -54,7 +54,7 @@ export const AuthModal: React.FC = () => {
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 15 }}
           transition={{ type: "spring", duration: 0.5 }}
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-stone-200/60 bg-white/95 p-8 shadow-2xl backdrop-blur-xl transition-colors duration-300"
+          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-stone-200/60 bg-stone-50/95 p-8 shadow-2xl backdrop-blur-xl transition-colors duration-300"
         >
           {/* Close button */}
           <button
@@ -66,7 +66,7 @@ export const AuthModal: React.FC = () => {
 
           {/* Modal Header */}
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mb-3 border border-indigo-100/50">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-950 mb-3 border border-indigo-100/50">
               <KeyRound className="w-6 h-6" />
             </div>
             <h3 className="text-2xl font-bold font-display text-stone-800">
@@ -90,7 +90,7 @@ export const AuthModal: React.FC = () => {
               {authMode === "login" && (
                 <motion.div
                   layoutId="active-tab"
-                  className="absolute inset-0 bg-white rounded-lg shadow-sm border border-stone-200/40"
+                  className="absolute inset-0 bg-stone-50 rounded-lg shadow-sm border border-stone-200/40"
                   transition={{ type: "spring", stiffness: 380, damping: 30 }}
                 />
               )}
@@ -105,7 +105,7 @@ export const AuthModal: React.FC = () => {
               {authMode === "signup" && (
                 <motion.div
                   layoutId="active-tab"
-                  className="absolute inset-0 bg-white rounded-lg shadow-sm border border-stone-200/40"
+                  className="absolute inset-0 bg-stone-50 rounded-lg shadow-sm border border-stone-200/40"
                   transition={{ type: "spring", stiffness: 380, damping: 30 }}
                 />
               )}
@@ -128,7 +128,7 @@ export const AuthModal: React.FC = () => {
                     placeholder="Enter name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-stone-800 placeholder:text-stone-400"
+                    className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-stone-800 placeholder:text-stone-400"
                   />
                 </div>
               </div>
@@ -146,7 +146,7 @@ export const AuthModal: React.FC = () => {
                   placeholder="name@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-stone-800 placeholder:text-stone-400"
+                  className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-stone-800 placeholder:text-stone-400"
                 />
               </div>
             </div>
@@ -157,7 +157,7 @@ export const AuthModal: React.FC = () => {
                   Password
                 </label>
                 {authMode === "login" && (
-                  <a href="#" className="text-xs text-indigo-600 hover:text-indigo-700 hover:underline">
+                  <a href="#" className="text-xs text-indigo-950 hover:text-indigo-950 hover:underline">
                     Forgot password?
                   </a>
                 )}
@@ -170,7 +170,7 @@ export const AuthModal: React.FC = () => {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-stone-800 placeholder:text-stone-400"
+                  className="w-full bg-stone-50/50 border border-stone-200/80 rounded-xl py-3 pl-11 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-stone-800 placeholder:text-stone-400"
                 />
               </div>
             </div>
@@ -185,7 +185,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-semibold transition-all relative overflow-hidden flex items-center justify-center gap-2 hover:shadow-lg disabled:bg-indigo-400"
+              className="w-full bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white rounded-xl py-3 text-sm font-semibold transition-all relative overflow-hidden flex items-center justify-center gap-2 hover:shadow-lg disabled:bg-amber-400"
             >
               {loading ? (
                 <>
@@ -206,14 +206,14 @@ export const AuthModal: React.FC = () => {
             {authMode === "login" ? (
               <span>
                 Don't have an account?{" "}
-                <button onClick={() => setAuthMode("signup")} className="text-indigo-600 hover:text-indigo-700 font-semibold underline">
+                <button onClick={() => setAuthMode("signup")} className="text-indigo-950 hover:text-indigo-950 font-semibold underline">
                   Sign up
                 </button>
               </span>
             ) : (
               <span>
                 Already have an account?{" "}
-                <button onClick={() => setAuthMode("login")} className="text-indigo-600 hover:text-indigo-700 font-semibold underline">
+                <button onClick={() => setAuthMode("login")} className="text-indigo-950 hover:text-indigo-950 font-semibold underline">
                   Log in
                 </button>
               </span>

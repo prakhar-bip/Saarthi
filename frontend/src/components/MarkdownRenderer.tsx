@@ -34,20 +34,20 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ text }) => {
     });
 
     return (
-      <div key={`table-${key}`} className="my-4 overflow-x-auto rounded-xl border border-stone-200/80 shadow-sm max-w-full">
-        <table className="w-full border-collapse text-left text-xs text-stone-600">
+      <div key={`table-${key}`} className="my-4 overflow-x-auto rounded-xl border border-current/20 shadow-sm max-w-full">
+        <table className="w-full border-collapse text-left text-xs">
           <thead>
-            <tr className="bg-stone-100 border-b border-stone-200">
+            <tr className="border-b border-current/20">
               {headers.map((h, i) => (
-                <th key={`th-${i}`} className="px-4 py-3 font-semibold text-stone-700 font-display capitalize">
+                <th key={`th-${i}`} className="px-4 py-3 font-semibold font-display capitalize">
                   {renderTextWithFormatting(h)}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-stone-200/60 bg-white">
+          <tbody className="divide-y divide-current/10">
             {dataRows.map((row, rowIndex) => (
-              <tr key={`tr-${rowIndex}`} className="hover:bg-indigo-50/20 even:bg-stone-50/20 transition-colors">
+              <tr key={`tr-${rowIndex}`} className="hover:bg-current/5 transition-colors">
                 {row.map((cell, cellIndex) => (
                   <td key={`td-${cellIndex}`} className="px-4 py-3 leading-relaxed whitespace-pre-line align-top">
                     {renderTextWithFormatting(cell)}
@@ -64,7 +64,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ text }) => {
   const renderCurrentList = (key: number) => {
     if (currentListItems.length === 0) return null;
     return (
-      <ul key={`list-${key}`} className="list-disc pl-5 my-2 space-y-1.5 text-xs text-stone-800 leading-relaxed">
+      <ul key={`list-${key}`} className="list-disc pl-5 my-2 space-y-1.5 text-xs leading-relaxed">
         {currentListItems.map((item, idx) => (
           <li key={`li-${idx}`} className="pl-1">
             {renderTextWithFormatting(item)}
@@ -143,12 +143,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ text }) => {
       const content = headingMatch[2];
       const headingClasses = [
         "", // 0
-        "text-xl font-bold text-stone-900 mt-6 mb-3 font-display border-b border-stone-200/60 pb-1.5 block", // h1
-        "text-lg font-bold text-stone-900 mt-5 mb-2.5 font-display block", // h2
-        "text-base font-semibold text-stone-900 mt-4 mb-2 block", // h3
-        "text-sm font-semibold text-stone-850 mt-3 mb-1.5 block", // h4
-        "text-xs font-semibold text-stone-800 mt-2 mb-1 block", // h5
-        "text-xs font-medium text-stone-800 mt-2 mb-1 block", // h6
+        "text-xl font-bold mt-6 mb-3 font-display border-b border-current/20 pb-1.5 block", // h1
+        "text-lg font-bold mt-5 mb-2.5 font-display block", // h2
+        "text-base font-semibold mt-4 mb-2 block", // h3
+        "text-sm font-semibold mt-3 mb-1.5 block", // h4
+        "text-xs font-semibold mt-2 mb-1 block", // h5
+        "text-xs font-medium mt-2 mb-1 block", // h6
       ];
       const Tag = `h${level}` as any;
       elements.push(
@@ -168,7 +168,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ text }) => {
       }
       const content = line.substring(1).trim();
       elements.push(
-        <blockquote key={`quote-${idx}`} className="pl-4 border-l-4 border-indigo-500/50 my-3 text-stone-700 italic bg-stone-50/50 py-1 pr-2 rounded-r-md block">
+        <blockquote key={`quote-${idx}`} className="pl-4 border-l-4 border-current/50 my-3 italic opacity-90 py-1 pr-2 block">
           {renderTextWithFormatting(content)}
         </blockquote>
       );
@@ -190,7 +190,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ text }) => {
     // 5. Normal paragraph
     if (line !== "") {
       elements.push(
-        <p key={`p-${idx}`} className="text-xs leading-relaxed my-2 text-stone-800">
+        <p key={`p-${idx}`} className="text-xs leading-relaxed my-2">
           {renderTextWithFormatting(line)}
         </p>
       );
@@ -258,7 +258,7 @@ function renderTextWithFormatting(str: string): React.ReactNode {
           nodes.push(text.substring(lastIdx, match.index));
         }
         nodes.push(
-          <strong key={`b-${match.index}`} className="font-bold text-stone-900">
+          <strong key={`b-${match.index}`} className="font-bold">
             {match[1]}
           </strong>
         );

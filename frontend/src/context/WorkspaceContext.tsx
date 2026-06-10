@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import confetti from "canvas-confetti";
 
 export interface Message {
@@ -15,6 +15,7 @@ export interface ProjectSuggestion {
   idea: string;
   features: string[];
   tech_stack: string;
+  category?: string;
 }
 
 export interface ChatSession {
@@ -80,13 +81,24 @@ export interface Project {
   trd?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 interface WorkspaceContextType {
-  user: { id: string; name: string; email: string } | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    bio?: string;
+    title?: string;
+    skills?: string[];
+    github_url?: string;
+    linkedin_url?: string;
+    portfolio_url?: string;
+  } | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  updateProfile: (data: any) => Promise<void>;
   
   chats: ChatSession[];
   activeChatId: string | null;
@@ -96,6 +108,7 @@ interface WorkspaceContextType {
   editMessageText: (chatId: string, messageId: string, newText: string) => Promise<void>;
   deleteChat: (chatId: string) => Promise<void>;
   renameChat: (chatId: string, newTitle: string) => Promise<void>;
+  updateChatCategory: (chatId: string, newCategory: string) => Promise<void>;
   updateChatSelectedProject: (chatId: string, selectedProject: ProjectSuggestion) => Promise<void>;
 
   projects: Project[];
@@ -114,11 +127,6 @@ interface WorkspaceContextType {
   deleteProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newTitle: string) => Promise<void>;
   updateProject: (projectId: string, updates: Partial<Project>) => void;
-
-  currentCategory: string;
-  setCurrentCategory: (category: string) => void;
-  currentInput: string;
-  setCurrentInput: (input: string) => void;
 
   showAuthModal: boolean;
   setShowAuthModal: (show: boolean) => void;
@@ -227,18 +235,18 @@ export default function App() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">CalmPath</h1>
           <p className="text-slate-500">Your breathing and mood companion</p>
         </div>
-        <div className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full font-medium text-sm">
+        <div className="bg-indigo-50 text-indigo-950 px-4 py-2 rounded-full font-medium text-sm">
           Stress Level: {stressScore}% (Moderate)
         </div>
       </header>
       
       <main className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
+        <section className="bg-stone-50 p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center">
           <h2 className="text-xl font-semibold mb-6">Paced Breathing Guide</h2>
           <BreathingRing />
         </section>
         
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <section className="bg-stone-50 p-6 rounded-2xl shadow-sm border border-slate-100">
           <h2 className="text-xl font-semibold mb-6">Mood Logger</h2>
           <MoodLogger onStressChange={setStressScore} />
         </section>
@@ -840,13 +848,13 @@ const INITIAL_PROJECTS: Project[] = [
         component_styling_approach: "shadcn/ui primitive configuration with custom micro-shadow utilities."
       },
       color_palette: {
-        primary_colors: ["#10b981", "#059669", "#047857"],
+        primary_colors: ["#eab308", "#4338ca", "#047857"],
         secondary_colors: ["#f0fdf4", "#d1fae5", "#a7f3d0"],
         accent_colors: ["#3b82f6", "#60a5fa"],
         background_colors: ["#fafafa", "#ffffff"],
         text_colors: ["#0f172a", "#334155", "#64748b"],
         status_colors: {
-          success: "#10b981",
+          success: "#eab308",
           warning: "#f59e0b",
           error: "#ef4444",
           info: "#3b82f6"
@@ -868,7 +876,7 @@ const INITIAL_PROJECTS: Project[] = [
         {
           component_type: "Button",
           styling_rules: ["px-4 py-2 rounded-xl transition-all select-none hover:scale-[1.01]"],
-          interactive_states: ["hover:shadow-sm", "focus:ring-2 focus:ring-emerald-500", "active:scale-[0.99]"]
+          interactive_states: ["hover:shadow-sm", "focus:ring-2 focus:ring-amber-500", "active:scale-[0.99]"]
         }
       ],
       responsive_design_system: {
@@ -890,7 +898,7 @@ const INITIAL_PROJECTS: Project[] = [
       },
       dashboard_styling: {
         dashboard_theme: "Emerald Soft Dashboard",
-        widget_styles: ["border border-slate-100 shadow-sm p-6 rounded-2xl bg-white"],
+        widget_styles: ["border border-slate-100 shadow-sm p-6 rounded-2xl bg-stone-50"],
         analytics_ui_patterns: ["SummaryStatCardsGrid", "TrendChartTimelineWrapper"]
       },
       accessibility_system: {
@@ -2254,8 +2262,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 
-  const [currentCategory, setCurrentCategory] = useState<string>("");
-  const [currentInput, setCurrentInput] = useState<string>("");
+  const activeSocketsRef = useRef<Record<string, WebSocket>>({});
+  const activeIntervalsRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -2270,7 +2278,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [suggestions, setSuggestions] = useState<ProjectSuggestion[]>([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState<boolean>(false);
 
-  const fetchSuggestions = async (category: string) => {
+  const fetchSuggestions = useCallback(async (category: string) => {
     setIsFetchingSuggestions(true);
     setSuggestions([]);
     const token = localStorage.getItem("token");
@@ -2291,14 +2299,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       setIsFetchingSuggestions(false);
     }
-  };
+  }, []);
 
-  const clearSuggestions = () => {
+  const clearSuggestions = useCallback(() => {
     setSuggestions([]);
-  };
+  }, []);
 
   // Fetch functions helper
-  const fetchChats = async (token: string) => {
+  const fetchChats = useCallback(async (token: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/chats`, {
         headers: { "Authorization": `Bearer ${token}` }
@@ -2313,9 +2321,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error("Fetch chats failed:", e);
     }
-  };
+  }, [activeChatId]);
 
-  const fetchProjects = async (token: string) => {
+  const fetchProjects = useCallback(async (token: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/projects`, {
         headers: { "Authorization": `Bearer ${token}` }
@@ -2327,7 +2335,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error("Fetch projects failed:", e);
     }
-  };
+  }, []);
 
   // Check auth on mount
   useEffect(() => {
@@ -2347,7 +2355,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             localStorage.removeItem("token");
           }
         } catch (e) {
-          console.error("Auth verify failed:", e);
+          // Use console.warn instead of console.error to prevent Next.js from
+          // showing the red error overlay during local development when backend is down.
+          console.warn("Auth verify failed (backend may be offline or CORS error). Logging out.", e);
           localStorage.removeItem("token");
         }
       }
@@ -2355,7 +2365,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     checkUser();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  // Clean up all sockets & intervals on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(activeSocketsRef.current).forEach((ws) => {
+        try {
+          ws.close();
+        } catch (_) {}
+      });
+      Object.values(activeIntervalsRef.current).forEach((interval) => {
+        clearInterval(interval);
+      });
+    };
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2371,9 +2395,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setShowAuthModal(false);
     fetchChats(data.access_token);
     fetchProjects(data.access_token);
-  };
+  }, [fetchChats, fetchProjects]);
 
-  const signup = async (name: string, email: string, password: string) => {
+  const signup = useCallback(async (name: string, email: string, password: string) => {
     const res = await fetch(`${API_BASE}/api/auth/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2389,18 +2413,37 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setShowAuthModal(false);
     fetchChats(data.access_token);
     fetchProjects(data.access_token);
-  };
+  }, [fetchChats, fetchProjects]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem("token");
     setUser(null);
     setChats([]);
     setProjects([]);
     setActiveChatId(null);
     setActiveProjectId(null);
-  };
+  }, []);
 
-  const updateChatSelectedProject = async (chatId: string, selectedProject: ProjectSuggestion) => {
+  const updateProfile = useCallback(async (data: any) => {
+    const token = localStorage.getItem("token");
+    if (!token) throw new Error("Not authenticated");
+    const res = await fetch(`${API_BASE}/api/auth/profile`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.detail || "Profile update failed");
+    }
+    const updatedUser = await res.json();
+    setUser(updatedUser);
+  }, []);
+
+  const updateChatSelectedProject = useCallback(async (chatId: string, selectedProject: ProjectSuggestion) => {
     setChats((prev) =>
       prev.map((c) => (c.id === chatId ? { ...c, selected_project: selectedProject } : c))
     );
@@ -2418,9 +2461,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error("Update chat selected project failed:", e);
     }
-  };
+  }, []);
 
-  const createNewChat = async (category: string, title: string, selectedProject?: ProjectSuggestion): Promise<string> => {
+  const createNewChat = useCallback(async (category: string, title: string, selectedProject?: ProjectSuggestion): Promise<string> => {
     const token = localStorage.getItem("token");
     if (!token) return "";
     try {
@@ -2448,9 +2491,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error("Create chat failed:", e);
     }
     return "";
-  };
+  }, []);
 
-  const addMessageToChat = async (chatId: string, sender: "user" | "ai", text: string) => {
+  const addMessageToChat = useCallback(async (chatId: string, sender: "user" | "ai", text: string) => {
     if (sender !== "user") return;
     
     const tempUserMsgId = `m-temp-${Date.now()}`;
@@ -2482,7 +2525,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (res.status === 401) {
           console.error("Unauthorized: Token might be expired.");
           localStorage.removeItem("token");
-          // Optionally trigger a reload or show auth modal to re-login
           window.location.reload();
           return;
         }
@@ -2527,9 +2569,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error("Send message failed:", e);
     }
-  };
+  }, [updateChatSelectedProject]);
 
-  const editMessageText = async (chatId: string, messageId: string, newText: string) => {
+  const editMessageText = useCallback(async (chatId: string, messageId: string, newText: string) => {
     // Update local state immediately
     setChats((prev) =>
       prev.map((c) => {
@@ -2560,35 +2602,57 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error("Edit message failed:", e);
     }
-  };
+  }, []);
 
-  const deleteChat = async (chatId: string) => {
+  const deleteChat = useCallback(async (chatId: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    
+
+    const chatToRestore = chats.find((c) => c.id === chatId);
+    const originalActiveId = activeChatId;
+
     // Optimistic UI Update for instant deletion
     setChats((prev) => prev.filter((c) => c.id !== chatId));
     if (activeChatId === chatId) {
       setActiveChatId(null);
     }
-    
+
     try {
-      await fetch(`${API_BASE}/api/chats/${chatId}`, {
+      const res = await fetch(`${API_BASE}/api/chats/${chatId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "No response body");
+        throw new Error(`Server rejected deletion (Status: ${res.status}): ${errorText}`);
+      }
     } catch (e) {
       console.error("Delete chat failed:", e);
+      // Rollback
+      if (chatToRestore) {
+        setChats((prev) => {
+          if (prev.some((c) => c.id === chatId)) return prev;
+          return [...prev, chatToRestore];
+        });
+      }
+      if (originalActiveId === chatId) {
+        setActiveChatId(originalActiveId);
+      }
+      alert("Failed to delete chat. Please try again.");
     }
-  };
+  }, [chats, activeChatId]);
 
-  const renameChat = async (chatId: string, newTitle: string) => {
+  const renameChat = useCallback(async (chatId: string, newTitle: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    
+
+    const chatToRestore = chats.find((c) => c.id === chatId);
+    const originalTitle = chatToRestore ? chatToRestore.title : "";
+
+    // Optimistic UI Update
     setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, title: newTitle } : c));
     try {
-      await fetch(`${API_BASE}/api/chats/${chatId}`, {
+      const res = await fetch(`${API_BASE}/api/chats/${chatId}`, {
         method: "PUT",
         headers: { 
           "Authorization": `Bearer ${token}`,
@@ -2596,38 +2660,89 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
         body: JSON.stringify({ title: newTitle })
       });
+      if (!res.ok) {
+        throw new Error("Server rejected rename");
+      }
     } catch (e) {
       console.error("Rename chat failed:", e);
+      // Rollback
+      if (originalTitle) {
+        setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, title: originalTitle } : c));
+      }
+      alert("Failed to rename chat. Please try again.");
     }
-  };
+  }, [chats]);
 
-  const deleteProject = async (projectId: string) => {
+  const updateChatCategory = useCallback(async (chatId: string, newCategory: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    
+
+    setChats((prev) => prev.map((c) => c.id === chatId ? { ...c, category: newCategory } : c));
+    try {
+      const res = await fetch(`${API_BASE}/api/chats/${chatId}`, {
+        method: "PUT",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ category: newCategory })
+      });
+      if (!res.ok) {
+        console.error("Server rejected category update");
+      }
+    } catch (e) {
+      console.error("Update chat category failed:", e);
+    }
+  }, []);
+
+  const deleteProject = useCallback(async (projectId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const projectToRestore = projects.find((p) => p.id === projectId);
+    const originalActiveId = activeProjectId;
+
     // Optimistic UI Update
     setProjects((prev) => prev.filter((p) => p.id !== projectId));
     if (activeProjectId === projectId) {
       setActiveProjectId(null);
     }
-    
+
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}`, {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
+      if (!res.ok) {
+        throw new Error("Server rejected deletion");
+      }
     } catch (e) {
       console.error("Delete project failed:", e);
+      // Rollback
+      if (projectToRestore) {
+        setProjects((prev) => {
+          if (prev.some((p) => p.id === projectId)) return prev;
+          return [...prev, projectToRestore];
+        });
+      }
+      if (originalActiveId === projectId) {
+        setActiveProjectId(originalActiveId);
+      }
+      alert("Failed to delete project. Please try again.");
     }
-  };
+  }, [projects, activeProjectId]);
 
-  const renameProject = async (projectId: string, newTitle: string) => {
+  const renameProject = useCallback(async (projectId: string, newTitle: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    
+
+    const projectToRestore = projects.find((p) => p.id === projectId);
+    const originalName = projectToRestore ? projectToRestore.name : "";
+
+    // Optimistic UI Update
     setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: newTitle } : p));
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}`, {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
         method: "PUT",
         headers: { 
           "Authorization": `Bearer ${token}`,
@@ -2635,59 +2750,187 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
         body: JSON.stringify({ title: newTitle })
       });
+      if (!res.ok) {
+        throw new Error("Server rejected rename");
+      }
     } catch (e) {
       console.error("Rename project failed:", e);
+      // Rollback
+      if (originalName) {
+        setProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, name: originalName } : p));
+      }
+      alert("Failed to rename project. Please try again.");
     }
-  };
+  }, [projects]);
 
-  const updateProject = (projectId: string, updates: Partial<Project>) => {
+  const updateProject = useCallback((projectId: string, updates: Partial<Project>) => {
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, ...updates } : p))
     );
-  };
+  }, []);
 
-  const pollProjectStatus = (projectId: string, chatId: string) => {
-    const interval = setInterval(async () => {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        clearInterval(interval);
-        setIsGeneratingProject(false);
-        return;
+  const monitorProjectProgress = (projectId: string, chatId: string) => {
+    if (activeSocketsRef.current[projectId] || activeIntervalsRef.current[projectId]) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setIsGeneratingProject(false);
+      return;
+    }
+
+    let ws: WebSocket | null = null;
+
+    const cleanupWatchers = () => {
+      if (activeIntervalsRef.current[projectId]) {
+        clearInterval(activeIntervalsRef.current[projectId]);
+        delete activeIntervalsRef.current[projectId];
       }
-      try {
-        const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const updatedProj = await res.json();
-          setProjects((prev) =>
-            prev.map((p) => (p.id === projectId ? updatedProj : p))
-          );
+      if (activeSocketsRef.current[projectId]) {
+        try {
+          activeSocketsRef.current[projectId].close();
+        } catch (_) {}
+        delete activeSocketsRef.current[projectId];
+      }
+    };
 
-          if (updatedProj.status === "completed") {
-            clearInterval(interval);
-            setIsGeneratingProject(false);
-            fetchChats(token);
-            confetti({
-              particleCount: 120,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ["#6366f1", "#f43f5e", "#10b981", "#fbbf24"],
-            });
-          } else if (updatedProj.status === "failed") {
-            clearInterval(interval);
+    const startPollingFallback = () => {
+      if (activeIntervalsRef.current[projectId]) return;
+      console.log(`Starting polling fallback for project: ${projectId}`);
+      const interval = setInterval(async () => {
+        const currentToken = localStorage.getItem("token");
+        if (!currentToken) {
+          clearInterval(interval);
+          delete activeIntervalsRef.current[projectId];
+          setIsGeneratingProject(false);
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+            headers: { "Authorization": `Bearer ${currentToken}` }
+          });
+          if (res.ok) {
+            const updatedProj = await res.json();
+            setProjects((prev) =>
+              prev.map((p) => (p.id === projectId ? updatedProj : p))
+            );
+
+            if (updatedProj.status === "completed") {
+              clearInterval(interval);
+              delete activeIntervalsRef.current[projectId];
+              setIsGeneratingProject(false);
+              fetchChats(currentToken);
+              confetti({
+                particleCount: 120,
+                spread: 80,
+                origin: { y: 0.6 },
+                colors: ["#6366f1", "#f43f5e", "#eab308", "#fbbf24"],
+              });
+            } else if (updatedProj.status === "failed") {
+              clearInterval(interval);
+              delete activeIntervalsRef.current[projectId];
+              setIsGeneratingProject(false);
+            }
+          }
+        } catch (e) {
+          console.error("Polling project failed:", e);
+          clearInterval(interval);
+          delete activeIntervalsRef.current[projectId];
+          setIsGeneratingProject(false);
+        }
+      }, 2000);
+
+      activeIntervalsRef.current[projectId] = interval;
+    };
+
+    try {
+      const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      let wsHost = API_BASE.replace(/^https?:\/\//, "");
+      if (API_BASE.startsWith("/")) {
+        wsHost = window.location.host;
+      }
+      const wsUrl = `${wsProto}//${wsHost}/ws/projects/${projectId}?token=${token}`;
+
+      console.log(`Connecting to progress WebSocket: ${wsUrl}`);
+      ws = new WebSocket(wsUrl);
+      activeSocketsRef.current[projectId] = ws;
+
+      ws.onopen = () => {
+        console.log(`WebSocket connected for project: ${projectId}`);
+        if (activeIntervalsRef.current[projectId]) {
+          clearInterval(activeIntervalsRef.current[projectId]);
+          delete activeIntervalsRef.current[projectId];
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "progress" && msg.project_id === projectId) {
+            setProjects((prev) =>
+              prev.map((p) =>
+                p.id === projectId
+                  ? {
+                      ...p,
+                      progress: msg.progress ?? p.progress,
+                      step: msg.step ?? p.step,
+                      status: msg.status ?? p.status,
+                    }
+                  : p
+              )
+            );
+
+            if (msg.status === "completed") {
+              cleanupWatchers();
+              setIsGeneratingProject(false);
+              const currentToken = localStorage.getItem("token") || token;
+              fetchChats(currentToken);
+              confetti({
+                particleCount: 120,
+                spread: 80,
+                origin: { y: 0.6 },
+                colors: ["#6366f1", "#f43f5e", "#eab308", "#fbbf24"],
+              });
+            } else if (msg.status === "failed") {
+              cleanupWatchers();
+              setIsGeneratingProject(false);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to parse WS message:", e);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error("WS error, falling back to polling:", err);
+        startPollingFallback();
+      };
+
+      ws.onclose = (event) => {
+        console.log(`WebSocket closed for project ${projectId}. Code: ${event.code}`);
+        delete activeSocketsRef.current[projectId];
+        
+        setProjects((prev) => {
+          const currentProj = prev.find((p) => p.id === projectId);
+          if (currentProj && currentProj.status !== "completed" && currentProj.status !== "failed") {
+            setTimeout(() => {
+              startPollingFallback();
+            }, 0);
+          } else {
             setIsGeneratingProject(false);
           }
-        }
-      } catch (e) {
-        console.error("Polling project failed:", e);
-        clearInterval(interval);
-        setIsGeneratingProject(false);
-      }
-    }, 1500);
+          return prev;
+        });
+      };
+
+    } catch (e) {
+      console.error("Failed to initialize WebSocket, falling back to polling:", e);
+      startPollingFallback();
+    }
   };
 
-  const generateProject = async (
+  const generateProject = useCallback(async (
     chatId: string,
     projectName: string,
     category: string,
@@ -2729,16 +2972,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (newProj.status === "documents_ready") {
           setIsGeneratingProject(false);
         } else {
-          pollProjectStatus(newProj.id, chatId);
+          monitorProjectProgress(newProj.id, chatId);
         }
       }
     } catch (e) {
       console.error("Generate project failed:", e);
       setIsGeneratingProject(false);
     }
-  };
+  }, [isGeneratingProject]);
 
-  const compileProjectCodebase = async (projectId: string, chatId: string) => {
+  const compileProjectCodebase = useCallback(async (projectId: string, chatId: string) => {
     if (isGeneratingProject) return;
     setIsGeneratingProject(true);
 
@@ -2760,7 +3003,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setProjects((prev) =>
           prev.map((p) => (p.id === projectId ? updatedProj : p))
         );
-        pollProjectStatus(projectId, chatId);
+        monitorProjectProgress(projectId, chatId);
       } else {
         setIsGeneratingProject(false);
       }
@@ -2768,9 +3011,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error("Compile project codebase failed:", e);
       setIsGeneratingProject(false);
     }
-  };
+  }, [isGeneratingProject]);
 
-  const generateDocuments = async (projectName: string, prompt: string) => {
+  const generateDocuments = useCallback(async (projectName: string, prompt: string) => {
     if (isGeneratingProject) return;
     setIsGeneratingProject(true);
     setActiveProjectId(null);
@@ -2809,57 +3052,88 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       setIsGeneratingProject(false);
     }
-  };
+  }, [isGeneratingProject]);
 
+
+  const contextValue = useMemo(() => ({
+    user,
+    login,
+    signup,
+    logout,
+    updateProfile,
+    chats,
+    activeChatId,
+    setActiveChatId,
+    createNewChat,
+    addMessageToChat,
+    editMessageText,
+    deleteChat,
+    renameChat,
+    updateChatSelectedProject,
+    updateChatCategory,
+    projects,
+    activeProjectId,
+    setActiveProjectId,
+    generateProject,
+    compileProjectCodebase,
+    generateDocuments,
+    deleteProject,
+    renameProject,
+    updateProject,
+    showAuthModal,
+    setShowAuthModal,
+    authMode,
+    setAuthMode,
+    showAbout,
+    setShowAbout,
+    showContact,
+    setShowContact,
+    isGeneratingProject,
+    showRightPane,
+    setShowRightPane,
+    showLeftPane,
+    setShowLeftPane,
+    suggestions,
+    isFetchingSuggestions,
+    fetchSuggestions,
+    clearSuggestions,
+  }), [
+    user,
+    login,
+    signup,
+    logout,
+    chats,
+    activeChatId,
+    createNewChat,
+    addMessageToChat,
+    editMessageText,
+    deleteChat,
+    renameChat,
+    updateChatSelectedProject,
+    updateChatCategory,
+    projects,
+    activeProjectId,
+    generateProject,
+    compileProjectCodebase,
+    generateDocuments,
+    deleteProject,
+    renameProject,
+    updateProject,
+    showAuthModal,
+    authMode,
+    showAbout,
+    showContact,
+    isGeneratingProject,
+    showRightPane,
+    showLeftPane,
+    suggestions,
+    isFetchingSuggestions,
+    fetchSuggestions,
+    clearSuggestions,
+  ]);
 
   return (
-    <WorkspaceContext.Provider
-      value={{
-        user,
-        login,
-        signup,
-        logout,
-        chats,
-        activeChatId,
-        setActiveChatId,
-        createNewChat,
-        addMessageToChat,
-        editMessageText,
-        deleteChat,
-        renameChat,
-        updateChatSelectedProject,
-        projects,
-        activeProjectId,
-        setActiveProjectId,
-        generateProject,
-        compileProjectCodebase,
-        generateDocuments,
-        deleteProject,
-        renameProject,
-        updateProject,
-        currentCategory,
-        setCurrentCategory,
-        currentInput,
-        setCurrentInput,
-        showAuthModal,
-        setShowAuthModal,
-        authMode,
-        setAuthMode,
-        showAbout,
-        setShowAbout,
-        showContact,
-        setShowContact,
-        isGeneratingProject,
-        showRightPane,
-        setShowRightPane,
-        showLeftPane,
-        setShowLeftPane,
-        suggestions,
-        isFetchingSuggestions,
-        fetchSuggestions,
-        clearSuggestions,
-      }}
-    >
+    <WorkspaceContext.Provider value={contextValue}>
       {children}
     </WorkspaceContext.Provider>
   );
@@ -2899,7 +3173,7 @@ export default function SaaSMetrics() {
   const [churn, setChurn] = useState(2.4);
 
   return (
-    <div className="p-6 bg-white rounded-3xl border border-stone-200/60 max-w-md mx-auto shadow-sm">
+    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-200/60 max-w-md mx-auto shadow-sm">
       <h3 className="text-xl font-bold font-display text-indigo-900 mb-1">${capitalName} Launchpad</h3>
       <p className="text-xs text-stone-400 mb-6">Real-time SaaS product statistics simulation</p>
       
@@ -2931,7 +3205,7 @@ export default function SaaSMetrics() {
         </div>
       </div>
       
-      <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/30 text-center text-xs text-emerald-800">
+      <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/30 text-center text-xs text-indigo-900">
         💡 High MRR & Low Churn indicates strong PMF. Generate the full codebase to deploy!
       </div>
     </div>
@@ -2958,13 +3232,13 @@ export default function Dashboard() {
       <p className="text-stone-500 mb-6">Financial tracking & budget optimization</p>
       
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="p-4 bg-white rounded-2xl border border-stone-100">
+        <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100">
           <span className="text-xs text-stone-400 font-medium uppercase tracking-wide">Total Balance</span>
           <p className="text-xl font-bold text-stone-800 mt-1">\${balance.toFixed(2)}</p>
         </div>
         <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
           <span className="text-xs text-indigo-500 font-medium uppercase tracking-wide">AI Health Score</span>
-          <p className="text-xl font-bold text-indigo-700 mt-1">Excellent (94%)</p>
+          <p className="text-xl font-bold text-indigo-950 mt-1">Excellent (94%)</p>
         </div>
       </div>
       
@@ -2995,7 +3269,7 @@ export default function SavingsCalculator({ onSavings }: Props) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-2xl border border-stone-100">
+    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
       <h3 className="text-sm font-semibold text-stone-700 mb-3">Add to Micro-Savings</h3>
       <div className="flex gap-2">
         <input 
@@ -3007,7 +3281,7 @@ export default function SavingsCalculator({ onSavings }: Props) {
         />
         <button 
           onClick={handleSave}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+          className="bg-indigo-600 hover:bg-indigo-950 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
         >
           Save Now
         </button>
@@ -3048,7 +3322,7 @@ export default function TaskList() {
   };
 
   return (
-    <div className="p-6 bg-white rounded-3xl border border-stone-200/60 max-w-md mx-auto shadow-sm">
+    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-200/60 max-w-md mx-auto shadow-sm">
       <h3 className="text-xl font-bold font-display text-stone-800 mb-1">${capitalName} Tasks</h3>
       <p className="text-xs text-stone-400 mb-4">Focused execution & priority stack</p>
       
@@ -3078,7 +3352,7 @@ export default function TaskList() {
         />
         <button 
           onClick={addTask}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+          className="bg-indigo-600 hover:bg-indigo-950 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
         >
           Add Task
         </button>
@@ -3121,7 +3395,7 @@ export default function Quiz() {
       
       <div className="space-y-6">
         {questions.map((q, idx) => (
-          <div key={q.id} className="bg-white p-4 rounded-2xl border border-stone-100">
+          <div key={q.id} className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
             <p className="text-sm font-semibold text-stone-800 mb-3">{q.q}</p>
             <div className="space-y-2">
               {q.options.map((opt, oIdx) => (
@@ -3129,7 +3403,7 @@ export default function Quiz() {
                   key={oIdx}
                   onClick={() => handleSelect(idx, oIdx)}
                   disabled={answered.includes(idx)}
-                  className="w-full text-left p-3 rounded-xl border border-stone-100 text-xs hover:bg-stone-50 transition-colors disabled:opacity-75 disabled:hover:bg-white"
+                  className="w-full text-left p-3 rounded-xl border border-stone-100 text-xs hover:bg-stone-50 transition-colors disabled:opacity-75 disabled:hover:bg-stone-50"
                 >
                   {opt}
                 </button>
@@ -3140,7 +3414,7 @@ export default function Quiz() {
       </div>
       
       {answered.length === questions.length && (
-        <div className="mt-6 p-4 bg-emerald-50 text-emerald-800 rounded-2xl border border-emerald-100 text-center font-semibold">
+        <div className="mt-6 p-4 bg-indigo-50 text-indigo-900 rounded-2xl border border-indigo-100 text-center font-semibold">
           Quiz Completed! Score: {score}/{questions.length}
         </div>
       )}
@@ -3165,8 +3439,8 @@ export default function CarbonCalculator() {
   const carbonCommute = miles * CO2_PER_MILE;
 
   return (
-    <div className="p-6 bg-white rounded-3xl border border-stone-200/60 max-w-sm mx-auto shadow-sm">
-      <h3 className="text-xl font-bold font-display text-emerald-800 mb-1">${capitalName} Footprint</h3>
+    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-200/60 max-w-sm mx-auto shadow-sm">
+      <h3 className="text-xl font-bold font-display text-indigo-900 mb-1">${capitalName} Footprint</h3>
       <p className="text-xs text-stone-400 mb-6">Commute emission calculator</p>
       
       <div className="mb-6">
@@ -3177,7 +3451,7 @@ export default function CarbonCalculator() {
           max="100" 
           value={miles}
           onChange={(e) => setMiles(parseInt(e.target.value))}
-          className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+          className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-indigo-700"
         />
         <div className="flex justify-between text-xs text-stone-400 mt-2">
           <span>0 miles</span>
@@ -3186,10 +3460,10 @@ export default function CarbonCalculator() {
         </div>
       </div>
       
-      <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/30 text-center">
-        <span className="text-xs text-emerald-600 font-bold uppercase tracking-wider block">Estimated Commute CO2</span>
-        <span className="text-3xl font-extrabold text-emerald-800 mt-1 block">{carbonCommute.toFixed(1)} <span className="text-sm font-normal">kg</span></span>
-        <span className="text-[10px] text-emerald-500 block mt-2">💡 Tip: Working from home today saves {carbonCommute.toFixed(1)}kg!</span>
+      <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/30 text-center">
+        <span className="text-xs text-indigo-950 font-bold uppercase tracking-wider block">Estimated Commute CO2</span>
+        <span className="text-3xl font-extrabold text-indigo-900 mt-1 block">{carbonCommute.toFixed(1)} <span className="text-sm font-normal">kg</span></span>
+        <span className="text-[10px] text-amber-500 block mt-2">💡 Tip: Working from home today saves {carbonCommute.toFixed(1)}kg!</span>
       </div>
     </div>
   );
@@ -3210,13 +3484,13 @@ export default function InteractiveBox() {
   const [clicks, setClicks] = useState(0);
 
   return (
-    <div className="p-6 bg-white rounded-3xl border border-stone-200/60 max-w-xs mx-auto text-center">
+    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-200/60 max-w-xs mx-auto text-center">
       <h3 className="text-lg font-bold font-display text-indigo-900 mb-2">${capitalName} Hub</h3>
       <p className="text-xs text-stone-400 mb-6">Custom compiled hackathon module</p>
       
       <button 
         onClick={() => setClicks(c => c + 1)}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl py-3 text-sm font-semibold transition-all hover:shadow-lg active:scale-95 animate-pulse-ring"
+        className="w-full bg-indigo-600 hover:bg-indigo-950 text-white rounded-2xl py-3 text-sm font-semibold transition-all hover:shadow-lg active:scale-95 animate-pulse-ring"
       >
         Trigger Action ({clicks})
       </button>

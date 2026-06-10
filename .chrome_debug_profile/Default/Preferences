@@ -1,0 +1,68 @@
+{
+   "protection": {
+      "macs": {
+         "account_values": {
+            "browser": {
+               "show_home_button": "9C5D8CDCA4A692647767B89D801E81359914487354A9F7451F5482B26F7C5045"
+            },
+            "extensions": {
+               "ui": {
+                  "developer_mode": "A0A3F03F39CF56E6F758E7D114B7E4715E71E9E3FD0522922DEDEAA992A2A148"
+               }
+            },
+            "homepage": "91D5E0FC7D76E9D83D404CB9159FCB46C1263C67121F91B16F27DE993FF4473A",
+            "homepage_is_newtabpage": "6BEB54289FCEE4E68A8EE2EAE7CA0B9A4858FCADB589E1382265B18B7A84F339",
+            "session": {
+               "restore_on_startup": "0CD16437ECAFD2BD5A1D6BF30E7BC9FDBFE965CEF02C9ED8EED808D9345FD4AF",
+               "startup_urls": "8B38B0C422FADE1573CCCDB50552F74DF96DD2B703FBE5E6C554AC21A3837337"
+            }
+         },
+         "browser": {
+            "show_home_button": "BD9F60FDFC9A4D6B5E259046A297DD0F9E7DA22A029CCFDC57391E9A31FE0CD9"
+         },
+         "default_search_provider_data": {
+            "template_url_data": "E17DD727999072D862B6E9D13E141EC4DC36316240ED8949EDE08C9BF5D00152"
+         },
+         "enterprise_signin": {
+            "policy_recovery_token": "F7640EB25E92976E600AAEF6651D70125F0BEDB92B716E0D84DBE22545E3476C"
+         },
+         "extensions": {
+            "install": {
+               "initiallist": "FE5F1D7631952417516C0AB2B0F027E796AB8C59A396DF868DF57F49C8800A70",
+               "initialprovidername": "46AA7345B4926D8DBB89BF5062AAF657C8E60260ABEC61F0409D7B965B3A9170"
+            },
+            "ui": {
+               "developer_mode": "B1E320C8106434D159EEC2B6D748E74CDFCA71E16C770F270D9B42E57A2EF009"
+            }
+         },
+         "google": {
+            "services": {
+               "account_id": "FAEFB1F781FDA7F0BD19DB58857481663865DA5060831A841DC6CCDE80C05D84",
+               "last_signed_in_username": "A5A87D41AA96B648DAA6549E62AB132047A226325C6B73B9C0D7B636F58A35F2",
+               "last_username": "25A591A57F67A4BB77639DB418DEEBCD45F2F65E896D89C4C0C6FBB6E575EF00"
+            }
+         },
+         "homepage": "01C2E8E18B252A40CA28E0C33EF215FF780B6BA2CA8F8F034ECBF395784B865F",
+         "homepage_is_newtabpage": "1BCE9116BD3D415DA592558F36864EDE00B4DA2CFBDECE822B010E26368121FF",
+         "media": {
+            "cdm": {
+               "origin_data": "504242EE6AB6C529582A13CCFFD08FD9112F2F398990B94B1B8BC67A29AE7456"
+            },
+            "storage_id_salt": "DC1371631750533099444D4E1405A6C0D9E36695749DFA98CB5BFCF09F2A5D33"
+         },
+         "pinned_tabs": "F4B3DE4EEEABA4FB8E2153E611166F1BAA237B1B3BD4853F6B8B581F50EE2F7C",
+         "prefs": {
+            "preference_reset_time": "A134D4FDFDA0BE665B969D4BBB4CFA64C8102F0EBABA58869B7E2B2073518C5C"
+         },
+         "safebrowsing": {
+            "incidents_sent": "34364E52844F2F0D7E5613BA47B0FB89C07518D58107D6DC7FD10DC7CBA23067"
+         },
+         "schedule_to_flush_to_disk": "21E1B168F62CEE238DF670A0DD9BDC03C756CC4CA6362EA0E683CF9014F76709",
+         "search_provider_overrides": "0A91B8C31988D0C27BB1ABAA2DF4E715CF13A095CEBF560124AB83121B9F2655",
+         "session": {
+            "restore_on_startup": "1BFB7C7339314363669B5BFA2754A2A922760654A4065DB54FEF7708518D1DD4",
+            "startup_urls": "4E7DC92A0C7236808D8A64BAAD6A141F32C632EBC9C818D86216974241E060E4"
+         }
+      }
+   }
+}

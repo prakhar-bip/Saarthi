@@ -4,9 +4,10 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { SarthiLogo, CategoryIcon, EmptyStateIllustration } from "./CustomSvgs";
-import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2 } from "lucide-react";
+import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2, User, Settings, HelpCircle, ChevronUp } from "lucide-react";
+import { ProfileModal } from "./ProfileModal";
 
-export const Sidebar: React.FC = () => {
+export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = false }) => {
   const {
     user,
     logout,
@@ -21,7 +22,6 @@ export const Sidebar: React.FC = () => {
     setShowAuthModal,
     setAuthMode,
     isGeneratingProject,
-    setCurrentCategory,
     clearSuggestions,
     showLeftPane,
     setShowLeftPane,
@@ -32,6 +32,8 @@ export const Sidebar: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"chats" | "projects">("chats");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const handleAuthClick = () => {
     setAuthMode("login");
@@ -42,24 +44,25 @@ export const Sidebar: React.FC = () => {
     <aside className="w-full border-r border-stone-200/60 bg-white/50 backdrop-blur-md flex flex-col h-full select-none transition-colors duration-300">
       {/* Header / Logo */}
       <div className="p-6 border-b border-stone-200/60 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <SarthiLogo className="w-9 h-9" />
-          <div>
-            <h1 className="text-xl font-bold font-display text-stone-800 tracking-tight flex items-center gap-1.5">
-              Sarthi
-              <motion.span
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 0.3, type: "spring", stiffness: 400 }}
-                className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50 border border-indigo-100 text-indigo-600 tracking-wider"
-              >
-                v1.0
-              </motion.span>
-            </h1>
-            <p className="text-[10px] text-stone-400 font-medium tracking-wide">
-              Intelligent Hackathon Partner
-            </p>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            {isCollapsed ? <div className="w-8 h-8 rounded-full bg-indigo-950 flex items-center justify-center text-amber-500 font-bold font-display text-lg">S</div> : <SarthiLogo className="text-4xl" />}
+            {!isCollapsed && (
+            <motion.span
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.3, type: "spring", stiffness: 400 }}
+              className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50/50 border border-indigo-200/50 text-indigo-950 tracking-wider mt-1"
+            >
+              v1.0
+            </motion.span>
+          )}
           </div>
+          {!isCollapsed && (
+          <p className="text-[10px] text-stone-400 font-medium tracking-wide pl-1">
+            Intelligent Hackathon Partner
+          </p>
+          )}
         </div>
         <motion.button
           type="button"
@@ -94,7 +97,7 @@ export const Sidebar: React.FC = () => {
               <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full"
+                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full"
               >
                 {chats.length}
               </motion.span>
@@ -118,7 +121,7 @@ export const Sidebar: React.FC = () => {
               <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full"
+                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full"
               >
                 {projects.length}
               </motion.span>
@@ -146,7 +149,7 @@ export const Sidebar: React.FC = () => {
               onClick={handleAuthClick}
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.96 }}
-              className="mt-4 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-600 text-xs font-semibold px-4 py-2 rounded-xl transition-all cursor-pointer"
+              className="mt-4 bg-indigo-50/50 border border-indigo-200/50 hover:bg-indigo-100 text-indigo-950 text-xs font-semibold px-4 py-2 rounded-xl transition-all cursor-pointer"
             >
               Sign In Now
             </motion.button>
@@ -160,12 +163,11 @@ export const Sidebar: React.FC = () => {
               onClick={() => {
                 setActiveChatId(null);
                 setActiveProjectId(null);
-                setCurrentCategory("");
                 clearSuggestions();
               }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 rounded-xl transition-all shadow-sm mb-3 cursor-pointer relative overflow-hidden group"
+              className="w-full flex items-center justify-center gap-2 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold tracking-wide border border-indigo-900/50 shadow-inner text-xs font-bold py-2.5 rounded-xl transition-all shadow-sm mb-3 cursor-pointer relative overflow-hidden group"
             >
               {/* Shimmer sweep */}
               <motion.span
@@ -173,7 +175,8 @@ export const Sidebar: React.FC = () => {
                 animate={{ x: ["-100%", "200%"] }}
                 transition={{ duration: 2.5, repeat: Infinity, ease: "linear", repeatDelay: 2 }}
               />
-              <span className="relative z-10">+ Start New Chat</span>
+              <MessageSquare className="w-4 h-4 relative z-10" />
+              <span className={`relative z-10 ${isCollapsed ? "hidden group-hover:block absolute left-14 bg-stone-900 text-white px-2 py-1 rounded shadow-md whitespace-nowrap" : "block"}`}>Start New Chat</span>
             </motion.button>
 
             <AnimatePresence initial={false}>
@@ -198,7 +201,7 @@ export const Sidebar: React.FC = () => {
                       transition={{ delay: idx * 0.04, duration: 0.3 }}
                       whileHover={{ x: 2 }}
                       className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${isActive
-                        ? "bg-indigo-50/50 border border-indigo-100/50 text-indigo-900"
+                        ? "bg-indigo-50 border border-indigo-100 text-indigo-900"
                         : "hover:bg-stone-50 border border-transparent text-stone-600"
                         }`}
                       onClick={() => {
@@ -208,7 +211,7 @@ export const Sidebar: React.FC = () => {
                     >
                       <div className="flex items-center gap-3 overflow-hidden">
                         <motion.div
-                          className={`p-1.5 rounded-lg ${isActive ? "bg-indigo-100 text-indigo-700" : "bg-stone-100 text-stone-500"
+                          className={`p-1.5 rounded-lg ${isActive ? "bg-indigo-100 text-indigo-950" : "bg-stone-100 text-stone-500"
                             }`}
                           whileHover={{ rotate: [-3, 3, 0] }}
                           transition={{ duration: 0.3 }}
@@ -231,7 +234,7 @@ export const Sidebar: React.FC = () => {
                               }}
                               onClick={(e) => e.stopPropagation()}
                               autoFocus
-                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-indigo-400"
+                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400"
                             />
                           ) : (
                             <p className="text-xs font-semibold truncate leading-tight" title={c.title}>{c.title}</p>
@@ -253,7 +256,7 @@ export const Sidebar: React.FC = () => {
                           }}
                           whileHover={{ scale: 1.15 }}
                           whileTap={{ scale: 0.85 }}
-                          className="p-1 rounded-md text-stone-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                          className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </motion.button>
@@ -302,7 +305,7 @@ export const Sidebar: React.FC = () => {
                     transition={{ delay: idx * 0.04, duration: 0.3 }}
                     whileHover={{ x: 2 }}
                     className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${isActive
-                      ? "bg-indigo-50/50 border border-indigo-100/50 text-indigo-900"
+                      ? "bg-indigo-50 border border-indigo-100 text-indigo-900"
                       : "hover:bg-stone-50 border border-transparent text-stone-600"
                       }`}
                     onClick={() => {
@@ -313,7 +316,7 @@ export const Sidebar: React.FC = () => {
                   >
                     <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
                       <div
-                        className={`p-1.5 rounded-lg shrink-0 ${isActive ? "bg-indigo-100 text-indigo-700" : "bg-stone-100 text-stone-500"
+                        className={`p-1.5 rounded-lg shrink-0 ${isActive ? "bg-indigo-100 text-indigo-950" : "bg-stone-100 text-stone-500"
                           }`}
                       >
                         <CategoryIcon category={p.category} className="w-4 h-4" />
@@ -334,7 +337,7 @@ export const Sidebar: React.FC = () => {
                             }}
                             onClick={(e) => e.stopPropagation()}
                             autoFocus
-                            className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-indigo-400 mb-1"
+                            className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400 mb-1"
                           />
                         ) : (
                           <p className="text-xs font-semibold truncate leading-tight" title={p.name}>{p.name}</p>
@@ -372,7 +375,7 @@ export const Sidebar: React.FC = () => {
                         }}
                         whileHover={{ scale: 1.15 }}
                         whileTap={{ scale: 0.85 }}
-                        className="p-1 rounded-md text-stone-400 hover:text-indigo-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                        className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </motion.button>
@@ -397,53 +400,108 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* User Section (Bottom) */}
-      <div className="p-4 border-t border-stone-200/60 bg-white/20 transition-colors duration-300">
+      <div className="p-4 border-t border-stone-200/60 bg-white/20 transition-colors duration-300 relative">
+        <AnimatePresence>
+          {showProfileMenu && user && !isCollapsed && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-[calc(100%-1rem)] left-4 right-4 mb-2 bg-white rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] border border-stone-200/60 overflow-hidden z-50"
+            >
+              <div className="p-3 border-b border-stone-100 bg-stone-50/50">
+                <p className="text-xs font-bold text-stone-800">{user.name}</p>
+                <p className="text-[10px] text-stone-500 truncate">{user.email}</p>
+              </div>
+              <div className="p-1.5 flex flex-col gap-0.5">
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setShowProfileModal(true);
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  My Profile
+                </button>
+                <button className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left">
+                  <Settings className="w-3.5 h-3.5" />
+                  Settings & API Keys
+                </button>
+                <button className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  Help & Support
+                </button>
+                <div className="h-px bg-stone-100 my-1 mx-1" />
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    logout();
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors text-left"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Sign Out
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {user ? (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between bg-stone-50 p-2.5 rounded-xl border border-stone-200/40"
+            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            className="flex items-center justify-between bg-stone-50 hover:bg-stone-100 p-2.5 rounded-xl border border-stone-200/40 cursor-pointer transition-colors"
           >
             <div className="flex items-center gap-2 overflow-hidden">
               <motion.div
-                className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-sm uppercase select-none"
+                className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-rose-500 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-sm uppercase select-none"
                 whileHover={{ scale: 1.08, rotate: -3 }}
                 transition={{ type: "spring", stiffness: 400 }}
               >
                 {user.name.charAt(0)}
               </motion.div>
+              {!isCollapsed && (
               <div className="overflow-hidden">
                 <p className="text-xs font-bold text-stone-700 truncate">{user.name}</p>
-                <p className="text-[9px] text-stone-400 truncate">{user.email}</p>
+                <p className="text-[9px] text-stone-400 truncate">Free Plan</p>
               </div>
+              )}
             </div>
-            <motion.button
-              onClick={logout}
-              whileHover={{ scale: 1.12, rotate: 5 }}
-              whileTap={{ scale: 0.88 }}
-              className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/50 transition-colors cursor-pointer"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </motion.button>
+            {!isCollapsed && (
+              <motion.div
+                animate={{ rotate: showProfileMenu ? 180 : 0 }}
+                className="p-1 text-stone-400"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </motion.div>
+            )}
           </motion.div>
         ) : (
           <motion.button
             onClick={handleAuthClick}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
-            className="w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-semibold py-2.5 rounded-xl transition-all shadow-sm cursor-pointer relative overflow-hidden"
+            className="w-full flex items-center justify-center gap-2 bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-semibold py-2.5 rounded-xl transition-all shadow-sm cursor-pointer relative overflow-hidden"
           >
             <motion.span
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/8 to-transparent"
               animate={{ x: ["-100%", "200%"] }}
               transition={{ duration: 2.5, repeat: Infinity, ease: "linear", repeatDelay: 2 }}
             />
-            <LogIn className="w-4 h-4 relative z-10" />
-            <span className="relative z-10">Sign In / Sign Up</span>
+            <LogIn className="w-4 h-4 relative z-10 shrink-0" />
+            <span className={`relative z-10 ${isCollapsed ? "hidden group-hover:block absolute left-14 bg-stone-900 text-white px-2 py-1 rounded shadow-md whitespace-nowrap" : "block"}`}>Sign In / Sign Up</span>
           </motion.button>
         )}
       </div>
+
+      <ProfileModal 
+        isOpen={showProfileModal} 
+        onClose={() => setShowProfileModal(false)} 
+      />
     </aside>
   );
 };

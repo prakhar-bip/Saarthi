@@ -4,10 +4,10 @@ Imported by both main.py (to register the /ws/notifications endpoint)
 and projects.py (to broadcast compilation progress events).
 """
 import json
+from loguru import logger
 import logging
 from fastapi import WebSocket
 
-logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:

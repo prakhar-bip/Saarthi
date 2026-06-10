@@ -1,8 +1,9 @@
 import json
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.security import decode_access_token
 from app.core.config import settings
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.redis_client import connect_to_redis, close_redis_connection
@@ -10,12 +11,11 @@ from app.api import auth, chats, projects, mcp
 from app.services.ws_manager import manager
 from app.services.mcp_service import mcp_client
 
-# Setup logger
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from app.core.logger import setup_logging
+
+# Setup modern logger
+setup_logging()
+from loguru import logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -105,6 +105,17 @@ async def root():
 # ──────────────────────────────────────────────────────────────
 @app.websocket("/ws/notifications")
 async def websocket_notifications(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Token is missing")
+        return
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        return
+
     await manager.connect(websocket)
     try:
         await manager.send_personal_message(
@@ -132,6 +143,17 @@ async def websocket_notifications(websocket: WebSocket):
 # ──────────────────────────────────────────────────────────────
 @app.websocket("/ws/projects/{project_id}")
 async def websocket_project_progress(websocket: WebSocket, project_id: str):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Token is missing")
+        return
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        await websocket.accept()
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+        return
+
     await manager.connect(websocket, project_id=project_id)
     try:
         await manager.send_personal_message(

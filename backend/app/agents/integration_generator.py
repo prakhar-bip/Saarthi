@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 import logging
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
@@ -6,7 +7,6 @@ from app.core.config import settings
 from app.services.llm_router import get_llm_completion
 from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
 
-logger = logging.getLogger(__name__)
 
 
 class IntegrationGenerationAgent:

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from loguru import logger
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -43,7 +44,6 @@ from app.agents.project_export import ProjectExportAgent
 from app.agents.context import AGENT_PIPELINE, AGENT_ROLES, build_compilation_context
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
-logger = logging.getLogger(__name__)
 
 ARCHITECTURE_CONTEXT_FIELDS = (
     "requirements",
@@ -130,6 +130,18 @@ def extract_architecture_context(project_doc: dict) -> dict:
         if project_doc.get(field)
     }
 
+async def broadcast_agent_progress(db, project_id: str, progress: int, step: str) -> None:
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {"progress": progress, "step": step}}
+    )
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=progress,
+        step=step
+    )
+    logger.info(f"Project {project_id} compilation progress: {progress}% - {step}")
+
 
 async def run_optimization_and_generation_planning(
     db,
@@ -169,6 +181,7 @@ async def run_optimization_and_generation_planning(
     optimization_arch = project_doc.get("optimization_architecture")
     if not optimization_arch:
         try:
+            await broadcast_agent_progress(db, project_id, 80, "Optimizing Performance...")
             logger.info(f"Executing OptimizationArchitectureAgent for project {project_id}...")
             optimization_agent = OptimizationArchitectureAgent()
             optimization_arch = await optimization_agent.design(
@@ -285,6 +298,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("api_implementation") and project_doc.get("backend_code_generation"):
         try:
+            await broadcast_agent_progress(db, project_id, 81, "Implementing APIs...")
             logger.info(f"Executing APIImplementationAgent for project {project_id}...")
             api_impl_agent = APIImplementationAgent()
             api_implementation = await api_impl_agent.design(
@@ -311,6 +325,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("frontend_code_generation") and project_doc.get("api_implementation"):
         try:
+            await broadcast_agent_progress(db, project_id, 83, "Generating Frontend Code...")
             logger.info(f"Executing FrontendCodeGenerationAgent for project {project_id}...")
             fe_code_agent = FrontendCodeGenerationAgent()
             frontend_code_generation = await fe_code_agent.design(
@@ -338,6 +353,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("ui_component_generation") and project_doc.get("frontend_code_generation"):
         try:
+            await broadcast_agent_progress(db, project_id, 85, "Generating UI Components...")
             logger.info(f"Executing UIComponentGenerationAgent for project {project_id}...")
             ui_comp_agent = UIComponentGenerationAgent()
             ui_component_generation = await ui_comp_agent.design(
@@ -366,6 +382,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("state_implementation") and project_doc.get("ui_component_generation"):
         try:
+            await broadcast_agent_progress(db, project_id, 87, "Implementing State Management...")
             logger.info(f"Executing StateImplementationAgent for project {project_id}...")
             state_impl_agent = StateImplementationAgent()
             state_implementation = await state_impl_agent.design(
@@ -395,6 +412,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("integration_generation") and project_doc.get("state_implementation"):
         try:
+            await broadcast_agent_progress(db, project_id, 89, "Integrating Systems...")
             logger.info(f"Executing IntegrationGenerationAgent for project {project_id}...")
             integration_agent = IntegrationGenerationAgent()
             integration_generation = await integration_agent.design(
@@ -425,6 +443,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("build_compilation") and project_doc.get("integration_generation"):
         try:
+            await broadcast_agent_progress(db, project_id, 91, "Compiling Build Assets...")
             logger.info(f"Executing BuildCompilationAgent for project {project_id}...")
             build_agent = BuildCompilationAgent()
             build_compilation = await build_agent.design(
@@ -456,6 +475,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("error_correction") and project_doc.get("build_compilation"):
         try:
+            await broadcast_agent_progress(db, project_id, 93, "Running Error Correction...")
             logger.info(f"Executing ErrorCorrectionAgent for project {project_id}...")
             error_correction_agent = ErrorCorrectionAgent()
             error_correction = await error_correction_agent.design(
@@ -488,6 +508,7 @@ async def run_optimization_and_generation_planning(
 
     if not project_doc.get("project_export") and project_doc.get("error_correction"):
         try:
+            await broadcast_agent_progress(db, project_id, 95, "Exporting Project Files...")
             logger.info(f"Executing ProjectExportAgent for project {project_id}...")
             export_agent = ProjectExportAgent()
             project_export = await export_agent.design(
@@ -541,26 +562,20 @@ async def run_project_compilation(
     """Background task to simulate stages, call Nvidia NIM to write code, and update DB."""
     db = get_database()
     
-    stages = [
-        {"progress": 15, "step": "Gemini agent planning and user oversight checkpoint", "delay": 1.5},
-        {"progress": 35, "step": "MongoDB MCP context plus requirements/data-flow architecture", "delay": 2.0},
-        {"progress": 60, "step": "Sub-agent UI, API, auth, realtime, state, security, and testing design", "delay": 2.5},
-        {"progress": 85, "step": "Build, correction, export, and hackathon packaging agents", "delay": 2.0},
-    ]
-    
     try:
         # Fetch chat history to feed Nvidia NIM for relevant context
         chat_doc = await db.chats.find_one({"_id": chat_id, "user_id": user_id})
         chat_history = chat_doc.get("messages", []) if chat_doc else []
         
         # Loop through visual stages
-        for stage in stages:
-            await asyncio.sleep(stage["delay"])
+        if True:
+            await asyncio.sleep(1.0)
             
-            if stage["progress"] == 35:
+            if True:
                 # Run the Requirement Analyzer Agent
                 requirements = None
                 try:
+                    await broadcast_agent_progress(db, project_id, 10, "Analyzing Requirements...")
                     logger.info(f"Executing RequirementAnalyzerAgent for project {project_id}...")
                     agent = RequirementAnalyzerAgent()
                     bp_data = blueprint.dict() if blueprint else {
@@ -583,6 +598,7 @@ async def run_project_compilation(
                 if requirements:
                     planning = None
                     try:
+                        await broadcast_agent_progress(db, project_id, 15, "Drafting Planning Strategy...")
                         logger.info(f"Executing PlannerAgent for project {project_id}...")
                         planner = PlannerAgent()
                         planning = await planner.plan(requirements)
@@ -599,6 +615,7 @@ async def run_project_compilation(
                     if planning:
                         db_arch = None
                         try:
+                            await broadcast_agent_progress(db, project_id, 20, "Designing Database Architecture...")
                             logger.info(f"Executing DatabaseArchitectureAgent for project {project_id}...")
                             db_agent = DatabaseArchitectureAgent()
                             db_arch = await db_agent.design(requirements, planning)
@@ -614,6 +631,7 @@ async def run_project_compilation(
 
                         if db_arch:
                             try:
+                                await broadcast_agent_progress(db, project_id, 25, "Designing Backend Architecture...")
                                 logger.info(f"Executing BackendArchitectureAgent for project {project_id}...")
                                 be_agent = BackendArchitectureAgent()
                                 be_arch = await be_agent.design(requirements, planning, db_arch)
@@ -627,6 +645,7 @@ async def run_project_compilation(
 
                                 if be_arch:
                                     try:
+                                        await broadcast_agent_progress(db, project_id, 30, "Defining API Architecture...")
                                         logger.info(f"Executing APIAgent for project {project_id}...")
                                         api_agent = APIAgent()
                                         api_arch = await api_agent.design(requirements, planning, db_arch, be_arch)
@@ -640,6 +659,7 @@ async def run_project_compilation(
 
                                         if api_arch:
                                             try:
+                                                await broadcast_agent_progress(db, project_id, 35, "Structuring Frontend Architecture...")
                                                 logger.info(f"Executing FrontendArchitectureAgent for project {project_id}...")
                                                 fe_agent = FrontendArchitectureAgent()
                                                 fe_arch = await fe_agent.design(requirements, planning, db_arch, be_arch, api_arch)
@@ -653,6 +673,7 @@ async def run_project_compilation(
 
                                                 if fe_arch:
                                                     try:
+                                                        await broadcast_agent_progress(db, project_id, 40, "Styling UI/UX...")
                                                         logger.info(f"Executing UIUXArchitectAgent for project {project_id}...")
                                                         uiux_agent = UIUXArchitectAgent()
                                                         uiux_style = await uiux_agent.design(requirements, planning, db_arch, be_arch, api_arch, fe_arch)
@@ -666,6 +687,7 @@ async def run_project_compilation(
 
                                                         if uiux_style:
                                                             try:
+                                                                await broadcast_agent_progress(db, project_id, 45, "Implementing Authentication...")
                                                                 logger.info(f"Executing AuthArchitectureAgent for project {project_id}...")
                                                                 auth_agent = AuthArchitectureAgent()
                                                                 auth_arch = await auth_agent.design(requirements, planning, db_arch, be_arch, api_arch, fe_arch, uiux_style)
@@ -679,6 +701,7 @@ async def run_project_compilation(
 
                                                                 if auth_arch:
                                                                     try:
+                                                                        await broadcast_agent_progress(db, project_id, 50, "Setting up Realtime Comm...")
                                                                         logger.info(f"Executing RealtimeArchitectureAgent for project {project_id}...")
                                                                         realtime_agent = RealtimeArchitectureAgent()
                                                                         realtime_arch = await realtime_agent.design(requirements, planning, db_arch, be_arch, api_arch, fe_arch, uiux_style, auth_arch)
@@ -692,6 +715,7 @@ async def run_project_compilation(
 
                                                                         if realtime_arch:
                                                                             try:
+                                                                                await broadcast_agent_progress(db, project_id, 55, "Configuring State Management...")
                                                                                 logger.info(f"Executing StateManagementAgent for project {project_id}...")
                                                                                 state_agent = StateManagementAgent()
                                                                                 state_mgmt = await state_agent.design(
@@ -714,6 +738,7 @@ async def run_project_compilation(
                                                                                 )
                                                                                 if state_mgmt:
                                                                                     try:
+                                                                                        await broadcast_agent_progress(db, project_id, 60, "Planning DevOps Architecture...")
                                                                                         logger.info(f"Executing DevOpsArchitectureAgent for project {project_id}...")
                                                                                         devops_agent = DevOpsArchitectureAgent()
                                                                                         devops_arch = await devops_agent.design(
@@ -738,6 +763,7 @@ async def run_project_compilation(
 
                                                                                         if devops_arch:
                                                                                             try:
+                                                                                                await broadcast_agent_progress(db, project_id, 65, "Hardening Security...")
                                                                                                 logger.info(f"Executing SecurityArchitectureAgent for project {project_id}...")
                                                                                                 security_agent = SecurityArchitectureAgent()
                                                                                                 security_arch = await security_agent.design(
@@ -763,6 +789,7 @@ async def run_project_compilation(
 
                                                                                                 if security_arch:
                                                                                                     try:
+                                                                                                        await broadcast_agent_progress(db, project_id, 70, "Creating Test Suites...")
                                                                                                         logger.info(f"Executing TestingArchitectureAgent for project {project_id}...")
                                                                                                         testing_agent = TestingArchitectureAgent()
                                                                                                         testing_arch = await testing_agent.design(
@@ -789,6 +816,7 @@ async def run_project_compilation(
 
                                                                                                         if testing_arch:
                                                                                                             try:
+                                                                                                                await broadcast_agent_progress(db, project_id, 75, "Validating Architectures...")
                                                                                                                 logger.info(f"Executing ValidationArchitectureAgent for project {project_id}...")
                                                                                                                 validation_agent = ValidationArchitectureAgent()
                                                                                                                 validation_arch = await validation_agent.design(
@@ -852,19 +880,9 @@ async def run_project_compilation(
                     }
                 )
 
-            await db.projects.update_one(
-                {"_id": project_id},
-                {"$set": {"progress": stage["progress"], "step": stage["step"]}}
-            )
+            pass
             
-            # Broadcast real-time progress to frontend
-            await manager.broadcast_progress(
-                project_id=project_id,
-                progress=stage["progress"],
-                step=stage["step"]
-            )
-            logger.info(f"Project {project_id} compilation progress: {stage['progress']}% - {stage['step']}")
-            
+        await broadcast_agent_progress(db, project_id, 97, "Compiling Codebase...")
         # Call Nvidia NIM Service to compile codebase
         logger.info(f"Requesting AI codebase generation for project {name} ({category}) with theme {theme}")
         latest_project_doc = await db.projects.find_one({"_id": project_id, "user_id": user_id}) or {}
@@ -1319,16 +1337,16 @@ async def compile_project_codebase(
         )
         
     # Parse models from dict
-    from app.models.project import ProjectBlueprint, ThemePalette
+    from app.models.project import BlueprintSchema, ThemePaletteSchema
     blueprint_dict = project.get("blueprint")
     blueprint = None
     if blueprint_dict:
-        blueprint = ProjectBlueprint(**blueprint_dict)
+        blueprint = BlueprintSchema(**blueprint_dict)
         
     theme_palette_dict = project.get("theme_palette")
     theme_palette = None
     if theme_palette_dict:
-        theme_palette = ThemePalette(**theme_palette_dict)
+        theme_palette = ThemePaletteSchema(**theme_palette_dict)
 
     background_tasks.add_task(
         run_project_compilation,

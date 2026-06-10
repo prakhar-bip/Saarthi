@@ -56,11 +56,11 @@ export const AboutContactDrawer: React.FC = () => {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative w-full max-w-md bg-white border-l border-stone-200 shadow-2xl flex flex-col h-full transition-colors duration-300"
+              className="relative w-full max-w-md bg-stone-50 border-l border-stone-200 shadow-2xl flex flex-col h-full transition-colors duration-300"
             >
               {/* Header */}
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                <div className="flex items-center gap-2 text-indigo-600">
+                <div className="flex items-center gap-2 text-indigo-950">
                   <Info className="w-5 h-5" />
                   <h3 className="text-lg font-bold font-display text-stone-800">About Sarthi</h3>
                 </div>
@@ -75,7 +75,7 @@ export const AboutContactDrawer: React.FC = () => {
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto p-8 space-y-6">
                 <div className="text-center pb-6 border-b border-stone-100">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-indigo-50 border border-indigo-100/50 flex items-center justify-center text-2xl font-bold font-display text-indigo-600 shadow-sm">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-indigo-950 border border-indigo-900/50 flex items-center justify-center text-2xl font-bold font-display text-amber-500 shadow-sm">
                     S
                   </div>
                   <h4 className="text-md font-bold text-stone-800">Your Co-Pilot for Innovation</h4>
@@ -104,11 +104,11 @@ export const AboutContactDrawer: React.FC = () => {
                       <span className="text-[9px] text-stone-400 mt-0.5 block">App Router</span>
                     </div>
                     <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/40 text-center">
-                      <span className="text-xs font-bold text-rose-600 block">Tailwind CSS</span>
+                      <span className="text-xs font-bold text-amber-500 block">Tailwind CSS</span>
                       <span className="text-[9px] text-stone-400 mt-0.5 block">Utility Variables</span>
                     </div>
                     <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/40 text-center">
-                      <span className="text-xs font-bold text-emerald-600 block">Framer Motion</span>
+                      <span className="text-xs font-bold text-indigo-950 block">Framer Motion</span>
                       <span className="text-[9px] text-stone-400 mt-0.5 block">Smooth Micro-UX</span>
                     </div>
                     <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/40 text-center">
@@ -119,7 +119,7 @@ export const AboutContactDrawer: React.FC = () => {
                 </div>
 
                 <div className="pt-6 border-t border-stone-100 flex items-center justify-center gap-2 text-stone-400 text-xs font-medium">
-                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  <ShieldCheck className="w-4 h-4 text-amber-500" />
                   <span>Sarthi Hackathon Prototype, May 2026</span>
                 </div>
               </div>
@@ -144,12 +144,12 @@ export const AboutContactDrawer: React.FC = () => {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative w-full max-w-md bg-white border-l border-stone-200 shadow-2xl flex flex-col h-full transition-colors duration-300"
+              className="relative w-full max-w-md bg-stone-50 border-l border-stone-200 shadow-2xl flex flex-col h-full transition-colors duration-300"
             >
               {/* Header */}
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                <div className="flex items-center gap-2 text-rose-500">
-                  <Mail className="w-5 h-5" />
+                <div className="flex items-center gap-2 text-amber-500">
+                  <Mail className="w-5 h-5 text-indigo-950" />
                   <h3 className="text-lg font-bold font-display text-stone-800">Get in Touch</h3>
                 </div>
                 <button
@@ -170,7 +170,7 @@ export const AboutContactDrawer: React.FC = () => {
                       exit={{ scale: 0.9, opacity: 0 }}
                       className="h-full flex flex-col items-center justify-center text-center space-y-3"
                     >
-                      <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 flex items-center justify-center">
+                      <div className="w-12 h-12 bg-indigo-50 text-indigo-950 rounded-full border border-indigo-100 flex items-center justify-center">
                         <Send className="w-5 h-5" />
                       </div>
                       <h4 className="text-md font-bold text-stone-800">Message Transmitted</h4>
@@ -200,7 +200,7 @@ export const AboutContactDrawer: React.FC = () => {
                             placeholder="Alex Developer"
                             value={contactName}
                             onChange={(e) => setContactName(e.target.value)}
-                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 transition-all text-stone-800"
+                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-800"
                           />
                         </div>
 
@@ -214,7 +214,7 @@ export const AboutContactDrawer: React.FC = () => {
                             placeholder="alex@workspace.com"
                             value={contactEmail}
                             onChange={(e) => setContactEmail(e.target.value)}
-                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 transition-all text-stone-800"
+                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-800"
                           />
                         </div>
 
@@ -228,14 +228,14 @@ export const AboutContactDrawer: React.FC = () => {
                             placeholder="Explain your request or layout suggestions..."
                             value={contactMessage}
                             onChange={(e) => setContactMessage(e.target.value)}
-                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 transition-all text-stone-800 resize-none"
+                            className="w-full bg-stone-50/50 border border-stone-200 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-800 resize-none"
                           />
                         </div>
 
                         <button
                           type="submit"
                           disabled={submitting}
-                          className="w-full bg-rose-500 hover:bg-rose-600 text-white rounded-xl py-3 text-sm font-semibold transition-all relative overflow-hidden flex items-center justify-center gap-2 hover:shadow-lg disabled:bg-rose-400"
+                          className="w-full bg-indigo-950 hover:bg-indigo-900 text-amber-500 rounded-xl py-3 text-sm font-bold transition-all relative overflow-hidden flex items-center justify-center gap-2 hover:shadow-lg disabled:opacity-50"
                         >
                           {submitting ? (
                             <span>Sending Message...</span>

@@ -1,3 +1,4 @@
+from loguru import logger
 import logging
 import os
 from typing import List, Dict, Any, Optional
@@ -10,7 +11,6 @@ from google.genai.types import Content, Part
 from app.core.config import settings
 from app.services.ai import generate_theme_suggestions
 
-logger = logging.getLogger(__name__)
 
 
 # 1. Define custom Python tools first for ADK
@@ -78,7 +78,8 @@ sarthi_agent = Agent(
         "  \"name\": \"Project Name\",\n"
         "  \"idea\": \"Clear one-line description of what the project does\",\n"
         "  \"features\": [\"Feature 1 with brief detail\", \"Feature 2 with brief detail\", \"Feature 3\"],\n"
-        "  \"tech_stack\": \"Flask, HTML, CSS, JavaScript\"\n"
+        "  \"tech_stack\": \"Flask, HTML, CSS, JavaScript\",\n"
+        "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
         "}\n"
         "</blueprint>\n\n"
         "Do NOT include blueprint blocks for general questions, greetings, or non-project conversations."
@@ -98,10 +99,11 @@ runner = Runner(
 # 3. LangGraph Fallback Orchestration Setup
 try:
     from langgraph.graph import StateGraph, END
+    from typing import TypedDict
     
-    class FallbackState(Dict[str, Any]):
+    class FallbackState(TypedDict):
         category: str
-        messages: List[Dict[str, str]]
+        messages: List[Dict[str, Any]]
         selected_project: Optional[Dict[str, Any]]
         response: str
         
@@ -116,7 +118,7 @@ try:
         return {"response": reply}
         
     # Compile the fallback workflow
-    workflow = StateGraph(dict)
+    workflow = StateGraph(FallbackState)
     workflow.add_node("call_llm", call_llm_node)
     workflow.set_entry_point("call_llm")
     workflow.add_edge("call_llm", END)
@@ -153,7 +155,6 @@ async def run_langgraph_fallback(
         from app.services.ai import generate_chat_reply
         return await generate_chat_reply(category, messages, selected_project)
 
-
 async def run_adk_chat(
     chat_id: str,
     user_id: str,
@@ -161,77 +162,17 @@ async def run_adk_chat(
     selected_project: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Executes a chat message session using the Google ADK runner.
-    Falls back to LangGraph orchestration in case of failure.
+    Bypasses the Google Cloud ADK agent to route chatting strictly through OpenRouter
+    via the LangGraph fallback pipeline.
     """
-    # Extract category for fallback routing
     category = "general"
     for msg in messages:
         if msg.get("category"):
             category = msg.get("category")
             break
             
-    try:
-        session_id = chat_id
-        
-        # Ensure session exists
-        try:
-            session = await session_service.get_session(app_name="SarthiApp", session_id=session_id)
-        except Exception:
-            session = await session_service.create_session(app_name="SarthiApp", user_id=user_id, session_id=session_id)
-            
-        # Extract the latest message from the user
-        last_user_msg = ""
-        for msg in reversed(messages):
-            if msg.get("sender") == "user":
-                last_user_msg = msg.get("text", "")
-                break
-                
-        if not last_user_msg:
-            return "Hello! How can I help you with your project today?"
-
-        # We construct the content to pass to the runner including blueprint context
-        blueprint_ctx = ""
-        if selected_project:
-            blueprint_ctx = (
-                f"\n\n[Active Project Blueprint Context]\n"
-                f"Name: {selected_project.get('name')}\n"
-                f"Core Idea: {selected_project.get('idea')}\n"
-                f"Key Features: {', '.join(selected_project.get('features', []))}\n"
-                f"Suggested Tech Stack: {selected_project.get('tech_stack')}\n"
-            )
-            
-        full_prompt = f"{last_user_msg}{blueprint_ctx}"
-        
-        # Prepare message in Vertex/Gemini schema
-        user_message = Content(role="user", parts=[Part.from_text(text=full_prompt)])
-        run_config = RunConfig(response_modalities=["TEXT"])
-        
-        # Run ADK Agent
-        events = runner.run(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=user_message,
-            run_config=run_config
-        )
-        
-        # Collect response text
-        response_text = ""
-        for event in events:
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.text:
-                        response_text += part.text
-                        
-        if not response_text:
-            raise ValueError("No response returned from ADK agent runner")
-            
-        return response_text
-        
-    except Exception as e:
-        logger.error(f"Error running ADK Agent: {e}. Falling back to LangGraph orchestration...")
-        return await run_langgraph_fallback(
-            category=category,
-            messages=messages,
-            selected_project=selected_project
-        )
+    return await run_langgraph_fallback(
+        category=category,
+        messages=messages,
+        selected_project=selected_project
+    )

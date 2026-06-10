@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
-import { useWorkspace, CodeFile, Project } from "@/context/WorkspaceContext";
-import { CategoryIcon, CircuitDecor } from "./CustomSvgs";
+import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
+import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
 import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { DivineCelebration } from "./DivineCelebration";
 
 export const ProjectViewer: React.FC = () => {
   const { 
@@ -19,6 +20,7 @@ export const ProjectViewer: React.FC = () => {
     setShowRightPane, 
     updateProject,
     updateChatSelectedProject,
+    updateChatCategory,
     suggestions,
     isFetchingSuggestions,
     fetchSuggestions
@@ -26,6 +28,7 @@ export const ProjectViewer: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd">("prd");
+  const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
 
   // Theme selection states
   const [viewStage, setViewStage] = useState<"blueprint" | "theme">("blueprint");
@@ -46,7 +49,8 @@ export const ProjectViewer: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isPushingToGithub, setIsPushingToGithub] = useState(false);
   const [githubResult, setGithubResult] = useState<{ url: string; error?: string } | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const prevStatusRef = useRef<string | undefined>(undefined);
   const lastParsedMessageIdRef = useRef<string | null>(null);
 
   const handleSuggestMoreThemes = async () => {
@@ -54,7 +58,7 @@ export const ProjectViewer: React.FC = () => {
     setLoadingThemes(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://127.0.0.1:8000/api/chats/${activeChatId}/themes`, {
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/themes`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
@@ -75,7 +79,7 @@ export const ProjectViewer: React.FC = () => {
     setLoadingThemes(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://127.0.0.1:8000/api/chats/${activeChatId}/themes?prompt=${encodeURIComponent(customThemeInput.trim())}`, {
+      const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/themes?prompt=${encodeURIComponent(customThemeInput.trim())}`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
@@ -125,6 +129,19 @@ export const ProjectViewer: React.FC = () => {
             setCustomFeatures(newFeatures);
           }
           if (parsed.tech_stack) setCustomTechStack(parsed.tech_stack);
+          
+          if (activeChat.id) {
+            updateChatSelectedProject(activeChat.id, {
+              name: parsed.name || "",
+              idea: parsed.idea || "",
+              features: parsed.features || [],
+              tech_stack: parsed.tech_stack || "React, Tailwind CSS, Node.js",
+              category: parsed.category
+            });
+            if (parsed.category) {
+              updateChatCategory(activeChat.id, parsed.category);
+            }
+          }
         } catch (err) {
           console.error("Failed to parse blueprint JSON from message:", err);
         }
@@ -145,6 +162,7 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     setViewStage("blueprint");
     setGithubResult(null);
+    setIsEditingBlueprint(false);
   }, [activeChatId]);
 
   useEffect(() => {
@@ -153,50 +171,6 @@ export const ProjectViewer: React.FC = () => {
     }
   }, [activeChat?.id, activeChat?.selected_project, activeChat?.category, suggestions.length]);
 
-  // WebSocket: connect when a project is generating, disconnect when done
-  useEffect(() => {
-    if (!activeProj) return;
-    if (activeProj.status !== "generating") {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      return;
-    }
-
-    // Avoid double-connecting
-    if (wsRef.current) return;
-
-    const token = localStorage.getItem("token");
-    const wsUrl = `ws://127.0.0.1:8000/ws/projects/${activeProj.id}${token ? `?token=${token}` : ""}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "progress" && msg.project_id === activeProj.id) {
-          // Delegate update to workspace context if updateProject is available
-          if (typeof updateProject === "function") {
-            updateProject(activeProj.id, {
-              progress: msg.progress ?? activeProj.progress,
-              step: msg.step ?? activeProj.step,
-              status: msg.status ?? activeProj.status,
-            });
-          }
-        }
-      } catch (_) {}
-    };
-
-    ws.onerror = () => {};
-    ws.onclose = () => { wsRef.current = null; };
-
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProj?.id, activeProj?.status]);
 
   // Fetch dynamic themes on stage change
   useEffect(() => {
@@ -205,7 +179,7 @@ export const ProjectViewer: React.FC = () => {
         setLoadingThemes(true);
         try {
           const token = localStorage.getItem("token");
-          const res = await fetch(`http://127.0.0.1:8000/api/chats/${activeChatId}/themes`, {
+          const res = await fetch(`${API_BASE}/api/chats/${activeChatId}/themes`, {
             headers: { "Authorization": `Bearer ${token}` }
           });
           if (res.ok) {
@@ -225,6 +199,11 @@ export const ProjectViewer: React.FC = () => {
 
   // Set the first file active by default when project changes or completes
   useEffect(() => {
+    if (activeProj?.status === "completed" && prevStatusRef.current === "generating") {
+      setShowCelebration(true);
+    }
+    prevStatusRef.current = activeProj?.status;
+
     if (activeProj && activeProj.status === "completed") {
       if (activeProj.category === "documents" || activeProj.prd) {
         setSelectedFile({
@@ -256,30 +235,16 @@ export const ProjectViewer: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center p-8 bg-stone-50/30 overflow-y-auto">
           <motion.div
             animate={{
-              scale: [1, 1.05, 1],
-              boxShadow: [
-                "0 4px 20px rgba(99, 102, 241, 0.15)",
-                "0 10px 30px rgba(99, 102, 241, 0.35)",
-                "0 4px 20px rgba(99, 102, 241, 0.15)"
-              ]
+              y: [0, -10, 0]
             }}
             transition={{
-              duration: 2,
+              duration: 2.5,
               repeat: Infinity,
               ease: "easeInOut"
             }}
-            className="mb-6 w-24 h-24 rounded-2xl overflow-hidden border border-stone-200/50 bg-white relative flex items-center justify-center shadow-md"
+            className="mb-8 flex items-center justify-center drop-shadow-2xl"
           >
-            <motion.div
-              className="absolute inset-0 bg-gradient-to-tr from-indigo-500/20 via-transparent to-rose-500/20 mix-blend-overlay"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
-            />
-            <img
-              src="/logo.png"
-              alt="Sarthi Logo"
-              className="w-16 h-16 object-contain pointer-events-none"
-            />
+            <SarthiLogo className="text-6xl" />
           </motion.div>
           <h3 className="text-xs font-bold text-stone-800 uppercase tracking-wider text-center">Generating Specifications...</h3>
           <p className="text-center text-[10px] text-stone-500 mt-2.5 max-w-xs leading-relaxed">
@@ -289,14 +254,14 @@ export const ProjectViewer: React.FC = () => {
       );
     }
 
-    if (activeChat && activeChat.selected_project) {
+    if (activeChat && activeChat.selected_project && !isEditingBlueprint) {
       const blueprint = activeChat.selected_project;
 
       if (viewStage === "theme") {
         return (
           <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
             {/* Header */}
-            <div className="p-6 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
+            <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
               <div className="flex items-center gap-3 overflow-hidden">
                 <button
                   type="button"
@@ -334,14 +299,14 @@ export const ProjectViewer: React.FC = () => {
                 <div className="flex flex-col items-center justify-center py-16 space-y-4">
                   <div className="relative w-12 h-12">
                     <span className="absolute inset-0 rounded-full border-4 border-indigo-100 animate-pulse" />
-                    <span className="absolute inset-0 rounded-full border-4 border-t-indigo-600 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+                    <span className="absolute inset-0 rounded-full border-4 border-t-indigo-700 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
                   </div>
                   <p className="text-xs text-stone-500 font-semibold animate-pulse">
                     Sarthi is drafting custom themes for {blueprint.name}...
                   </p>
                 </div>
               ) : themes.length === 0 ? (
-                <div className="text-center p-8 bg-white rounded-3xl border border-stone-200/60 shadow-sm">
+                <div className="text-center p-8 bg-stone-50 rounded-3xl border border-stone-200/60 shadow-sm">
                   <p className="text-xs text-stone-400 font-medium">Failed to load theme recommendations. Please check backend connection.</p>
                 </div>
               ) : (
@@ -354,7 +319,7 @@ export const ProjectViewer: React.FC = () => {
                         type="button"
                         onClick={handleSuggestMoreThemes}
                         disabled={loadingThemes}
-                        className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition-all cursor-pointer bg-transparent border-none p-0"
+                        className="flex items-center gap-1 text-[10px] font-bold text-indigo-950 hover:text-indigo-900 disabled:opacity-50 transition-all cursor-pointer bg-transparent border-none p-0"
                         title="Generate more design themes"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
@@ -370,18 +335,18 @@ export const ProjectViewer: React.FC = () => {
                             key={index}
                             type="button"
                             onClick={() => setSelectedThemeIndex(index)}
-                            className={`w-full text-left p-4 rounded-2xl border transition-all cursor-pointer bg-white relative overflow-hidden group ${
+                            className={`w-full text-left p-4 rounded-2xl border transition-all cursor-pointer bg-stone-50 relative overflow-hidden group ${
                               isSelected
-                                ? "border-indigo-500 shadow-md shadow-indigo-50/50 scale-[1.01]"
+                                ? "border-amber-500 shadow-md shadow-indigo-50/50 scale-[1.01]"
                                 : "border-stone-200/70 hover:border-stone-300 hover:bg-stone-50/20"
                             }`}
                           >
                             {isSelected && (
-                              <div className="absolute top-0 bottom-0 left-0 w-1 bg-indigo-600" />
+                              <div className="absolute top-0 bottom-0 left-0 w-1 bg-indigo-950" />
                             )}
                             <div className="flex justify-between items-start gap-4">
                               <div className="space-y-1">
-                                <span className="text-xs font-bold text-stone-850 block group-hover:text-indigo-600 transition-colors">
+                                <span className="text-xs font-bold text-stone-850 block group-hover:text-indigo-950 transition-colors">
                                   {themeObj.name}
                                 </span>
                                 <p className="text-[10px] text-stone-455 leading-relaxed font-medium">
@@ -404,7 +369,7 @@ export const ProjectViewer: React.FC = () => {
                   </div>
 
                   {/* Custom Theme Prompt builder */}
-                  <div className="bg-white p-4 rounded-2xl border border-stone-200/60 shadow-sm space-y-3">
+                  <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200/60 shadow-sm space-y-3">
                     <h4 className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Not satisfied? Ask Sarthi for another style:</h4>
                     <form onSubmit={handleRequestCustomThemes} className="flex gap-2">
                       <input
@@ -412,12 +377,12 @@ export const ProjectViewer: React.FC = () => {
                         placeholder="e.g. 'cyberpunk black & orange', 'soft pastel blue'"
                         value={customThemeInput}
                         onChange={(e) => setCustomThemeInput(e.target.value)}
-                        className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-[10px] text-stone-850 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                        className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-[10px] text-stone-850 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition-all"
                       />
                       <button
                         type="submit"
                         disabled={!customThemeInput.trim() || loadingThemes}
-                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[10px] font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-sm"
+                        className="px-3 py-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 disabled:opacity-50 text-white text-[10px] font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-sm"
                       >
                         Draft Style
                       </button>
@@ -442,7 +407,7 @@ export const ProjectViewer: React.FC = () => {
                             onClick={() => setActivePreviewPage(page)}
                             className={`flex-1 py-1.5 px-2 rounded-lg text-[9px] font-bold capitalize transition-all cursor-pointer whitespace-nowrap ${
                               isActive
-                                ? "bg-white text-stone-850 shadow-sm"
+                                ? "bg-stone-50 text-stone-850 shadow-sm"
                                 : "text-stone-500 hover:text-stone-850"
                             }`}
                           >
@@ -642,7 +607,7 @@ export const ProjectViewer: React.FC = () => {
                               <div className="grid grid-cols-2 gap-2">
                                 <div className="p-2 border rounded-xl" style={{ backgroundColor: themes[selectedThemeIndex].palette.card_bg, borderColor: themes[selectedThemeIndex].palette.border }}>
                                   <span className="opacity-60 block text-[5px] uppercase font-bold tracking-wider">Conversion Rate</span>
-                                  <span className="font-extrabold text-[10px] block mt-0.5 text-emerald-500">3.24%</span>
+                                  <span className="font-extrabold text-[10px] block mt-0.5 text-amber-500">3.24%</span>
                                 </div>
                                 <div className="p-2 border rounded-xl" style={{ backgroundColor: themes[selectedThemeIndex].palette.card_bg, borderColor: themes[selectedThemeIndex].palette.border }}>
                                   <span className="opacity-60 block text-[5px] uppercase font-bold tracking-wider">Bounce Rate</span>
@@ -703,7 +668,7 @@ export const ProjectViewer: React.FC = () => {
                                       <span className="opacity-60 block text-[4px]">Log compiler traces</span>
                                     </div>
                                     <div className="w-6 h-3 rounded-full p-0.5 cursor-pointer flex items-center animate-pulse" style={{ backgroundColor: themes[selectedThemeIndex].palette.primary }}>
-                                      <div className="w-2.5 h-2.5 rounded-full bg-white ml-auto" />
+                                      <div className="w-2.5 h-2.5 rounded-full bg-stone-50 ml-auto" />
                                     </div>
                                   </div>
                                 </div>
@@ -772,9 +737,9 @@ export const ProjectViewer: React.FC = () => {
                   <div className="pt-4 pb-8">
                     <button
                       type="button"
-                      onClick={() => generateProject(activeChat.id, blueprint.name, activeChat.category, themes[selectedThemeIndex]?.name, blueprint, themes[selectedThemeIndex]?.palette)}
+                      onClick={() => generateProject(activeChat.id, blueprint.name, activeChat.category || "General", themes[selectedThemeIndex]?.name, blueprint, themes[selectedThemeIndex]?.palette)}
                       disabled={isGeneratingProject}
-                      className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
                     >
                       🚀 Build Codebase with {themes[selectedThemeIndex]?.name || "Selected"} Theme
                     </button>
@@ -792,9 +757,9 @@ export const ProjectViewer: React.FC = () => {
       return (
         <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
           {/* Header */}
-          <div className="p-6 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
+          <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
                 <CategoryIcon category={activeChat.category} className="w-5 h-5" />
               </div>
               <div className="overflow-hidden">
@@ -808,9 +773,16 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 border border-indigo-100 text-indigo-700">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50/50 border border-indigo-200/50 text-indigo-950">
                 Draft Blueprint
               </span>
+              <button
+                type="button"
+                onClick={() => setIsEditingBlueprint(true)}
+                className="px-2.5 py-1 text-[10px] rounded border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm"
+              >
+                Edit
+              </button>
               <button
                 type="button"
                 onClick={() => setShowRightPane(false)}
@@ -824,19 +796,19 @@ export const ProjectViewer: React.FC = () => {
 
           {/* Blueprint Details Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="bg-white p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
+            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Core Idea</h3>
               <p className="text-sm text-stone-750 leading-relaxed font-medium">
                 {blueprint.idea}
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
+            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Proposed Features Roadmap</h3>
               <div className="space-y-3">
                 {blueprint.features.map((feat, idx) => (
                   <div key={idx} className="flex items-start gap-3">
-                    <span className="w-5 h-5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 font-bold flex items-center justify-center text-[10px] mt-0.5 shrink-0">
+                    <span className="w-5 h-5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold flex items-center justify-center text-[10px] mt-0.5 shrink-0">
                       ✓
                     </span>
                     <span className="text-xs font-semibold text-stone-700 leading-normal">{feat}</span>
@@ -845,7 +817,7 @@ export const ProjectViewer: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-3">
+            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Suggested Technology Stack</h3>
               <div className="p-3 bg-stone-50 rounded-2xl border border-stone-100/50 text-xs font-mono text-stone-600 font-semibold">
                 {blueprint.tech_stack}
@@ -857,7 +829,7 @@ export const ProjectViewer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setViewStage("theme")}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-xs"
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-xs"
               >
                 🚀 Confirm & Proceed to Themes
               </button>
@@ -874,9 +846,9 @@ export const ProjectViewer: React.FC = () => {
       return (
         <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
           {/* Header */}
-          <div className="p-6 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
+          <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
                 <CategoryIcon category={activeChat.category} className="w-5 h-5" />
               </div>
               <div className="overflow-hidden">
@@ -890,6 +862,15 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
+              {isEditingBlueprint && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingBlueprint(false)}
+                  className="px-2.5 py-1 text-[10px] rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 font-bold transition-colors shadow-sm"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowRightPane(false)}
@@ -913,7 +894,8 @@ export const ProjectViewer: React.FC = () => {
                   tech_stack: customTechStack.trim()
                 };
                 await updateChatSelectedProject(activeChat.id, newBlueprint);
-              }} className="space-y-4 bg-white p-5 rounded-2xl border border-stone-200/70 shadow-sm">
+                setIsEditingBlueprint(false);
+              }} className="space-y-4 bg-stone-50 p-5 rounded-2xl border border-stone-200/70 shadow-sm">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
                   <input
@@ -922,7 +904,7 @@ export const ProjectViewer: React.FC = () => {
                     placeholder="e.g. 'Personal Finance Manager'"
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
-                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 transition-all font-medium"
                   />
                 </div>
 
@@ -934,7 +916,7 @@ export const ProjectViewer: React.FC = () => {
                     placeholder="Describe the application's vision and value proposition..."
                     value={customIdea}
                     onChange={(e) => setCustomIdea(e.target.value)}
-                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 transition-all resize-none font-medium leading-relaxed"
                   />
                 </div>
 
@@ -951,7 +933,7 @@ export const ProjectViewer: React.FC = () => {
                           updated[fidx] = e.target.value;
                           setCustomFeatures(updated);
                         }}
-                        className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                        className="flex-1 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 transition-all font-medium"
                       />
                       {customFeatures.length > 1 && (
                         <button
@@ -970,7 +952,7 @@ export const ProjectViewer: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setCustomFeatures([...customFeatures, ""])}
-                    className="w-full mt-2 py-2 border border-dashed border-stone-300 text-stone-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full mt-2 py-2 border border-dashed border-stone-300 text-stone-500 hover:text-indigo-950 hover:border-indigo-300 hover:bg-indigo-50 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" /> Add Feature
                   </button>
@@ -984,13 +966,13 @@ export const ProjectViewer: React.FC = () => {
                     placeholder="e.g. 'React, Tailwind CSS, Node.js'"
                     value={customTechStack}
                     onChange={(e) => setCustomTechStack(e.target.value)}
-                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-mono font-semibold text-indigo-650"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-mono font-semibold text-indigo-950"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-center"
+                  className="w-full mt-2 py-3 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold tracking-wide border border-indigo-900/50 shadow-inner text-xs font-bold rounded-xl shadow-md transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-center"
                 >
                   Save Blueprint & Choose Theme
                 </button>
@@ -1025,7 +1007,7 @@ export const ProjectViewer: React.FC = () => {
     setIsDownloading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://127.0.0.1:8000/api/projects/${activeProj.id}/download`, {
+      const res = await fetch(`${API_BASE}/api/projects/${activeProj.id}/download`, {
         headers: { "Authorization": `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(await res.text());
@@ -1051,7 +1033,7 @@ export const ProjectViewer: React.FC = () => {
     setGithubResult(null);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://127.0.0.1:8000/api/projects/${activeProj.id}/github-push`, {
+      const res = await fetch(`${API_BASE}/api/projects/${activeProj.id}/github-push`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` },
       });
@@ -1070,22 +1052,20 @@ export const ProjectViewer: React.FC = () => {
     { label: "Requirements Definition", minProg: 35, color: "#8b5cf6" },
     { label: "UI Component Generation", minProg: 60, color: "#f59e0b" },
     { label: "Software Architecture Assembly", minProg: 85, color: "#06b6d4" },
-    { label: "Compiled Codebase Draft", minProg: 100, color: "#10b981" },
+    { label: "Compiled Codebase Draft", minProg: 100, color: "#eab308" },
   ];
 
   // Animated counter for progress percentage is declared at the top of the component to follow the Rules of Hooks
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
+    <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300 relative">
+      {showCelebration && <DivineCelebration onComplete={() => setShowCelebration(false)} />}
       {/* Header */}
-      <div className="p-6 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <motion.div
-            className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50"
-            whileHover={{ scale: 1.05, rotate: -3 }}
-          >
+      <div className="min-h-20 py-4 border-b border-stone-200/60 bg-white flex flex-wrap items-center justify-between gap-4 px-6 shrink-0 shadow-sm relative z-10">
+        <div className="flex items-center gap-4 flex-1 min-w-[200px]">
+          <div className="p-2 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
             <CategoryIcon category={activeProj.category} className="w-5 h-5" />
-          </motion.div>
+          </div>
           <div className="overflow-hidden">
             <h2 className="text-lg font-bold font-display text-stone-800 truncate leading-tight">
               {activeProj.name}
@@ -1094,12 +1074,12 @@ export const ProjectViewer: React.FC = () => {
               Category: {activeProj.category}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700">
+              <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-950">
                 <Database className="w-3 h-3" />
                 {partnerTrack} MCP
               </span>
               {subAgentCount > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-700">
+                <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-950">
                   <ClipboardCheck className="w-3 h-3" />
                   {subAgentCount} sub-agents
                 </span>
@@ -1108,7 +1088,7 @@ export const ProjectViewer: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 justify-end">
           {activeProj.status === "generating" ? (
             <motion.span
               animate={{ opacity: [1, 0.6, 1] }}
@@ -1122,7 +1102,7 @@ export const ProjectViewer: React.FC = () => {
               <motion.span
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 border border-indigo-100 text-indigo-700"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50/50 border border-indigo-200/50 text-indigo-950"
               >
                 ✓ Requirements Ready
               </motion.span>
@@ -1132,7 +1112,7 @@ export const ProjectViewer: React.FC = () => {
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
                 title="Download documents as ZIP"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
               >
                 {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                 <span>{isDownloading ? "Zipping…" : "Download Documents"}</span>
@@ -1143,7 +1123,7 @@ export const ProjectViewer: React.FC = () => {
               <motion.span
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 border border-emerald-100 text-emerald-700"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50/50 border border-indigo-200/50 text-indigo-950"
               >
                 ✓ Generated
               </motion.span>
@@ -1153,7 +1133,7 @@ export const ProjectViewer: React.FC = () => {
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
                 title="Download project as ZIP"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
               >
                 {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                 <span>{isDownloading ? "Zipping…" : "Download"}</span>
@@ -1164,22 +1144,13 @@ export const ProjectViewer: React.FC = () => {
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.96 }}
                 title="Push project to a new GitHub repo"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-800 hover:bg-stone-900 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-800 hover:bg-indigo-900 text-white shadow-sm transition-all disabled:opacity-60 cursor-pointer"
               >
                 {isPushingToGithub ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
                 <span>{isPushingToGithub ? "Pushing…" : "GitHub"}</span>
               </motion.button>
             </>
           )}
-          <motion.button
-            onClick={() => setShowRightPane(false)}
-            whileHover={{ scale: 1.1, rotate: 5 }}
-            whileTap={{ scale: 0.9 }}
-            className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-            title="Collapse Panel"
-          >
-            <X className="w-4 h-4" />
-          </motion.button>
         </div>
       </div>
 
@@ -1191,7 +1162,7 @@ export const ProjectViewer: React.FC = () => {
             {/* Left Content Area */}
             <div className="flex-1 flex flex-col overflow-hidden border-r border-stone-200/60">
               {/* Tab Navigation */}
-              <div className="px-6 py-4 bg-white/80 border-b border-stone-200/60 flex items-center justify-between">
+              <div className="px-6 py-4 bg-stone-50/80 border-b border-stone-200/60 flex items-center justify-between">
                 <div className="flex gap-2">
                   {(["prd", "mrd", "trd"] as const).map((tab) => (
                     <button
@@ -1199,7 +1170,7 @@ export const ProjectViewer: React.FC = () => {
                       onClick={() => setActiveDocTab(tab)}
                       className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
                         activeDocTab === tab
-                          ? "bg-indigo-600 text-white shadow-sm"
+                          ? "bg-indigo-950 text-white shadow-sm"
                           : "bg-stone-100 hover:bg-stone-200 text-stone-600"
                       }`}
                     >
@@ -1210,8 +1181,8 @@ export const ProjectViewer: React.FC = () => {
               </div>
 
               {/* Document Text View */}
-              <div className="flex-1 overflow-y-auto p-8 bg-white/40">
-                <div className="max-w-3xl mx-auto bg-white p-10 rounded-3xl border border-stone-200/60 shadow-sm">
+              <div className="flex-1 overflow-y-auto p-8 bg-stone-50/40">
+                <div className="max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm">
                   {activeDocTab === "prd" && (
                     <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
                   )}
@@ -1226,7 +1197,7 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             {/* Right Action Sidebar */}
-            <div className="w-85 bg-white/80 p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
+            <div className="w-85 bg-stone-50/80 p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
               <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">Specifications Review</h3>
@@ -1236,9 +1207,9 @@ export const ProjectViewer: React.FC = () => {
                 </div>
 
                 <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-100/50 space-y-3">
-                  <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Prototype Tech Stack</span>
+                  <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">Prototype Tech Stack</span>
                   <div className="flex items-center gap-2 text-stone-750">
-                    <FileCode className="w-4 h-4 text-indigo-500 font-bold" />
+                    <FileCode className="w-4 h-4 text-amber-500 font-bold" />
                     <span className="text-xs font-semibold">HTML5 + CSS3 + Flask (Python)</span>
                   </div>
                   <p className="text-[10px] text-stone-500 leading-normal">
@@ -1246,15 +1217,15 @@ export const ProjectViewer: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-100/70 space-y-3">
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Hackathon Track</span>
+                <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100/70 space-y-3">
+                  <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">Hackathon Track</span>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-white/70 border border-emerald-100 p-3">
-                      <span className="text-[9px] uppercase font-bold text-emerald-600 block">Partner</span>
+                    <div className="rounded-xl bg-stone-50/70 border border-indigo-100 p-3">
+                      <span className="text-[9px] uppercase font-bold text-indigo-950 block">Partner</span>
                       <span className="text-xs font-semibold text-stone-800">{partnerTrack}</span>
                     </div>
-                    <div className="rounded-xl bg-white/70 border border-emerald-100 p-3">
-                      <span className="text-[9px] uppercase font-bold text-emerald-600 block">MCP Mode</span>
+                    <div className="rounded-xl bg-stone-50/70 border border-indigo-100 p-3">
+                      <span className="text-[9px] uppercase font-bold text-indigo-950 block">MCP Mode</span>
                       <span className="text-xs font-semibold text-stone-800">{mcpStatus.mode || "pending"}</span>
                     </div>
                   </div>
@@ -1273,7 +1244,7 @@ export const ProjectViewer: React.FC = () => {
                     onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
                   >
                     <Sparkles className="w-4 h-4 animate-pulse" />
                     <span>Proceed to Build Codebase</span>
@@ -1291,10 +1262,10 @@ export const ProjectViewer: React.FC = () => {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: "easeOut" }}
-              className="max-w-md w-full bg-white p-8 rounded-3xl border border-stone-200/60 shadow-sm relative overflow-hidden"
+              className="max-w-md w-full bg-stone-50 p-8 rounded-3xl border border-stone-200/60 shadow-sm relative overflow-hidden"
             >
               {/* Top gradient bar */}
-              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500" />
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600" />
 
               {/* Circuit decor top-right */}
               <div className="absolute top-4 right-4 opacity-40">
@@ -1302,9 +1273,9 @@ export const ProjectViewer: React.FC = () => {
               </div>
 
               <div className="text-center mb-6">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-500">Sarthi Compiler</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">Sarthi Compiler</span>
                 <h3 className="text-xl font-bold font-display text-stone-800 mt-1">Generating Prototype</h3>
-                <div className="mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                <div className="mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-indigo-950">
                   <Database className="w-3.5 h-3.5" />
                   <span>{partnerTrack} MCP + Gemini Agents</span>
                 </div>
@@ -1317,7 +1288,7 @@ export const ProjectViewer: React.FC = () => {
                   className="text-xs text-stone-400 mt-1 truncate flex items-center justify-center gap-1"
                 >
                   <span>{activeProj.step}</span>
-                  <span className="animate-cursor-blink text-indigo-400 text-sm">|</span>
+                  <span className="animate-cursor-blink text-amber-400 text-sm">|</span>
                 </motion.p>
               </div>
 
@@ -1484,11 +1455,11 @@ export const ProjectViewer: React.FC = () => {
               <div className="mt-6 pt-4 border-t border-stone-100">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[10px] text-stone-400 font-semibold">Overall Progress</span>
-                  <span className="text-[10px] font-bold text-indigo-600">{activeProj.progress}%</span>
+                  <span className="text-[10px] font-bold text-indigo-950">{activeProj.progress}%</span>
                 </div>
                 <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
                   <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500"
+                    className="h-full rounded-full bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600"
                     animate={{ width: `${activeProj.progress}%` }}
                     transition={{ duration: 0.6, ease: "easeOut" }}
                   />
@@ -1508,7 +1479,7 @@ export const ProjectViewer: React.FC = () => {
               className={`absolute top-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl text-xs font-semibold border ${
                 githubResult.error
                   ? "bg-rose-50 border-rose-200 text-rose-700"
-                  : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  : "bg-indigo-50 border-indigo-200 text-indigo-950"
               }`}
             >
               {githubResult.error ? (
@@ -1531,7 +1502,7 @@ export const ProjectViewer: React.FC = () => {
         {activeProj.status === "completed" && (
           <div className="flex-1 flex overflow-hidden">
             {/* Left File Tree Pane */}
-            <div className="w-64 border-r border-stone-200/60 bg-white/20 flex flex-col shrink-0 transition-colors duration-300">
+            <div className="w-64 border-r border-stone-200/60 bg-stone-50/20 flex flex-col shrink-0 transition-colors duration-300">
               <div className="p-4 border-b border-stone-200/60 shrink-0">
                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Generated Files</span>
               </div>
@@ -1789,12 +1760,12 @@ export const ProjectViewer: React.FC = () => {
                         whileHover={{ x: 2 }}
                         onClick={() => setSelectedFile(file)}
                         className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer ${isSel
-                          ? "bg-indigo-50/50 text-indigo-700 border border-indigo-100/50"
+                          ? "bg-indigo-50/50 text-indigo-950 border border-indigo-100/50"
                           : "hover:bg-stone-100/60 border border-transparent text-stone-600"
                           }`}
                       >
                         <motion.span whileHover={{ scale: 1.15, rotate: -5 }} transition={{ duration: 0.2 }}>
-                          <FileCode className={`w-4 h-4 shrink-0 ${isSel ? "text-indigo-500" : "text-stone-400"}`} />
+                          <FileCode className={`w-4 h-4 shrink-0 ${isSel ? "text-amber-500" : "text-stone-400"}`} />
                         </motion.span>
                         <div className="overflow-hidden">
                           <p className="text-xs font-semibold truncate">{file.name}</p>
@@ -1808,7 +1779,7 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             {/* Right Code Display Pane */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-white transition-colors duration-300">
+            <div className="flex-1 flex flex-col overflow-hidden bg-stone-50 transition-colors duration-300">
               {selectedFile ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {/* File title & Actions */}
@@ -1818,11 +1789,11 @@ export const ProjectViewer: React.FC = () => {
                     </span>
                     <button
                       onClick={handleCopy}
-                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-stone-500 hover:text-stone-800 bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 shadow-sm transition-all hover:bg-stone-50 cursor-pointer"
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-stone-500 hover:text-stone-800 bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1.5 shadow-sm transition-all hover:bg-stone-50 cursor-pointer"
                     >
                       {copied ? (
                         <>
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <Check className="w-3.5 h-3.5 text-amber-500" />
                           <span>Copied</span>
                         </>
                       ) : (
@@ -1836,12 +1807,12 @@ export const ProjectViewer: React.FC = () => {
                   {/* Code Block Container or Markdown Viewer */}
                   {selectedFile.language === "markdown" ? (
                     <div className="flex-1 overflow-y-auto p-8 bg-stone-50/30 text-stone-850 select-text leading-relaxed border-b border-transparent transition-colors duration-300">
-                      <div className="max-w-3xl mx-auto bg-white border border-stone-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
+                      <div className="max-w-3xl mx-auto bg-stone-50 border border-stone-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
                         <MarkdownRenderer text={selectedFile.content} />
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-700 leading-relaxed bg-stone-900/5 select-text select-all border-b border-transparent">
+                    <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-700 leading-relaxed bg-indigo-900/5 select-text select-all border-b border-transparent">
                       <pre className="overflow-x-auto whitespace-pre-wrap md:whitespace-pre">
                         {selectedFile.content.split("\n").map((line, i) => (
                           <div key={i} className="table-row">
