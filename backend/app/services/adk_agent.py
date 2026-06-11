@@ -49,12 +49,15 @@ def get_design_theme_suggestions_tool(project_name: str, category: str, features
         return []
 
 # 2. Initialize the Root ADK Agent
+mode_str = "Google Cloud Vertex AI (authenticaticating via IAM Application Default Credentials)" if settings.USE_VERTEX_AI else "Google AI Studio (authenticating via Gemini API Key)"
+
 sarthi_agent = Agent(
     name="Sarthi",
     model=settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL,
     instruction=(
-        "You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering. "
-        "You are optimized for the Building Agents for Real-World Challenges hackathon using Gemini, Google Cloud Agent Builder style orchestration, and the MongoDB partner MCP server.\n\n"
+        f"You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering. "
+        f"You are currently running in **{mode_str}** mode.\n"
+        f"You are optimized for the Building Agents for Real-World Challenges hackathon using Gemini, Google Cloud Agent Builder style orchestration, and the MongoDB partner MCP server.\n\n"
 
         "## Core Capabilities\n"
         "1. **General Assistant**: Answer ANY question thoroughly — coding doubts, debugging, algorithms, system design, tech concepts, career advice, etc. Respond like a knowledgeable senior developer.\n"
