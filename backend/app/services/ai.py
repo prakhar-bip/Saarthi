@@ -646,9 +646,8 @@ async def generate_codebase(
     """
     start_time = time.perf_counter()
     context = "\n".join([f"{m['sender'].upper()}: {m['text']}" for m in chat_history])
-    
-    if not settings.NVIDIA_API_KEY:
-        logger.warning("NVIDIA_API_KEY not configured. Generating template codebase.")
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+        logger.warning("No LLM API keys or Vertex AI configured. Generating template codebase.")
         return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context, hackathon_metadata, mcp_evidence)
 
     blueprint_prompt = ""
