@@ -130,21 +130,21 @@ def get_database():
 
 
 async def seed_default_user_and_clean_slate():
-    """Delete all database collections data and seed the default user 'Asur'."""
+    """Ensure the default user 'Asur' exists in the database without deleting other data."""
     try:
         db_instance = get_database()
         
-        # 1. Clear users, projects, and chats collections
-        logger.info("Purging sarthi database (users, projects, chats) for clean slate...")
-        await db_instance.users.delete_many({})
-        await db_instance.projects.delete_many({})
-        await db_instance.chats.delete_many({})
-        
-        # 2. Setup the default user
+        default_email = "asur@sarthi.com"
+        # Check if the default user already exists
+        existing_user = await db_instance.users.find_one({"email": default_email})
+        if existing_user:
+            logger.info(f"Default user {default_email} already exists. Skipping seeding.")
+            return
+            
+        # Setup the default user
         from app.core.security import get_password_hash
         from datetime import datetime, timezone
         
-        default_email = "asur@sarthi.com"
         default_password = "Asur@123"
         default_name = "Asur"
         
@@ -161,6 +161,6 @@ async def seed_default_user_and_clean_slate():
         await db_instance.users.insert_one(default_user)
         logger.info(f"Successfully seeded default user: {default_email} ({default_name})")
     except Exception as e:
-        logger.error(f"Failed to seed default user and clean slate: {e}")
+        logger.error(f"Failed to seed default user: {e}")
 
 
