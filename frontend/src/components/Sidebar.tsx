@@ -26,7 +26,8 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
     showLeftPane,
     setShowLeftPane,
     renameChat,
-    renameProject
+    renameProject,
+    setShowRightPane
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"chats" | "projects">("chats");
@@ -34,6 +35,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   const [editValue, setEditValue] = useState("");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileModalTab, setProfileModalTab] = useState<"profile" | "settings" | "help">("profile");
 
   const handleAuthClick = () => {
     setAuthMode("login");
@@ -60,7 +62,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
           </div>
           {!isCollapsed && (
           <p className="text-[10px] text-stone-400 font-medium tracking-wide pl-1">
-            Intelligent Hackathon Partner
+            Intelligent Coding Charioteer
           </p>
           )}
         </div>
@@ -180,17 +182,17 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
             </motion.button>
 
             <AnimatePresence initial={false}>
-              {chats.length === 0 ? (
+              {chats.filter(c => !c.is_confirmed && !c.project_id).length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="flex flex-col items-center py-8"
                 >
                   <EmptyStateIllustration className="w-28 h-24" />
-                  <p className="text-stone-400 text-xs mt-2">No chats yet — start one above</p>
+                  <p className="text-stone-400 text-xs mt-2">No active chats yet — start one above</p>
                 </motion.div>
               ) : (
-                chats.map((c, idx) => {
+                chats.filter(c => !c.is_confirmed && !c.project_id).map((c, idx) => {
                   const isActive = activeChatId === c.id && !activeProjectId;
                   return (
                     <motion.div
@@ -207,6 +209,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                       onClick={() => {
                         setActiveChatId(c.id);
                         setActiveProjectId(null);
+                        setShowRightPane(true);
                       }}
                     >
                       <div className="flex items-center gap-3 overflow-hidden">
@@ -315,6 +318,10 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                     onClick={() => {
                       if (!isGeneratingProject) {
                         setActiveProjectId(p.id);
+                        if (p.chat_id) {
+                          setActiveChatId(p.chat_id);
+                        }
+                        setShowRightPane(true);
                       }
                     }}
                   >
@@ -426,18 +433,33 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                 <button 
                   onClick={() => {
                     setShowProfileMenu(false);
+                    setProfileModalTab("profile");
                     setShowProfileModal(true);
                   }}
-                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left"
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
                 >
                   <User className="w-3.5 h-3.5" />
                   My Profile
                 </button>
-                <button className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left">
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setProfileModalTab("settings");
+                    setShowProfileModal(true);
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
+                >
                   <Settings className="w-3.5 h-3.5" />
                   Settings & API Keys
                 </button>
-                <button className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left">
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setProfileModalTab("help");
+                    setShowProfileModal(true);
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
+                >
                   <HelpCircle className="w-3.5 h-3.5" />
                   Help & Support
                 </button>
@@ -509,6 +531,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
       <ProfileModal 
         isOpen={showProfileModal} 
         onClose={() => setShowProfileModal(false)} 
+        initialTab={profileModalTab}
       />
     </aside>
   );

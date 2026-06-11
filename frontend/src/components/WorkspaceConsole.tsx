@@ -414,19 +414,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           >
             Contact
           </motion.button>
-          {user && (
-            <>
-              <span className="text-stone-300">/</span>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center gap-1.5 text-indigo-950 bg-indigo-50/50 border border-indigo-100/50 px-2.5 py-1 rounded-lg"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Hackathon Mode</span>
-              </motion.div>
-            </>
-          )}
+
 
           <div className="flex items-center gap-2 border-l border-stone-200/60 pl-4 ml-1">
             {(activeProjectId || (activeChatId && activeChat?.selected_project)) && (
@@ -805,7 +793,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               disabled={aiTyping}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto max-h-[160px] align-middle"
+              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle"
             />
             {/* Focus glow ring */}
             <AnimatePresence>

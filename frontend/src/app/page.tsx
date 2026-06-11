@@ -9,9 +9,69 @@ import { AboutContactDrawer } from "@/components/AboutContactDrawer";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, AlertTriangle } from "lucide-react";
 import { WaveBackground } from "@/components/CustomSvgs";
 
+const SandboxWarningModal: React.FC = () => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem("sarthi_sandbox_warning_dismissed");
+    if (!dismissed) {
+      setIsOpen(true);
+    }
+  }, []);
+
+  const handleDismiss = () => {
+    localStorage.setItem("sarthi_sandbox_warning_dismissed", "true");
+    setIsOpen(false);
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-indigo-950/45 backdrop-blur-md"
+          />
+
+          {/* Card */}
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0, y: 15 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 15 }}
+            transition={{ type: "spring", duration: 0.5 }}
+            className="relative w-full max-w-md bg-stone-50 border border-stone-200/60 p-6 md:p-8 rounded-3xl shadow-2xl z-10 flex flex-col items-center text-center space-y-5"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200/50 flex items-center justify-center text-amber-500 animate-bounce">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold font-display text-stone-850">
+                Sarthi Sandbox Notice
+              </h3>
+              <p className="text-xs text-stone-500 leading-relaxed font-semibold">
+                Sarthi is currently in its active testing and prototype phase. Please do not input original or sensitive database credentials, API keys, or personal information. Use mock details for all chat conversations and sandbox setups.
+              </p>
+            </div>
+
+            <button
+              onClick={handleDismiss}
+              className="w-full bg-indigo-950 hover:bg-indigo-900 border border-indigo-900/50 text-amber-500 rounded-xl py-3 text-xs font-bold transition-all hover:shadow-md cursor-pointer"
+            >
+              I Understand & Proceed
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+};
 
 export default function Home() {
   const { activeChatId, activeProjectId, showRightPane, showLeftPane, setShowLeftPane, projects, chats } = useWorkspace();
@@ -220,6 +280,7 @@ export default function Home() {
           {/* Modals & Slide-out Drawers */}
           <AuthModal />
           <AboutContactDrawer />
+          <SandboxWarningModal />
         </div>
       )}
     </>

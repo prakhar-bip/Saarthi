@@ -78,21 +78,28 @@ export const AboutContactDrawer: React.FC = () => {
                   <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-indigo-950 border border-indigo-900/50 flex items-center justify-center text-2xl font-bold font-display text-amber-500 shadow-sm">
                     S
                   </div>
-                  <h4 className="text-md font-bold text-stone-800">Your Co-Pilot for Innovation</h4>
-                  <p className="text-xs text-stone-400 mt-1">Sarthi (Sanskrit: सारथि) — The Charioteer</p>
+                  <h4 className="text-md font-bold text-stone-800">Your Divine AI Charioteer</h4>
+                  <p className="text-xs text-stone-400 mt-1">Sarthi (Sanskrit: सारथि) — The Guide & Steerer</p>
+                </div>
+
+                <div className="space-y-4">
+                  <h5 className="text-xs font-bold uppercase tracking-wider text-stone-400">The Analogy</h5>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    In the epic of Mahabharata, Arjuna stood on the battlefield of Kurukshetra, overwhelmed by doubt, configuration paralysis, and the sheer complexity of the battle ahead. Sri Krishna became his <strong>Sarthi (Charioteer)</strong>—not to fight the battle for him, but to guide his chariot, clear his vision, and let him focus entirely on his target.
+                  </p>
                 </div>
 
                 <div className="space-y-4">
                   <h5 className="text-xs font-bold uppercase tracking-wider text-stone-400">The Problem</h5>
                   <p className="text-xs text-stone-600 leading-relaxed">
-                    During hackathons, developers waste hours bootstrapping architectures, selecting color systems, and organizing layouts. Ideas get stalled in configuration.
+                    As developers, we face our own battlefield of Kurukshetra. We waste hours bootstrapping structures, configuring database connections, styling boilerplate layouts, and managing routing, before we can write a single line of creative, core application logic.
                   </p>
                 </div>
 
                 <div className="space-y-4">
                   <h5 className="text-xs font-bold uppercase tracking-wider text-stone-400">The Solution</h5>
                   <p className="text-xs text-stone-600 leading-relaxed">
-                    Sarthi acts as your workspace guide. Selecting specialized domains (Health, Finance, Productivity, Education, Sustainability), Sarthi discusses code logic, compiles file-tree directories, structures requirements, and generates complete frontend source code blocks instantly.
+                    Sarthi acts as your workspace charioteer. By managing files, compiling specifications (PRDs, MRDs, TRDs), and assembling database sandboxes, Sarthi handles the chariot of boilerplate infrastructure. You, the warrior developer, are freed to focus on what matters most—writing the intelligent, creative core code.
                   </p>
                 </div>
 
@@ -120,7 +127,7 @@ export const AboutContactDrawer: React.FC = () => {
 
                 <div className="pt-6 border-t border-stone-100 flex items-center justify-center gap-2 text-stone-400 text-xs font-medium">
                   <ShieldCheck className="w-4 h-4 text-amber-500" />
-                  <span>Sarthi Hackathon Prototype, May 2026</span>
+                  <span>Sarthi Workspace Sandbox, June 2026</span>
                 </div>
               </div>
             </motion.div>
@@ -186,7 +193,7 @@ export const AboutContactDrawer: React.FC = () => {
                       className="space-y-6"
                     >
                       <p className="text-xs text-stone-500 leading-relaxed">
-                        Have ideas to expand Sarthi's generation templates? Or want to collaborate on the hackathon project? Send us your message!
+                        Have ideas to expand Sarthi's generation templates? Or want to collaborate on the project? Send us your message!
                       </p>
 
                       <form onSubmit={handleContactSubmit} className="space-y-4">

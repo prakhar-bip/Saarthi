@@ -2484,7 +2484,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setChats((prev) => [newChat, ...prev]);
         setActiveChatId(newChat.id);
         setActiveProjectId(null);
-        setShowRightPane(true);
+        if (selectedProject) {
+          setShowRightPane(true);
+        } else {
+          setShowRightPane(false);
+        }
         return newChat.id;
       }
     } catch (e) {
@@ -2631,6 +2635,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                         tech_stack: parsed.tech_stack || "Flask, HTML, CSS"
                       };
                       updateChatSelectedProject(chatId, bp);
+                      setShowRightPane(true);
                     }
                   } catch (_bpErr) {
                     // Ignore silently
@@ -2784,6 +2789,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (activeProjectId === projectId) {
       setActiveProjectId(null);
     }
+    if (projectToRestore && projectToRestore.chat_id) {
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === projectToRestore.chat_id
+            ? { ...c, is_confirmed: false, project_id: null }
+            : c
+        )
+      );
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
@@ -2801,13 +2815,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (prev.some((p) => p.id === projectId)) return prev;
           return [...prev, projectToRestore];
         });
+        if (projectToRestore.chat_id) {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === projectToRestore.chat_id
+                ? { ...c, is_confirmed: true, project_id: projectId }
+                : c
+            )
+          );
+        }
       }
       if (originalActiveId === projectId) {
         setActiveProjectId(originalActiveId);
       }
       alert("Failed to delete project. Please try again.");
     }
-  }, [projects, activeProjectId]);
+  }, [projects, activeProjectId, setChats]);
 
   const renameProject = useCallback(async (projectId: string, newTitle: string) => {
     const token = localStorage.getItem("token");

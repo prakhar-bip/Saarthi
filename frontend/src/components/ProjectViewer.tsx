@@ -1144,7 +1144,7 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             {/* Right Action Sidebar */}
-            <div className="w-85 bg-white/10 backdrop-blur-md p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
+            <div className="w-85 bg-white/10 backdrop-blur-md p-6 pb-24 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
               <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">Specifications Review</h3>
@@ -1165,19 +1165,21 @@ export const ProjectViewer: React.FC = () => {
                 </div>
 
                 <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100/70 space-y-3">
-                  <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">Hackathon Track</span>
+                  <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">System Integration</span>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-xl bg-stone-50/70 border border-indigo-100 p-3">
                       <span className="text-[9px] uppercase font-bold text-indigo-950 block">Partner</span>
                       <span className="text-xs font-semibold text-stone-800">{partnerTrack}</span>
                     </div>
-                    <div className="rounded-xl bg-stone-50/70 border border-indigo-100 p-3">
+                    <div className="rounded-xl bg-stone-50/70 border border-indigo-100 p-3 overflow-hidden">
                       <span className="text-[9px] uppercase font-bold text-indigo-950 block">MCP Mode</span>
-                      <span className="text-xs font-semibold text-stone-800">{mcpStatus.mode || "pending"}</span>
+                      <span className="text-xs font-semibold text-stone-800 break-all select-all block mt-0.5 leading-tight" title={mcpStatus.mode || "pending"}>
+                        {mcpStatus.mode || "pending"}
+                      </span>
                     </div>
                   </div>
                   <p className="text-[10px] text-stone-500 leading-normal">
-                    The download includes a LICENSE, HACKATHON_SUBMISSION.md, and MCP_EVIDENCE.json for judging.
+                    The generated workspace contains a README.md, database configurations, and MCP client modules.
                   </p>
                 </div>
               </div>

@@ -1112,6 +1112,13 @@ async def update_project(project_id: str, payload: dict, current_user: dict = De
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
     db = get_database()
+    
+    # Restore the chat session to active state (is_confirmed=False, project_id=None)
+    await db.chats.update_one(
+        {"project_id": project_id, "user_id": current_user["id"]},
+        {"$set": {"is_confirmed": False, "project_id": None}}
+    )
+    
     result = await db.projects.delete_one({"_id": project_id, "user_id": current_user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")

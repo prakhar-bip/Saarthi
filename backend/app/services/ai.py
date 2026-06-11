@@ -15,12 +15,10 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
     Converts list of messages into Chat Completions.
     """
     start_time = time.perf_counter()
-    mode_str = "Google Cloud Vertex AI (authenticaticating via IAM Application Default Credentials)" if settings.USE_VERTEX_AI else "Google AI Studio (authenticating via Gemini API Key)"
     try:
         if selected_project:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind. "
-                f"You are currently running in **{mode_str}** mode.\n\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
                 f"## Active Project Context\n"
                 f"- **Project Name**: {selected_project.get('name')}\n"
                 f"- **Core Idea**: {selected_project.get('idea')}\n"
@@ -46,8 +44,7 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
             )
         else:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind. "
-                f"You are currently running in **{mode_str}** mode.\n\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
                 "## Your Role & Vibe\n"
                 "You are an empathetic, intelligent, and conversational co-pilot. Listen carefully, analyze the user's mindset, and build context step-by-step over the chat history.\n\n"
                 "## Mindset & Semantic Routing\n"
@@ -92,12 +89,10 @@ async def stream_chat_reply(category: str, messages: List[Dict[str, str]], selec
     Generate a reply using the LLM Router stream completion.
     Yields chunks of text.
     """
-    mode_str = "Google Cloud Vertex AI (authenticaticating via IAM Application Default Credentials)" if settings.USE_VERTEX_AI else "Google AI Studio (authenticating via Gemini API Key)"
     try:
         if selected_project:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind. "
-                f"You are currently running in **{mode_str}** mode.\n\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
                 f"## Active Project Context\n"
                 f"- **Project Name**: {selected_project.get('name')}\n"
                 f"- **Core Idea**: {selected_project.get('idea')}\n"
@@ -123,8 +118,7 @@ async def stream_chat_reply(category: str, messages: List[Dict[str, str]], selec
             )
         else:
             system_prompt = (
-                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind. "
-                f"You are currently running in **{mode_str}** mode.\n\n"
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
                 "## Your Role & Vibe\n"
                 "You are an empathetic, intelligent, and conversational co-pilot. Listen carefully, analyze the user's mindset, and build context step-by-step over the chat history.\n\n"
                 "## Mindset & Semantic Routing\n"

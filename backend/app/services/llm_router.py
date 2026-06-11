@@ -156,6 +156,24 @@ def log_llm_call(
     logger.info("==================================================")
 
 
+def _inject_platform_instruction(messages: List[Dict[str, str]]):
+    """Inject active platform information into system messages for self-awareness."""
+    platform_info = "Google Cloud Vertex AI (via IAM Service Account)" if settings.USE_VERTEX_AI else "Google AI Studio (via Developer API Key)"
+    platform_instruction = f"\n\n[SYSTEM CONFIGURATION: You are executing on the {platform_info} platform. If the user asks which platform or API route you are using, answer with this platform name.]"
+    
+    system_msg = None
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_msg = msg
+            break
+            
+    if system_msg:
+        if "[SYSTEM CONFIGURATION:" not in system_msg.get("content", ""):
+            system_msg["content"] = system_msg.get("content", "") + platform_instruction
+    else:
+        messages.insert(0, {"role": "system", "content": f"You are a helpful assistant.{platform_instruction}"})
+
+
 async def get_raw_llm_completion(
     agent_name: str, 
     messages: List[Dict[str, str]], 
@@ -165,6 +183,7 @@ async def get_raw_llm_completion(
     """
     Standard direct API client completion call without ADK or LangGraph wrapping.
     """
+    _inject_platform_instruction(messages)
     feedback = current_agent_feedback.get()
     if feedback:
         # Inject feedback into the last message
@@ -294,6 +313,7 @@ async def stream_raw_llm_completion(
     Standard direct API client completion call with streaming enabled.
     Yields chunks of generated text.
     """
+    _inject_platform_instruction(messages)
     pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
         agent_name, ("gemini", settings.GOOGLE_MODEL)
     )
