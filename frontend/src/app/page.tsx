@@ -11,6 +11,7 @@ import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
 import { PanelLeft, AlertTriangle } from "lucide-react";
 import { WaveBackground } from "@/components/CustomSvgs";
+import { CommandMenu } from "@/components/CommandMenu";
 
 const SandboxWarningModal: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -76,6 +77,14 @@ const SandboxWarningModal: React.FC = () => {
 export default function Home() {
   const { activeChatId, activeProjectId, showRightPane, showLeftPane, setShowLeftPane, projects, chats } = useWorkspace();
   const [showSplash, setShowSplash] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Compute finalized state
   const activeChat = chats.find((c) => c.id === activeChatId);
@@ -172,7 +181,11 @@ export default function Home() {
       {!showSplash && (
         <div className="flex h-screen w-screen overflow-hidden bg-transparent font-sans text-stone-800 transition-colors duration-300 relative">
           {/* Global Floating Wave Background */}
-          <WaveBackground className="fixed inset-0 w-full h-full pointer-events-none -z-10 opacity-70" />
+          <WaveBackground 
+            className="fixed inset-0 w-full h-full pointer-events-none -z-10 opacity-70" 
+            status={activeProj?.status}
+            progress={activeProj?.progress}
+          />
 
           {/* Full-screen invisible drag overlay to ensure smooth drags over iframes/inputs */}
           {(isDraggingLeft || isDraggingRight) && (
@@ -182,37 +195,51 @@ export default function Home() {
           {/* Sidebar Panel (Left) */}
           <AnimatePresence initial={false}>
             {showLeftPane && (
-              <motion.div
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: `${leftWidth}px`, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: isDraggingLeft ? 0 : 0.3, ease: [0.4, 0, 0.2, 1] }}
-                className="h-full flex shrink-0 overflow-visible relative"
-              >
-                <div className="w-full h-full overflow-hidden">
-                  <Sidebar isCollapsed={leftWidth < 200} />
-                </div>
-
-                {/* Left Resizer Handle */}
-                <div
-                  onMouseDown={startResizeLeft}
-                  onDoubleClick={() => {
-                    setLeftWidth(320);
-                    localStorage.setItem("sidebar_left_width", "320");
-                  }}
-                  className="absolute top-0 right-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
+              <>
+                {/* Mobile Backdrop overlay */}
+                {isMobile && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setShowLeftPane(false)}
+                    className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-[35] pointer-events-auto"
+                  />
+                )}
+                <motion.div
+                  initial={isMobile ? { x: "-100%", opacity: 0 } : { width: 0, opacity: 0 }}
+                  animate={isMobile ? { x: 0, opacity: 1, width: "280px" } : { width: `${leftWidth}px`, opacity: 1 }}
+                  exit={isMobile ? { x: "-100%", opacity: 0 } : { width: 0, opacity: 0 }}
+                  transition={{ duration: isDraggingLeft ? 0 : 0.3, ease: [0.4, 0, 0.2, 1] }}
+                  className={`h-full flex shrink-0 overflow-visible ${isMobile ? "fixed top-0 left-0 z-40 bg-stone-50" : "relative"}`}
                 >
-                  {/* The vertical divider line */}
-                  <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
-                  
-                  {/* Visual grab handle */}
-                  <div className="absolute top-1/2 right-1/2 translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
-                    <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                    <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                    <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                  <div className="w-full h-full overflow-hidden">
+                    <Sidebar isCollapsed={leftWidth < 200 && !isMobile} />
                   </div>
-                </div>
-              </motion.div>
+
+                  {/* Left Resizer Handle (Only on desktop) */}
+                  {!isMobile && (
+                    <div
+                      onMouseDown={startResizeLeft}
+                      onDoubleClick={() => {
+                        setLeftWidth(320);
+                        localStorage.setItem("sidebar_left_width", "320");
+                      }}
+                      className="absolute top-0 right-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
+                    >
+                      {/* The vertical divider line */}
+                      <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
+                      
+                      {/* Visual grab handle */}
+                      <div className="absolute top-1/2 right-1/2 translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              </>
             )}
           </AnimatePresence>
 
@@ -240,33 +267,33 @@ export default function Home() {
             <AnimatePresence initial={false}>
               {(activeProjectId || activeChatId) && showRightPane && (
                 <motion.div
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={isProjectFinalized ? { width: "100%", opacity: 1 } : { width: `${rightWidth}px`, opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
+                  initial={isMobile ? { x: "100%", opacity: 0 } : { width: 0, opacity: 0 }}
+                  animate={isMobile ? { x: 0, opacity: 1, width: "100%" } : (isProjectFinalized ? { width: "100%", opacity: 1 } : { width: `${rightWidth}px`, opacity: 1 })}
+                  exit={isMobile ? { x: "100%", opacity: 0 } : { width: 0, opacity: 0 }}
                   transition={{ duration: isDraggingRight ? 0 : 0.4, ease: [0.4, 0, 0.2, 1] }}
-                  className={`${isProjectFinalized ? "w-full" : "border-l"} border-stone-200/60 h-full flex shrink-0 overflow-visible relative`}
-                  style={isProjectFinalized ? { flex: 1 } : {}}
+                  className={`${isMobile ? "fixed inset-0 z-30 bg-stone-50" : (isProjectFinalized ? "w-full" : "border-l border-stone-200/60")} h-full flex shrink-0 overflow-visible relative`}
+                  style={!isMobile && isProjectFinalized ? { flex: 1 } : {}}
                 >
-                  {/* Right Resizer Handle (Only show if not finalized) */}
-                  {!isProjectFinalized && (
+                  {/* Right Resizer Handle (Only show if not finalized and not mobile) */}
+                  {!isProjectFinalized && !isMobile && (
                     <div
-                    onMouseDown={startResizeRight}
-                    onDoubleClick={() => {
-                      setRightWidth(550);
-                      localStorage.setItem("sidebar_right_width", "550");
-                    }}
-                    className="absolute top-0 left-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
-                  >
-                    {/* The vertical divider line */}
-                    <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
+                      onMouseDown={startResizeRight}
+                      onDoubleClick={() => {
+                        setRightWidth(550);
+                        localStorage.setItem("sidebar_right_width", "550");
+                      }}
+                      className="absolute top-0 left-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
+                    >
+                      {/* The vertical divider line */}
+                      <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
 
-                    {/* Visual grab handle */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
-                      <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                      <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                      <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                      {/* Visual grab handle */}
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                        <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                      </div>
                     </div>
-                  </div>
                   )}
 
                   <div className="w-full h-full overflow-hidden">
@@ -281,6 +308,7 @@ export default function Home() {
           <AuthModal />
           <AboutContactDrawer />
           <SandboxWarningModal />
+          <CommandMenu />
         </div>
       )}
     </>

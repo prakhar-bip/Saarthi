@@ -69,7 +69,12 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     clearSuggestions,
     showLeftPane,
     setShowLeftPane,
+    projects
   } = useWorkspace();
+
+  const activeChat = chats.find((c) => c.id === activeChatId);
+  const activeProj = projects.find((p) => p.id === (activeProjectId || activeChat?.project_id)) ||
+    (activeChatId ? projects.find((p) => p.chat_id === activeChatId) : undefined);
 
   const [currentCategory, setCurrentCategory] = useState<string>("");
   const [currentInput, setCurrentInput] = useState<string>("");
@@ -129,7 +134,6 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const activeChat = chats.find((c) => c.id === activeChatId);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -450,7 +454,11 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
             className="absolute inset-0 bg-white/20 backdrop-blur-lg z-20 flex flex-col items-center justify-center p-8 cursor-pointer select-none overflow-hidden"
           >
             {/* Animated wave background */}
-            <WaveBackground className="absolute inset-0 w-full h-full pointer-events-none" />
+            <WaveBackground 
+              className="absolute inset-0 w-full h-full pointer-events-none" 
+              status={activeProj?.status}
+              progress={activeProj?.progress}
+            />
 
             <motion.div
               animate={shakeLock ? { x: [-6, 6, -6, 6, 0] } : {}}
@@ -776,24 +784,36 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
 
       {/* Input Area Console */}
       <footer className="p-4 border-t border-stone-200/60 bg-stone-50/40 backdrop-blur-md shrink-0 relative select-none transition-colors duration-300">
-        <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center gap-3">
+        <form 
+          onSubmit={user ? handleSendMessage : (e) => { e.preventDefault(); handleLockClick(); }}
+          onClick={!user ? handleLockClick : undefined}
+          className={`max-w-3xl mx-auto flex items-center gap-3 ${!user ? 'cursor-pointer' : ''}`}
+        >
           {/* Text Input with focus glow */}
           <div className="flex-1 relative">
             <textarea
               id="chat-input-bar"
               rows={1}
-              placeholder="Share your project idea here (features, tech stack, or vision)..."
+              placeholder={!user ? "Please sign in or sign up to start chatting with Sarthi..." : "Share your project idea here (features, tech stack, or vision)..."}
               value={currentInput}
+              readOnly={!user}
               onChange={(e) => {
+                if (!user) return;
                 setCurrentInput(e.target.value);
                 e.target.style.height = 'auto';
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
               }}
-              onKeyDown={handleKeyDown}
+              onKeyDown={user ? handleKeyDown : undefined}
               disabled={aiTyping}
-              onFocus={() => setInputFocused(true)}
+              onFocus={() => {
+                if (!user) {
+                  handleLockClick();
+                  return;
+                }
+                setInputFocused(true);
+              }}
               onBlur={() => setInputFocused(false)}
-              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle"
+              className={`w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle ${!user ? 'cursor-pointer' : ''}`}
             />
             {/* Focus glow ring */}
             <AnimatePresence>
@@ -809,7 +829,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           </div>
 
           {/* Sync Blueprint button */}
-          {activeChatId && !activeProjectId && (
+          {user && activeChatId && !activeProjectId && (
             <button
               type="button"
               onClick={() => {
@@ -850,9 +870,9 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           {/* Send button */}
           <motion.button
             type="submit"
-            disabled={!currentInput.trim() || aiTyping}
-            whileHover={currentInput.trim() && !aiTyping ? { scale: 1.08, rotate: -8 } : {}}
-            whileTap={currentInput.trim() && !aiTyping ? { scale: 0.92 } : {}}
+            disabled={!!user && (!currentInput.trim() || aiTyping)}
+            whileHover={!user || (currentInput.trim() && !aiTyping) ? { scale: 1.08, rotate: -8 } : {}}
+            whileTap={!user || (currentInput.trim() && !aiTyping) ? { scale: 0.92 } : {}}
             transition={{ type: "spring", stiffness: 400, damping: 22 }}
             className="p-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold tracking-wide border border-indigo-900/50 shadow-inner transition-colors disabled:opacity-50"
           >

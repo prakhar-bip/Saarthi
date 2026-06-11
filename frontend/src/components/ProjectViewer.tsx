@@ -7,6 +7,7 @@ import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
 import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
+import { sarthiAudio } from "@/utils/audio";
 
 // 28-agent pipeline sequence for Sarthi
 const agentPipeline = [
@@ -67,6 +68,265 @@ const agentDescriptions: Record<string, string> = {
   "ProjectExportAgent": "Compiling production monorepo packaging and export ZIP targets..."
 };
 
+const vyuhNodes = [
+  {
+    id: "orchestrator",
+    name: "Sri Krishna (AI Orchestrator)",
+    desc: "Gemini multi-agent core driving document compilation, database mapping, and code generation.",
+    role: "Steers project generation plans and validates code syntax.",
+    x: 250, y: 200, r: 35,
+    color: "#eab308", // gold
+    glow: "rgba(234, 179, 8, 0.4)",
+    files: ["sarthi-internal/AI_Planner.json", "sarthi-internal/AI_AgentContext.json"]
+  },
+  {
+    id: "backend",
+    name: "FastAPI Backend Module",
+    desc: "FastAPI endpoints controllers, routers, and CORS configurations.",
+    role: "Provides API access endpoints to fetch and write data.",
+    x: 390, y: 120, r: 28,
+    color: "#06b6d4", // cyan
+    glow: "rgba(6, 182, 212, 0.3)",
+    files: ["sarthi-internal/AI_BackendCodeGeneration.json", "sarthi-internal/AI_APIImplementation.json"]
+  },
+  {
+    id: "database",
+    name: "MongoDB Models Layer",
+    desc: "MongoDB collection models, schema designs, and indices configs.",
+    role: "Manages data persistence and schema structures.",
+    x: 390, y: 280, r: 28,
+    color: "#8b5cf6", // purple
+    glow: "rgba(139, 92, 246, 0.3)",
+    files: ["sarthi-internal/AI_DatabaseModelGeneration.json", "sarthi-internal/AI_DatabaseArchitecture.json"]
+  },
+  {
+    id: "frontend",
+    name: "Next.js Frontend Client",
+    desc: "React/Next.js page layouts, fetch modules, and server-side routes.",
+    role: "Provides interactive client dashboard interfaces.",
+    x: 110, y: 280, r: 28,
+    color: "#ec4899", // pink
+    glow: "rgba(236, 72, 153, 0.3)",
+    files: ["sarthi-internal/AI_FrontendCodeGeneration.json"]
+  },
+  {
+    id: "uiux",
+    name: "Tailwind UI Components",
+    desc: "Reusable styling tokens, buttons, and custom layout components.",
+    role: "Renders modern styling and glassmorphic designs.",
+    x: 110, y: 120, r: 28,
+    color: "#f59e0b", // amber
+    glow: "rgba(245, 158, 11, 0.3)",
+    files: ["sarthi-internal/AI_UIComponentGeneration.json"]
+  },
+  {
+    id: "devops",
+    name: "System DevOps Layer",
+    desc: "Docker container settings, scripts, and GCP Cloud Run manifests.",
+    role: "Builds and deploys the compiled application.",
+    x: 250, y: 340, r: 28,
+    color: "#3b82f6", // blue
+    glow: "rgba(59, 130, 246, 0.3)",
+    files: ["sarthi-internal/AI_BuildCompilation.json", "sarthi-internal/AI_IntegrationGeneration.json"]
+  }
+];
+
+const getProjectFiles = (proj: Project): CodeFile[] => {
+  const files: CodeFile[] = [...(proj.codebase || [])];
+  if (proj.mcp_evidence) {
+    files.unshift({
+      name: "MCP_EVIDENCE.json",
+      path: "sarthi-internal/MCP_EVIDENCE.json",
+      language: "json",
+      content: JSON.stringify(proj.mcp_evidence, null, 2),
+    });
+  }
+  if (proj.hackathon_metadata) {
+    files.unshift({
+      name: "HACKATHON_METADATA.json",
+      path: "sarthi-internal/HACKATHON_METADATA.json",
+      language: "json",
+      content: JSON.stringify(proj.hackathon_metadata, null, 2),
+    });
+  }
+  if (proj.prd) {
+    files.unshift({
+      name: "Product Requirement Document (PRD).md",
+      path: "PRD.md",
+      language: "markdown",
+      content: proj.prd,
+    });
+  }
+  if (proj.build_compilation) {
+    files.unshift({
+      name: "AI_BuildCompilation.json",
+      path: "sarthi-internal/AI_BuildCompilation.json",
+      language: "json",
+      content: JSON.stringify(proj.build_compilation, null, 2),
+    });
+  }
+  if (proj.integration_generation) {
+    files.unshift({
+      name: "AI_IntegrationGeneration.json",
+      path: "sarthi-internal/AI_IntegrationGeneration.json",
+      language: "json",
+      content: JSON.stringify(proj.integration_generation, null, 2),
+    });
+  }
+  if (proj.state_implementation) {
+    files.unshift({
+      name: "AI_StateImplementation.json",
+      path: "sarthi-internal/AI_StateImplementation.json",
+      language: "json",
+      content: JSON.stringify(proj.state_implementation, null, 2),
+    });
+  }
+  if (proj.ui_component_generation) {
+    files.unshift({
+      name: "AI_UIComponentGeneration.json",
+      path: "sarthi-internal/AI_UIComponentGeneration.json",
+      language: "json",
+      content: JSON.stringify(proj.ui_component_generation, null, 2),
+    });
+  }
+  if (proj.frontend_code_generation) {
+    files.unshift({
+      name: "AI_FrontendCodeGeneration.json",
+      path: "sarthi-internal/AI_FrontendCodeGeneration.json",
+      language: "json",
+      content: JSON.stringify(proj.frontend_code_generation, null, 2),
+    });
+  }
+  if (proj.api_implementation) {
+    files.unshift({
+      name: "AI_APIImplementation.json",
+      path: "sarthi-internal/AI_APIImplementation.json",
+      language: "json",
+      content: JSON.stringify(proj.api_implementation, null, 2),
+    });
+  }
+  if (proj.backend_code_generation) {
+    files.unshift({
+      name: "AI_BackendCodeGeneration.json",
+      path: "sarthi-internal/AI_BackendCodeGeneration.json",
+      language: "json",
+      content: JSON.stringify(proj.backend_code_generation, null, 2),
+    });
+  }
+  if (proj.database_model_generation) {
+    files.unshift({
+      name: "AI_DatabaseModelGeneration.json",
+      path: "sarthi-internal/AI_DatabaseModelGeneration.json",
+      language: "json",
+      content: JSON.stringify(proj.database_model_generation, null, 2),
+    });
+  }
+  if (proj.agent_context) {
+    files.unshift({
+      name: "AI_AgentContext.json",
+      path: "sarthi-internal/AI_AgentContext.json",
+      language: "json",
+      content: JSON.stringify(proj.agent_context, null, 2),
+    });
+  }
+  if (proj.code_generation_plan) {
+    files.unshift({
+      name: "AI_CodeGenerationPlanner.json",
+      path: "sarthi-internal/AI_CodeGenerationPlanner.json",
+      language: "json",
+      content: JSON.stringify(proj.code_generation_plan, null, 2),
+    });
+  }
+  if (proj.optimization_architecture) {
+    files.unshift({
+      name: "AI_OptimizationArchitecture.json",
+      path: "sarthi-internal/AI_OptimizationArchitecture.json",
+      language: "json",
+      content: JSON.stringify(proj.optimization_architecture, null, 2),
+    });
+  }
+  if (proj.validation_architecture) {
+    files.unshift({
+      name: "AI_ValidationArchitecture.json",
+      path: "sarthi-internal/AI_ValidationArchitecture.json",
+      language: "json",
+      content: JSON.stringify(proj.validation_architecture, null, 2),
+    });
+  }
+  if (proj.error_correction) {
+    files.unshift({
+      name: "AI_ErrorCorrection.json",
+      path: "sarthi-internal/AI_ErrorCorrection.json",
+      language: "json",
+      content: JSON.stringify(proj.error_correction, null, 2),
+    });
+  }
+  if (proj.project_export) {
+    files.unshift({
+      name: "AI_ProjectExport.json",
+      path: "sarthi-internal/AI_ProjectExport.json",
+      language: "json",
+      content: JSON.stringify(proj.project_export, null, 2),
+    });
+  }
+  if (proj.db_architecture) {
+    files.unshift({
+      name: "AI Database Architecture.json",
+      path: "sarthi-internal/AI_DatabaseArchitecture.json",
+      language: "json",
+      content: JSON.stringify(proj.db_architecture, null, 2),
+    });
+  }
+  if (proj.planning) {
+    files.unshift({
+      name: "AI Planner.json",
+      path: "sarthi-internal/AI_Planner.json",
+      language: "json",
+      content: JSON.stringify(proj.planning, null, 2),
+    });
+  }
+  if (proj.requirements) {
+    files.unshift({
+      name: "AI Requirements.json",
+      path: "sarthi-internal/AI_Requirements.json",
+      language: "json",
+      content: JSON.stringify(proj.requirements, null, 2),
+    });
+  }
+  return files;
+};
+
+const getNodeFiles = (nodeId: string, proj: Project): CodeFile[] => {
+  const allFiles = getProjectFiles(proj);
+  const explicit = vyuhNodes.find(n => n.id === nodeId)?.files || [];
+  
+  return allFiles.filter(file => {
+    if (explicit.includes(file.path)) return true;
+    
+    const pathLower = file.path.toLowerCase();
+    
+    if (nodeId === "orchestrator") {
+      return pathLower.includes("prd") || pathLower.includes("planner") || pathLower.includes("requirements") || pathLower.includes("agentcontext");
+    }
+    if (nodeId === "backend") {
+      return pathLower.includes("backend") || pathLower.includes("api_") || pathLower.includes("api/") || (pathLower.includes("server") && !pathLower.includes("frontend"));
+    }
+    if (nodeId === "database") {
+      return pathLower.includes("database") || pathLower.includes("model") || pathLower.includes("schema") || pathLower.includes("mongo");
+    }
+    if (nodeId === "frontend") {
+      return (pathLower.includes("frontend") || pathLower.includes("page.tsx") || pathLower.includes("layout.tsx")) && !pathLower.includes("components/");
+    }
+    if (nodeId === "uiux") {
+      return pathLower.includes("component") || pathLower.includes("css") || pathLower.includes("tailwind") || pathLower.includes("theme");
+    }
+    if (nodeId === "devops") {
+      return pathLower.includes("docker") || pathLower.includes("deploy") || pathLower.includes("export") || pathLower.includes("integration") || pathLower.includes("compilation");
+    }
+    return false;
+  });
+};
+
 export const ProjectViewer: React.FC = () => {
   const { 
     chats, 
@@ -87,6 +347,10 @@ export const ProjectViewer: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd">("prd");
+
+  const [completedTab, setCompletedTab] = useState<"files" | "vyuh">("files");
+  const [hoveredVyuhNode, setHoveredVyuhNode] = useState<any | null>(null);
+  const [selectedVyuhNode, setSelectedVyuhNode] = useState<any | null>(null);
 
   // Theme selection states
   const [viewStage, setViewStage] = useState<"blueprint" | "theme">("blueprint");
@@ -238,6 +502,11 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     if (activeProj?.status === "completed" && prevStatusRef.current === "generating") {
       setShowCelebration(true);
+      sarthiAudio.playSuccess();
+    } else if (activeProj?.status === "failed" && prevStatusRef.current === "generating") {
+      sarthiAudio.playFailure();
+    } else if (activeProj?.status === "generating" && prevStatusRef.current !== "generating") {
+      sarthiAudio.playMilestone();
     }
     prevStatusRef.current = activeProj?.status;
 
@@ -266,10 +535,25 @@ export const ProjectViewer: React.FC = () => {
     }
   }, [activeProjectId, activeProj?.status, activeProj?.prd]);
 
+  useEffect(() => {
+    const handleSelectFile = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.file) {
+        setSelectedFile(customEvent.detail.file);
+        setCompletedTab("files");
+      }
+    };
+    window.addEventListener("select-codebase-file", handleSelectFile);
+    return () => window.removeEventListener("select-codebase-file", handleSelectFile);
+  }, [activeProj?.codebase]);
+
   // Auto scroll terminal to bottom on update
   useEffect(() => {
     if (terminalLogsRef.current) {
       terminalLogsRef.current.scrollTop = terminalLogsRef.current.scrollHeight;
+    }
+    if (activeProj?.status === "generating" && activeProj.progress > 0 && activeProj.progress < 100) {
+      sarthiAudio.playMilestone();
     }
   }, [activeProj?.progress, activeProj?.step]);
 
@@ -1368,21 +1652,6 @@ export const ProjectViewer: React.FC = () => {
                     })}
                   </div>
                 </div>
-
-                {/* Bottom live progress bar strip */}
-                <div className="pt-4 border-t border-stone-100">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-[10px] text-stone-400 font-semibold">Overall Progress</span>
-                    <span className="text-[10px] font-bold text-indigo-950">{activeProj.progress}%</span>
-                  </div>
-                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600"
-                      animate={{ width: `${activeProj.progress}%` }}
-                      transition={{ duration: 0.6, ease: "easeOut" }}
-                    />
-                  </div>
-                </div>
               </div>
 
               {/* Right Column: Live Agent Activity Monitor Console */}
@@ -1519,285 +1788,252 @@ export const ProjectViewer: React.FC = () => {
             {/* Left File Tree Pane */}
             <AnimatePresence initial={false}>
               {showFilesPane && (
-                <motion.div
+<motion.div
                   initial={{ width: 0, opacity: 0 }}
                   animate={{ width: 256, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ duration: 0.3, ease: "easeInOut" }}
                   className="border-r border-stone-200/60 bg-white/30 backdrop-blur-md flex flex-col shrink-0 transition-colors duration-300 overflow-hidden"
                 >
-                  <div className="p-4 border-b border-stone-200/60 shrink-0 w-64">
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Generated Files</span>
+                  <div className="p-3.5 border-b border-stone-200/60 shrink-0 w-64 bg-stone-50/40">
+                    <div className="flex bg-stone-100 p-0.5 rounded-lg">
+                      <button
+                        onClick={() => setCompletedTab("files")}
+                        className={`flex-1 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                          completedTab === "files" ? "bg-indigo-950 text-white shadow-sm" : "text-stone-400 hover:text-stone-700"
+                        }`}
+                      >
+                        Files
+                      </button>
+                      <button
+                        onClick={() => setCompletedTab("vyuh")}
+                        className={`flex-1 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                          completedTab === "vyuh" ? "bg-indigo-950 text-white shadow-sm" : "text-stone-400 hover:text-stone-700"
+                        }`}
+                      >
+                        Vyuh Map
+                      </button>
+                    </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-3 space-y-1 select-none w-64">
-                    {(() => {
-                  const filesToRender = [...(activeProj.codebase || [])];
-                  if (activeProj.mcp_evidence && !filesToRender.some((file) => file.path === "sarthi-internal/MCP_EVIDENCE.json")) {
-                    filesToRender.unshift({
-                      name: "MCP_EVIDENCE.json",
-                      path: "sarthi-internal/MCP_EVIDENCE.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.mcp_evidence, null, 2),
-                    });
-                  }
-                  if (activeProj.hackathon_metadata && !filesToRender.some((file) => file.path === "sarthi-internal/HACKATHON_METADATA.json")) {
-                    filesToRender.unshift({
-                      name: "HACKATHON_METADATA.json",
-                      path: "sarthi-internal/HACKATHON_METADATA.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.hackathon_metadata, null, 2),
-                    });
-                  }
-                  if (activeProj.trd) {
-                    filesToRender.unshift({
-                      name: "Technical Requirement Document (TRD).md",
-                      path: "TRD.md",
-                      language: "markdown",
-                      content: activeProj.trd,
-                    });
-                  }
-                  if (activeProj.mrd) {
-                    filesToRender.unshift({
-                      name: "Market Requirement Document (MRD).md",
-                      path: "MRD.md",
-                      language: "markdown",
-                      content: activeProj.mrd,
-                    });
-                  }
-                  if (activeProj.prd) {
-                    filesToRender.unshift({
-                      name: "Product Requirement Document (PRD).md",
-                      path: "PRD.md",
-                      language: "markdown",
-                      content: activeProj.prd,
-                    });
-                  }
-                  if (activeProj.build_compilation) {
-                    filesToRender.unshift({
-                      name: "AI_BuildCompilation.json",
-                      path: "sarthi-internal/AI_BuildCompilation.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.build_compilation, null, 2),
-                    });
-                  }
-                  if (activeProj.integration_generation) {
-                    filesToRender.unshift({
-                      name: "AI_IntegrationGeneration.json",
-                      path: "sarthi-internal/AI_IntegrationGeneration.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.integration_generation, null, 2),
-                    });
-                  }
-                  if (activeProj.state_implementation) {
-                    filesToRender.unshift({
-                      name: "AI_StateImplementation.json",
-                      path: "sarthi-internal/AI_StateImplementation.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.state_implementation, null, 2),
-                    });
-                  }
-                  if (activeProj.ui_component_generation) {
-                    filesToRender.unshift({
-                      name: "AI_UIComponentGeneration.json",
-                      path: "sarthi-internal/AI_UIComponentGeneration.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.ui_component_generation, null, 2),
-                    });
-                  }
-                  if (activeProj.frontend_code_generation) {
-                    filesToRender.unshift({
-                      name: "AI_FrontendCodeGeneration.json",
-                      path: "sarthi-internal/AI_FrontendCodeGeneration.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.frontend_code_generation, null, 2),
-                    });
-                  }
-                  if (activeProj.api_implementation) {
-                    filesToRender.unshift({
-                      name: "AI_APIImplementation.json",
-                      path: "sarthi-internal/AI_APIImplementation.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.api_implementation, null, 2),
-                    });
-                  }
-                  if (activeProj.backend_code_generation) {
-                    filesToRender.unshift({
-                      name: "AI_BackendCodeGeneration.json",
-                      path: "sarthi-internal/AI_BackendCodeGeneration.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.backend_code_generation, null, 2),
-                    });
-                  }
-                  if (activeProj.database_model_generation) {
-                    filesToRender.unshift({
-                      name: "AI_DatabaseModelGeneration.json",
-                      path: "sarthi-internal/AI_DatabaseModelGeneration.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.database_model_generation, null, 2),
-                    });
-                  }
-                  if (activeProj.agent_context) {
-                    filesToRender.unshift({
-                      name: "AI_AgentContext.json",
-                      path: "sarthi-internal/AI_AgentContext.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.agent_context, null, 2),
-                    });
-                  }
-                  if (activeProj.code_generation_plan) {
-                    filesToRender.unshift({
-                      name: "AI_CodeGenerationPlanner.json",
-                      path: "sarthi-internal/AI_CodeGenerationPlanner.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.code_generation_plan, null, 2),
-                    });
-                  }
-                  if (activeProj.optimization_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_OptimizationArchitecture.json",
-                      path: "sarthi-internal/AI_OptimizationArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.optimization_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.validation_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_ValidationArchitecture.json",
-                      path: "sarthi-internal/AI_ValidationArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.validation_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.testing_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_TestingArchitecture.json",
-                      path: "sarthi-internal/AI_TestingArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.testing_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.security_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_SecurityArchitecture.json",
-                      path: "sarthi-internal/AI_SecurityArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.security_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.devops_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_DevOpsArchitecture.json",
-                      path: "sarthi-internal/AI_DevOpsArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.devops_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.state_management) {
-                    filesToRender.unshift({
-                      name: "AI_StateManagement.json",
-                      path: "sarthi-internal/AI_StateManagement.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.state_management, null, 2),
-                    });
-                  }
-                  if (activeProj.realtime_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_RealtimeArchitecture.json",
-                      path: "sarthi-internal/AI_RealtimeArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.realtime_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.auth_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_AuthenticationArchitecture.json",
-                      path: "sarthi-internal/AI_AuthenticationArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.auth_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.theme_styling) {
-                    filesToRender.unshift({
-                      name: "AI_ThemeStyling.json",
-                      path: "sarthi-internal/AI_ThemeStyling.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.theme_styling, null, 2),
-                    });
-                  }
-                  if (activeProj.frontend_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_FrontendStructure.json",
-                      path: "sarthi-internal/AI_FrontendStructure.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.frontend_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.api_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_APIArchitecture.json",
-                      path: "sarthi-internal/AI_APIArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.api_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.backend_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_BackendArchitecture.json",
-                      path: "sarthi-internal/AI_BackendArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.backend_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.db_architecture) {
-                    filesToRender.unshift({
-                      name: "AI_DatabaseArchitecture.json",
-                      path: "sarthi-internal/AI_DatabaseArchitecture.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.db_architecture, null, 2),
-                    });
-                  }
-                  if (activeProj.planning) {
-                    filesToRender.unshift({
-                      name: "AI Planner.json",
-                      path: "sarthi-internal/AI_Planner.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.planning, null, 2),
-                    });
-                  }
-                  if (activeProj.requirements) {
-                    filesToRender.unshift({
-                      name: "AI Requirements.json",
-                      path: "sarthi-internal/AI_Requirements.json",
-                      language: "json",
-                      content: JSON.stringify(activeProj.requirements, null, 2),
-                    });
-                  }
-                  return filesToRender.map((file, fIdx) => {
-                    const isSel = selectedFile?.path === file.path;
-                    return (
-                      <motion.button
-                        key={file.path}
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: fIdx * 0.025, duration: 0.25, ease: "easeOut" }}
-                        whileHover={{ x: 2 }}
-                        onClick={() => setSelectedFile(file)}
-                        className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer ${isSel
-                          ? "bg-indigo-50/50 text-indigo-950 border border-indigo-100/50"
-                          : "hover:bg-stone-100/60 border border-transparent text-stone-600"
-                          }`}
-                      >
-                        <motion.span whileHover={{ scale: 1.15, rotate: -5 }} transition={{ duration: 0.2 }}>
-                          <FileCode className={`w-4 h-4 shrink-0 ${isSel ? "text-amber-500" : "text-stone-400"}`} />
-                        </motion.span>
-                        <div className="overflow-hidden">
-                          <p className="text-xs font-semibold truncate">{file.name}</p>
-                          <span className="text-[8px] font-mono text-stone-400 block truncate">{file.path}</span>
-                        </div>
-                      </motion.button>
-                    );
-                  });
-                })()}
+                    {completedTab === "files" ? (
+                      (() => {
+                        const filesToRender = [...(activeProj.codebase || [])];
+                        if (activeProj.mcp_evidence && !filesToRender.some((file) => file.path === "sarthi-internal/MCP_EVIDENCE.json")) {
+                          filesToRender.unshift({
+                            name: "MCP_EVIDENCE.json",
+                            path: "sarthi-internal/MCP_EVIDENCE.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.mcp_evidence, null, 2),
+                          });
+                        }
+                        if (activeProj.hackathon_metadata && !filesToRender.some((file) => file.path === "sarthi-internal/HACKATHON_METADATA.json")) {
+                          filesToRender.unshift({
+                            name: "HACKATHON_METADATA.json",
+                            path: "sarthi-internal/HACKATHON_METADATA.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.hackathon_metadata, null, 2),
+                          });
+                        }
+                        if (activeProj.prd) {
+                          filesToRender.unshift({
+                            name: "Product Requirement Document (PRD).md",
+                            path: "PRD.md",
+                            language: "markdown",
+                            content: activeProj.prd,
+                          });
+                        }
+                        if (activeProj.build_compilation) {
+                          filesToRender.unshift({
+                            name: "AI_BuildCompilation.json",
+                            path: "sarthi-internal/AI_BuildCompilation.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.build_compilation, null, 2),
+                          });
+                        }
+                        if (activeProj.integration_generation) {
+                          filesToRender.unshift({
+                            name: "AI_IntegrationGeneration.json",
+                            path: "sarthi-internal/AI_IntegrationGeneration.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.integration_generation, null, 2),
+                          });
+                        }
+                        if (activeProj.state_implementation) {
+                          filesToRender.unshift({
+                            name: "AI_StateImplementation.json",
+                            path: "sarthi-internal/AI_StateImplementation.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.state_implementation, null, 2),
+                          });
+                        }
+                        if (activeProj.ui_component_generation) {
+                          filesToRender.unshift({
+                            name: "AI_UIComponentGeneration.json",
+                            path: "sarthi-internal/AI_UIComponentGeneration.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.ui_component_generation, null, 2),
+                          });
+                        }
+                        if (activeProj.frontend_code_generation) {
+                          filesToRender.unshift({
+                            name: "AI_FrontendCodeGeneration.json",
+                            path: "sarthi-internal/AI_FrontendCodeGeneration.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.frontend_code_generation, null, 2),
+                          });
+                        }
+                        if (activeProj.api_implementation) {
+                          filesToRender.unshift({
+                            name: "AI_APIImplementation.json",
+                            path: "sarthi-internal/AI_APIImplementation.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.api_implementation, null, 2),
+                          });
+                        }
+                        if (activeProj.backend_code_generation) {
+                          filesToRender.unshift({
+                            name: "AI_BackendCodeGeneration.json",
+                            path: "sarthi-internal/AI_BackendCodeGeneration.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.backend_code_generation, null, 2),
+                          });
+                        }
+                        if (activeProj.database_model_generation) {
+                          filesToRender.unshift({
+                            name: "AI_DatabaseModelGeneration.json",
+                            path: "sarthi-internal/AI_DatabaseModelGeneration.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.database_model_generation, null, 2),
+                          });
+                        }
+                        if (activeProj.agent_context) {
+                          filesToRender.unshift({
+                            name: "AI_AgentContext.json",
+                            path: "sarthi-internal/AI_AgentContext.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.agent_context, null, 2),
+                          });
+                        }
+                        if (activeProj.code_generation_plan) {
+                          filesToRender.unshift({
+                            name: "AI_CodeGenerationPlanner.json",
+                            path: "sarthi-internal/AI_CodeGenerationPlanner.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.code_generation_plan, null, 2),
+                          });
+                        }
+                        if (activeProj.optimization_architecture) {
+                          filesToRender.unshift({
+                            name: "AI_OptimizationArchitecture.json",
+                            path: "sarthi-internal/AI_OptimizationArchitecture.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.optimization_architecture, null, 2),
+                          });
+                        }
+                        if (activeProj.validation_architecture) {
+                          filesToRender.unshift({
+                            name: "AI_ValidationArchitecture.json",
+                            path: "sarthi-internal/AI_ValidationArchitecture.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.validation_architecture, null, 2),
+                          });
+                        }
+                        if (activeProj.error_correction) {
+                          filesToRender.unshift({
+                            name: "AI_ErrorCorrection.json",
+                            path: "sarthi-internal/AI_ErrorCorrection.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.error_correction, null, 2),
+                          });
+                        }
+                        if (activeProj.project_export) {
+                          filesToRender.unshift({
+                            name: "AI_ProjectExport.json",
+                            path: "sarthi-internal/AI_ProjectExport.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.project_export, null, 2),
+                          });
+                        }
+                        if (activeProj.db_architecture) {
+                          filesToRender.unshift({
+                            name: "AI Database Architecture.json",
+                            path: "sarthi-internal/AI_DatabaseArchitecture.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.db_architecture, null, 2),
+                          });
+                        }
+                        if (activeProj.planning) {
+                          filesToRender.unshift({
+                            name: "AI Planner.json",
+                            path: "sarthi-internal/AI_Planner.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.planning, null, 2),
+                          });
+                        }
+                        if (activeProj.requirements) {
+                          filesToRender.unshift({
+                            name: "AI Requirements.json",
+                            path: "sarthi-internal/AI_Requirements.json",
+                            language: "json",
+                            content: JSON.stringify(activeProj.requirements, null, 2),
+                          });
+                        }
+                        return filesToRender.map((file, fIdx) => {
+                          const isSel = selectedFile?.path === file.path;
+                          return (
+                            <motion.button
+                              key={file.path}
+                              initial={{ opacity: 0, x: -8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: fIdx * 0.025, duration: 0.25, ease: "easeOut" }}
+                              whileHover={{ x: 2 }}
+                              onClick={() => setSelectedFile(file)}
+                              className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer ${isSel
+                                ? "bg-indigo-50/50 text-indigo-950 border border-indigo-100/50"
+                                : "hover:bg-stone-100/60 border border-transparent text-stone-600"
+                                }`}
+                            >
+                              <motion.span whileHover={{ scale: 1.15, rotate: -5 }} transition={{ duration: 0.2 }}>
+                                <FileCode className={`w-4 h-4 shrink-0 ${isSel ? "text-amber-500" : "text-stone-400"}`} />
+                              </motion.span>
+                              <div className="overflow-hidden">
+                                <p className="text-xs font-semibold truncate">{file.name}</p>
+                                <span className="text-[8px] font-mono text-stone-400 block truncate">{file.path}</span>
+                              </div>
+                            </motion.button>
+                          );
+                        });
+                      })()
+                    ) : (
+                      <div className="space-y-2">
+                        <span className="text-[9px] text-stone-400 font-bold uppercase tracking-wider block px-1">Vyuh Modules</span>
+                        {vyuhNodes.map((node) => {
+                          const isSel = selectedVyuhNode?.id === node.id;
+                          return (
+                            <button
+                              key={node.id}
+                              onClick={() => {
+                                setSelectedVyuhNode(node);
+                                setHoveredVyuhNode(node);
+                                sarthiAudio.playClick();
+                              }}
+                              className={`w-full flex items-start gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer border ${
+                                isSel 
+                                  ? "bg-indigo-50/50 border-indigo-100/50 text-indigo-950 font-bold" 
+                                  : "hover:bg-stone-100/60 border-transparent text-stone-600"
+                              }`}
+                            >
+                              <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: node.color }} />
+                              <div className="overflow-hidden pt-0.5">
+                                <p className="text-[11px] font-bold truncate leading-tight">{node.name}</p>
+                                <p className="text-[8px] text-stone-400 mt-0.5 truncate leading-normal">{node.role}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
               </div>
             </motion.div>
           )}
@@ -1805,7 +2041,337 @@ export const ProjectViewer: React.FC = () => {
 
             {/* Right Code Display Pane */}
             <div className="flex-1 flex flex-col overflow-hidden bg-transparent transition-colors duration-300">
-              {selectedFile ? (
+              {completedTab === "vyuh" ? (
+                <div className="flex-1 flex flex-col lg:flex-row overflow-hidden p-6 gap-6 bg-white/10 backdrop-blur-md">
+                  {/* Vyuh Map SVG Canvas Container */}
+                  <div className="flex-1 bg-stone-950/85 rounded-3xl border border-white/10 p-6 flex flex-col justify-between relative overflow-hidden shadow-2xl min-h-[300px]">
+                    <div className="absolute top-4 left-4 z-10 pointer-events-none select-none">
+                      <span className="text-[9px] uppercase tracking-wider font-extrabold text-amber-500/80 block">Visualizer</span>
+                      <h2 className="text-sm font-bold text-white font-display">Vyuh Mandala Architecture</h2>
+                    </div>
+
+                    <div className="absolute bottom-4 left-4 z-10 pointer-events-none select-none flex items-center gap-4 text-[8px] text-stone-400">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        <span>Guidance Flow</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500" />
+                        <span>Data Stream</span>
+                      </div>
+                    </div>
+
+                    {/* SVG Graphic */}
+                    <div className="flex-1 flex items-center justify-center min-h-0">
+                      <svg viewBox="0 0 500 400" className="w-full max-w-[500px] h-auto select-none overflow-visible">
+                        <defs>
+                          <style dangerouslySetInnerHTML={{__html: `
+                            @keyframes dashflow {
+                              to {
+                                stroke-dashoffset: -20;
+                              }
+                            }
+                            .guidance-flow {
+                              animation: dashflow 1.2s linear infinite;
+                            }
+                            .data-flow {
+                              animation: dashflow 2.5s linear infinite;
+                            }
+                            @keyframes pulse-ring {
+                              0% { transform: scale(0.96); opacity: 0.3; }
+                              50% { transform: scale(1.04); opacity: 0.6; }
+                              100% { transform: scale(0.96); opacity: 0.3; }
+                            }
+                            .pulse-halo {
+                              transform-origin: center;
+                              transform-box: fill-box;
+                              animation: pulse-ring 3s ease-in-out infinite;
+                            }
+                          `}} />
+                          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
+                          </pattern>
+                        </defs>
+                        
+                        {/* Background grid */}
+                        <rect width="100%" height="100%" fill="url(#grid)" rx="20" />
+
+                        {/* Concentric spiritual orbit rings */}
+                        <circle cx={250} cy={200} r={80} fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth={1} strokeDasharray="3,6" />
+                        <circle cx={250} cy={200} r={140} fill="none" stroke="rgba(255,255,255,0.015)" strokeWidth={1} strokeDasharray="6,8" />
+
+                        {/* Connections */}
+                        {(() => {
+                          const connections = [
+                            { from: "orchestrator", to: "backend", type: "primary", color: "#eab308" },
+                            { from: "orchestrator", to: "database", type: "primary", color: "#eab308" },
+                            { from: "orchestrator", to: "frontend", type: "primary", color: "#eab308" },
+                            { from: "orchestrator", to: "uiux", type: "primary", color: "#eab308" },
+                            { from: "orchestrator", to: "devops", type: "primary", color: "#eab308" },
+                            
+                            { from: "frontend", to: "uiux", type: "secondary", color: "#f59e0b" },
+                            { from: "frontend", to: "backend", type: "secondary", color: "#06b6d4" },
+                            { from: "backend", to: "database", type: "secondary", color: "#8b5cf6" },
+                            { from: "frontend", to: "devops", type: "secondary", color: "#3b82f6" },
+                            { from: "backend", to: "devops", type: "secondary", color: "#3b82f6" },
+                          ];
+
+                          return connections.map((conn, idx) => {
+                            const fromNode = vyuhNodes.find(n => n.id === conn.from);
+                            const toNode = vyuhNodes.find(n => n.id === conn.to);
+                            if (!fromNode || !toNode) return null;
+
+                            const isPrimary = conn.type === "primary";
+                            
+                            if (isPrimary) {
+                              return (
+                                <g key={idx}>
+                                  <line
+                                    x1={fromNode.x}
+                                    y1={fromNode.y}
+                                    x2={toNode.x}
+                                    y2={toNode.y}
+                                    stroke={conn.color}
+                                    strokeWidth={4}
+                                    strokeOpacity={0.15}
+                                    strokeLinecap="round"
+                                  />
+                                  <line
+                                    x1={fromNode.x}
+                                    y1={fromNode.y}
+                                    x2={toNode.x}
+                                    y2={toNode.y}
+                                    stroke={conn.color}
+                                    strokeWidth={2}
+                                    strokeOpacity={0.8}
+                                    strokeDasharray="8,6"
+                                    className="guidance-flow"
+                                    strokeLinecap="round"
+                                  />
+                                </g>
+                              );
+                            } else {
+                              const dx = toNode.x - fromNode.x;
+                              const dy = toNode.y - fromNode.y;
+                              const cx = (fromNode.x + toNode.x) / 2 - dy * 0.15;
+                              const cy = (fromNode.y + toNode.y) / 2 + dx * 0.15;
+                              const pathD = `M ${fromNode.x} ${fromNode.y} Q ${cx} ${cy} ${toNode.x} ${toNode.y}`;
+
+                              return (
+                                <g key={idx}>
+                                  <path
+                                    d={pathD}
+                                    fill="none"
+                                    stroke={conn.color}
+                                    strokeWidth={1}
+                                    strokeOpacity={0.3}
+                                    strokeDasharray="4,6"
+                                    className="data-flow"
+                                    strokeLinecap="round"
+                                  />
+                                </g>
+                              );
+                            }
+                          });
+                        })()}
+
+                        {/* Nodes */}
+                        {vyuhNodes.map((node) => {
+                          const isHovered = hoveredVyuhNode?.id === node.id;
+                          const isSelected = selectedVyuhNode?.id === node.id;
+                          
+                          const getAbbr = (id: string) => {
+                            if (id === "orchestrator") return "ॐ";
+                            if (id === "backend") return "BE";
+                            if (id === "database") return "DB";
+                            if (id === "frontend") return "FE";
+                            if (id === "uiux") return "UI";
+                            if (id === "devops") return "DO";
+                            return id.substring(0, 2).toUpperCase();
+                          };
+
+                          const getShortName = (id: string) => {
+                            if (id === "orchestrator") return "Sri Krishna";
+                            if (id === "backend") return "FastAPI Backend";
+                            if (id === "database") return "MongoDB Database";
+                            if (id === "frontend") return "Next.js Frontend";
+                            if (id === "uiux") return "Tailwind UI";
+                            if (id === "devops") return "System DevOps";
+                            return id;
+                          };
+
+                          const isOrchestrator = node.id === "orchestrator";
+
+                          return (
+                            <g
+                              key={node.id}
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredVyuhNode(node)}
+                              onMouseLeave={() => setHoveredVyuhNode(null)}
+                              onClick={() => {
+                                setSelectedVyuhNode(node);
+                                sarthiAudio.playClick();
+                              }}
+                            >
+                              {/* Glow Halo */}
+                              {(isHovered || isSelected) && (
+                                <circle
+                                  cx={node.x}
+                                  cy={node.y}
+                                  r={node.r + 10}
+                                  fill="none"
+                                  stroke={node.color}
+                                  strokeWidth={1.5}
+                                  strokeOpacity={0.4}
+                                  className="pulse-halo"
+                                />
+                              )}
+                              
+                              {/* Outer Circle */}
+                              <circle
+                                cx={node.x}
+                                cy={node.y}
+                                r={node.r}
+                                fill="#131224"
+                                stroke={node.color}
+                                strokeWidth={isHovered || isSelected ? 3 : 1.5}
+                                style={{
+                                  filter: isHovered || isSelected ? `drop-shadow(0 0 8px ${node.glow})` : 'none',
+                                  transition: "stroke-width 0.2s, filter 0.2s"
+                                }}
+                              />
+
+                              {/* Inner graphic / text */}
+                              <text
+                                x={node.x}
+                                y={node.y}
+                                textAnchor="middle"
+                                dy={isOrchestrator ? "0.25em" : "0.33em"}
+                                fill={isOrchestrator ? "#eab308" : "#f5f5f4"}
+                                className={isOrchestrator ? "text-lg font-bold" : "text-[10px] font-mono font-bold"}
+                              >
+                                {getAbbr(node.id)}
+                              </text>
+
+                              {/* Label text backdrop */}
+                              <text
+                                x={node.x}
+                                y={node.id === "orchestrator" ? node.y - node.r - 8 : node.y + node.r + 14}
+                                textAnchor="middle"
+                                fill="#ffffff"
+                                className="text-[9px] font-extrabold select-none opacity-90"
+                                style={{
+                                  paintOrder: "stroke",
+                                  stroke: "#0c0a09",
+                                  strokeWidth: "3px",
+                                  strokeLinecap: "round",
+                                  strokeLinejoin: "round"
+                                }}
+                              >
+                                {getShortName(node.id)}
+                              </text>
+                              {/* Label text */}
+                              <text
+                                x={node.x}
+                                y={node.id === "orchestrator" ? node.y - node.r - 8 : node.y + node.r + 14}
+                                textAnchor="middle"
+                                fill={isHovered || isSelected ? "#ffffff" : node.color}
+                                className="text-[9px] font-extrabold transition-colors duration-200"
+                              >
+                                {getShortName(node.id)}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Selected Node Details Side Card */}
+                  {(() => {
+                    const displayNode = hoveredVyuhNode || selectedVyuhNode || vyuhNodes[0];
+                    const nodeFiles = getNodeFiles(displayNode.id, activeProj);
+                    const nodeAnalogies: Record<string, string> = {
+                      orchestrator: "Steers the chariot of code assembly, lighting the path and validating each generation phase.",
+                      backend: "Like the quiver of arrows ready to strike, Backend routes serve queries and data functions swiftly.",
+                      database: "The solid ground under the chariot wheels, persisting application state and schemas securely.",
+                      frontend: "The chariot itself—visible, resilient, guiding the user interface across the battlefield.",
+                      uiux: "The golden flags, armor, and aesthetic design, making the chariot look magnificent and divine.",
+                      devops: "The strategic battle formation (Vyuh), packing the container services to deploy to production clouds."
+                    };
+
+                    return (
+                      <div className="w-full lg:w-80 bg-white/85 backdrop-blur-md rounded-3xl border border-stone-200/80 p-5 flex flex-col shadow-xl min-h-0">
+                        <div className="flex flex-col min-h-0 h-full">
+                          {/* Node Header */}
+                          <div className="flex items-center justify-between pb-3 border-b border-stone-200/60 shrink-0">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: displayNode.color }} />
+                              <span className="text-xs font-bold uppercase tracking-wider text-stone-400">Module Details</span>
+                            </div>
+                            <span className="text-[9px] px-2 py-0.5 rounded-full font-mono bg-stone-100 text-stone-500 border border-stone-200/60 capitalize font-bold">
+                              {displayNode.id}
+                            </span>
+                          </div>
+
+                          {/* Scrollable details */}
+                          <div className="flex-1 overflow-y-auto space-y-4 pt-4 pr-1 min-h-0 scrollbar-thin">
+                            {/* Info Block */}
+                            <div className="p-3.5 rounded-2xl bg-stone-50/50 border border-stone-200/40">
+                              <h3 className="text-xs font-extrabold text-stone-850">{displayNode.name}</h3>
+                              <p className="text-[9px] text-indigo-950 font-bold mt-1 leading-normal">{displayNode.role}</p>
+                              <p className="text-[10px] text-stone-500 mt-2 leading-relaxed">{displayNode.desc}</p>
+                            </div>
+
+                            {/* Analogy Block */}
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/5 to-amber-500/10 border border-amber-500/20 shadow-sm">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] uppercase tracking-wider font-extrabold text-amber-600 block">Chariot Analogy</span>
+                              </div>
+                              <p className="text-[10px] text-stone-700 font-semibold mt-1.5 leading-relaxed italic">
+                                "{nodeAnalogies[displayNode.id]}"
+                              </p>
+                            </div>
+
+                            {/* Associated Files List */}
+                            <div className="flex flex-col min-h-0">
+                              <span className="text-[9px] uppercase tracking-wider font-bold text-stone-400 block mb-2 px-1">Associated Files ({nodeFiles.length})</span>
+                              <div className="space-y-1.5">
+                                {nodeFiles.length === 0 ? (
+                                  <p className="text-[10px] text-stone-400 italic p-3 text-center bg-stone-50 rounded-xl border border-dashed border-stone-200">
+                                    No files compiled for this module yet.
+                                  </p>
+                                ) : (
+                                  nodeFiles.map((file) => (
+                                    <button
+                                      key={file.path}
+                                      onClick={() => {
+                                        setSelectedFile(file);
+                                        setCompletedTab("files");
+                                        sarthiAudio.playClick();
+                                      }}
+                                      className="w-full flex items-center justify-between p-2.5 rounded-xl text-left border border-stone-200/50 bg-stone-50 hover:bg-indigo-50/40 hover:border-indigo-150 hover:text-indigo-950 transition-all text-stone-600 group cursor-pointer"
+                                    >
+                                      <div className="flex items-center gap-2 overflow-hidden mr-2">
+                                        <FileCode className="w-3.5 h-3.5 text-stone-400 group-hover:text-amber-500 shrink-0" />
+                                        <div className="overflow-hidden">
+                                          <span className="text-[10px] font-bold block truncate">{file.name}</span>
+                                          <span className="text-[8px] font-mono text-stone-400 block truncate">{file.path}</span>
+                                        </div>
+                                      </div>
+                                      <ExternalLink className="w-3 h-3 text-stone-300 group-hover:text-indigo-950 shrink-0" />
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : selectedFile ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {/* File title & Actions */}
                   <div className="px-6 py-3 border-b border-stone-200/60 flex justify-between items-center bg-white/20 backdrop-blur-md shrink-0 select-none">

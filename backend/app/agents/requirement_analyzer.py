@@ -130,11 +130,11 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
         features = blueprint.get("features", [])
         tech_stack = blueprint.get("tech_stack", "")
 
-        frontend = ["HTML", "CSS", "Tailwind CSS"]
-        backend = ["Flask", "Python"]
-        database = ["SQLite"]
+        frontend = ["React", "Next.js", "Tailwind CSS"]
+        backend = ["FastAPI", "Python", "Uvicorn"]
+        database = ["MongoDB"]
         ai_tools = []
-        db_req = {"required": True, "entities": ["User", "Item"], "storage_type": "Relational"}
+        db_req = {"required": True, "entities": ["User", "Item"], "storage_type": "Document"}
 
         feature_identifiers = []
         for f in features:

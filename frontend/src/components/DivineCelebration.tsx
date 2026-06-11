@@ -22,7 +22,7 @@ const ChakraSVG = () => (
 );
 
 const MorpankhSVG = () => (
-  <svg viewBox="0 0 100 150" className="w-full h-full" style={{ filter: 'drop-shadow(0px 0px 8px rgba(16, 185, 129, 0.6))' }}>
+  <svg viewBox="0 0 100 150" className="w-full h-full">
     <path d="M50,140 Q45,70 20,40 Q50,0 80,40 Q55,70 50,140" fill="none" stroke="#059669" strokeWidth="4" />
     <path d="M50,140 Q40,80 10,60" fill="none" stroke="#34D399" strokeWidth="1.5" />
     <path d="M50,140 Q60,80 90,60" fill="none" stroke="#34D399" strokeWidth="1.5" />
@@ -103,24 +103,24 @@ export const DivineCelebration: React.FC<DivineCelebrationProps> = ({ onComplete
   }, [onComplete]);
 
   // Generate random particles
-  const swarnaParticles = Array.from({ length: 80 }).map((_, i) => ({
+  const swarnaParticles = Array.from({ length: 30 }).map((_, i) => ({
     id: i,
     x: Math.random() * 100, // vw
     y: -20 - Math.random() * 20, // start above screen
-    duration: 2 + Math.random() * 3, // fall duration
-    delay: Math.random() * 1.5,
-    size: 4 + Math.random() * 6,
+    duration: 2 + Math.random() * 2.5, // fall duration
+    delay: Math.random() * 1.0,
+    size: 3 + Math.random() * 4,
   }));
 
-  const morpankhParticles = Array.from({ length: 25 }).map((_, i) => ({
+  const morpankhParticles = Array.from({ length: 8 }).map((_, i) => ({
     id: i,
     x: Math.random() * 100,
-    y: -30 - Math.random() * 30,
-    duration: 4 + Math.random() * 4,
-    delay: Math.random() * 2,
-    size: 30 + Math.random() * 30,
+    y: -30 - Math.random() * 20,
+    duration: 3.5 + Math.random() * 3,
+    delay: Math.random() * 1.2,
+    size: 24 + Math.random() * 20,
     rotation: Math.random() * 360,
-    sway: 10 + Math.random() * 30, // px sway left/right
+    sway: 8 + Math.random() * 16, // px sway left/right
   }));
 
   return (

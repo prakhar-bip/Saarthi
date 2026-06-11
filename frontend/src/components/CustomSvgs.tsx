@@ -373,37 +373,83 @@ export const EmptyStateIllustration: React.FC<{ className?: string }> = ({ class
 );
 
 // 7. Wave Background — subtle animated wave for lock screen / empty states
-export const WaveBackground: React.FC<{ className?: string }> = ({ className = "absolute inset-0 w-full h-full" }) => (
-  <svg viewBox="0 0 800 400" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <defs>
-      <linearGradient id="wave-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="rgba(99,102,241,0.06)" />
-        <stop offset="50%" stopColor="rgba(139,92,246,0.08)" />
-        <stop offset="100%" stopColor="rgba(244,63,94,0.04)" />
-      </linearGradient>
-    </defs>
-    <motion.path
-      d="M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z"
-      fill="url(#wave-grad-1)"
-      animate={{ d: [
-        "M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z",
-        "M0,220 C100,160 300,260 520,190 C680,130 760,230 800,180 L800,400 L0,400 Z",
-        "M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z",
-      ]}}
-      transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-    />
-    <motion.path
-      d="M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z"
-      fill="rgba(99,102,241,0.04)"
-      animate={{ d: [
-        "M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z",
-        "M0,240 C180,200 380,310 620,240 C740,190 790,270 800,240 L800,400 L0,400 Z",
-        "M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z",
-      ]}}
-      transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-    />
-  </svg>
-);
+export const WaveBackground: React.FC<{ 
+  className?: string; 
+  status?: string; 
+  progress?: number;
+}> = ({ className = "absolute inset-0 w-full h-full", status = "idle", progress = 0 }) => {
+  // Shifting aura gradient stop colors
+  let stop1 = "rgba(99,102,241,0.06)"; // indigo
+  let stop2 = "rgba(139,92,246,0.08)"; // purple
+  let stop3 = "rgba(244,63,94,0.04)";  // rose
+
+  if (status === "generating") {
+    if (progress < 20) {
+      // Specs compilation: Slate-blue compilation aura
+      stop1 = "rgba(99,102,241,0.08)";
+      stop2 = "rgba(71,85,105,0.08)";
+      stop3 = "rgba(148,163,184,0.04)";
+    } else if (progress < 40) {
+      // Database & Models: Violet & lavender schemas aura
+      stop1 = "rgba(139,92,246,0.10)";
+      stop2 = "rgba(167,139,250,0.08)";
+      stop3 = "rgba(232,121,249,0.04)";
+    } else if (progress < 85) {
+      // Backend & UI: Teal, amber, and gold controllers aura
+      stop1 = "rgba(13,148,136,0.10)";
+      stop2 = "rgba(245,158,11,0.08)";
+      stop3 = "rgba(251,191,36,0.04)";
+    } else {
+      // Final Assembly: Celestial violet & rose aura
+      stop1 = "rgba(124,58,237,0.10)";
+      stop2 = "rgba(244,63,94,0.08)";
+      stop3 = "rgba(251,113,133,0.04)";
+    }
+  } else if (status === "completed") {
+    // Glowing emerald & gold success aurora
+    stop1 = "rgba(16,185,129,0.10)";
+    stop2 = "rgba(245,158,11,0.08)";
+    stop3 = "rgba(52,211,153,0.04)";
+  } else if (status === "failed") {
+    // Crimson & slate-grey warning aurora
+    stop1 = "rgba(239,68,68,0.10)";
+    stop2 = "rgba(75,85,99,0.08)";
+    stop3 = "rgba(248,113,113,0.04)";
+  }
+
+  return (
+    <svg viewBox="0 0 800 400" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <defs>
+        <linearGradient id="wave-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={stop1} className="transition-all duration-1000" />
+          <stop offset="50%" stopColor={stop2} className="transition-all duration-1000" />
+          <stop offset="100%" stopColor={stop3} className="transition-all duration-1000" />
+        </linearGradient>
+      </defs>
+      <motion.path
+        d="M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z"
+        fill="url(#wave-grad-1)"
+        animate={{ d: [
+          "M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z",
+          "M0,220 C100,160 300,260 520,190 C680,130 760,230 800,180 L800,400 L0,400 Z",
+          "M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z",
+        ]}}
+        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.path
+        d="M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z"
+        fill={status === "completed" ? "rgba(16,185,129,0.05)" : status === "failed" ? "rgba(239,68,68,0.05)" : "rgba(99,102,241,0.04)"}
+        className="transition-all duration-1000"
+        animate={{ d: [
+          "M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z",
+          "M0,240 C180,200 380,310 620,240 C740,190 790,270 800,240 L800,400 L0,400 Z",
+          "M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z",
+        ]}}
+        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+      />
+    </svg>
+  );
+};
 
 // 8. Circuit Decor — small decorative circuit-line accent
 export const CircuitDecor: React.FC<{ className?: string }> = ({ className = "w-20 h-14" }) => (

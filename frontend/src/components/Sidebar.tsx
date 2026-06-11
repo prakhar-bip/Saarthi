@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { SarthiLogo, CategoryIcon, EmptyStateIllustration } from "./CustomSvgs";
-import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2, User, Settings, HelpCircle, ChevronUp } from "lucide-react";
+import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2, User, Settings, HelpCircle, ChevronUp, Volume2, VolumeX } from "lucide-react";
 import { ProfileModal } from "./ProfileModal";
+import { sarthiAudio } from "@/utils/audio";
 
 export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = false }) => {
   const {
@@ -35,7 +36,24 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   const [editValue, setEditValue] = useState("");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileModalTab, setProfileModalTab] = useState<"profile" | "help">("profile");
+  const [profileModalTab, setProfileModalTab] = useState<"profile" | "settings" | "help">("profile");
+  const [isMuted, setIsMuted] = useState(false);
+
+  useEffect(() => {
+    setIsMuted(sarthiAudio.isMuted());
+  }, [showProfileModal]);
+
+  useEffect(() => {
+    const handleOpenModal = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.tab) {
+        setProfileModalTab(customEvent.detail.tab);
+      }
+      setShowProfileModal(true);
+    };
+    window.addEventListener("open-profile-modal", handleOpenModal);
+    return () => window.removeEventListener("open-profile-modal", handleOpenModal);
+  }, []);
 
   const handleAuthClick = () => {
     setAuthMode("login");
@@ -66,16 +84,33 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
           </p>
           )}
         </div>
-        <motion.button
-          type="button"
-          onClick={() => setShowLeftPane(false)}
-          whileHover={{ scale: 1.1, rotate: -5 }}
-          whileTap={{ scale: 0.9 }}
-          className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-          title="Collapse Sidebar"
-        >
-          <PanelLeftClose className="w-4 h-4" />
-        </motion.button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isCollapsed && (
+            <motion.button
+              type="button"
+              onClick={() => {
+                const newMuted = sarthiAudio.toggleMute();
+                setIsMuted(newMuted);
+              }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+              title={isMuted ? "Unmute Sarthi Chimes" : "Mute Sarthi Chimes"}
+            >
+              {isMuted ? <VolumeX className="w-4.5 h-4.5" /> : <Volume2 className="w-4.5 h-4.5" />}
+            </motion.button>
+          )}
+          <motion.button
+            type="button"
+            onClick={() => setShowLeftPane(false)}
+            whileHover={{ scale: 1.1, rotate: -5 }}
+            whileTap={{ scale: 0.9 }}
+            className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose className="w-4.5 h-4.5" />
+          </motion.button>
+        </div>
       </div>
 
       {/* Main Tab Switcher */}
@@ -440,6 +475,18 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                 >
                   <User className="w-3.5 h-3.5" />
                   My Profile
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setProfileModalTab("settings");
+                    setShowProfileModal(true);
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Settings & Audio
                 </button>
 
                 <button 

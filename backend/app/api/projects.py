@@ -625,7 +625,7 @@ async def run_project_compilation(
             mcp_evidence=mcp_evidence,
         )
         
-        summary = ai_data.get("summary", "Complete hackathon-ready Flask codebase compiled successfully.")
+        summary = ai_data.get("summary", "Complete production-ready FastAPI + React codebase compiled successfully.")
         codebase_list = ai_data.get("codebase", [])
         
         # Parse CodeFiles
@@ -1035,7 +1035,7 @@ async def compile_project_codebase(
         comp_msg = {
             "id": f"m-{uuid.uuid4().hex[:8]}",
             "sender": "ai",
-            "text": f"Sarthi is now compiling your Flask codebase for project **{project['name']}** in the background...",
+            "text": f"Sarthi is now compiling your production-ready FastAPI + React codebase for project **{project['name']}** in the background...",
             "timestamp": time_str
         }
         await db.chats.update_one(
