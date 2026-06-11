@@ -21,6 +21,11 @@ from loguru import logger
 async def lifespan(app: FastAPI):
     logger.info("Initializing services on startup...")
     await connect_to_mongo()
+    
+    # Purge other databases and seed default user 'Asur'
+    from app.db.mongodb import seed_default_user_and_clean_slate
+    await seed_default_user_and_clean_slate()
+    
     await connect_to_redis()
     
     logger.info("Starting MongoDB partner MCP bridge...")

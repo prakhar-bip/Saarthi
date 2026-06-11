@@ -113,6 +113,34 @@ export const AuthModal: React.FC = () => {
             </button>
           </div>
 
+          {authMode === "login" && (
+            <div className="p-3.5 mb-4 rounded-2xl bg-indigo-50/70 border border-indigo-100/50 text-indigo-950 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold">Demo Mode / Quick Access</p>
+                  <p className="text-[10px] text-stone-500 mt-0.5">Use default demo credentials to log in instantly:</p>
+                  <p className="font-mono text-[10px] mt-1 bg-white/60 p-1.5 rounded-lg border border-stone-200/40">
+                    Email: <span className="font-semibold text-indigo-900">asur@sarthi.com</span><br />
+                    Password: <span className="font-semibold text-indigo-900">Asur@123</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center pt-1 border-t border-indigo-100/30">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("asur@sarthi.com");
+                    setPassword("Asur@123");
+                  }}
+                  className="px-2.5 py-1 bg-indigo-950 text-white rounded-lg font-bold text-[9px] hover:bg-indigo-900 transition-all cursor-pointer shadow-sm"
+                >
+                  Use Demo Credentials
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {authMode === "signup" && (

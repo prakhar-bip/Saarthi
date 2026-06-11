@@ -129,3 +129,38 @@ def get_database():
     return db.client[settings.DATABASE_NAME]
 
 
+async def seed_default_user_and_clean_slate():
+    """Delete all database collections data and seed the default user 'Asur'."""
+    try:
+        db_instance = get_database()
+        
+        # 1. Clear users, projects, and chats collections
+        logger.info("Purging sarthi database (users, projects, chats) for clean slate...")
+        await db_instance.users.delete_many({})
+        await db_instance.projects.delete_many({})
+        await db_instance.chats.delete_many({})
+        
+        # 2. Setup the default user
+        from app.core.security import get_password_hash
+        from datetime import datetime, timezone
+        
+        default_email = "asur@sarthi.com"
+        default_password = "Asur@123"
+        default_name = "Asur"
+        
+        hashed_pw = get_password_hash(default_password)
+        
+        default_user = {
+            "_id": "default-user-asur-id",
+            "name": default_name,
+            "email": default_email,
+            "hashed_password": hashed_pw,
+            "created_at": datetime.now(timezone.utc)
+        }
+        
+        await db_instance.users.insert_one(default_user)
+        logger.info(f"Successfully seeded default user: {default_email} ({default_name})")
+    except Exception as e:
+        logger.error(f"Failed to seed default user and clean slate: {e}")
+
+
