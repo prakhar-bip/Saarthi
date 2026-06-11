@@ -115,7 +115,7 @@ flowchart TB
 | **Frontend** | Next.js 16 (Turbopack), React 19, Tailwind CSS, Framer Motion, Web Audio API |
 | **Backend** | FastAPI, Uvicorn, Python 3.11+, Motor (async MongoDB driver) |
 | **Orchestration** | Google Agent Development Kit (ADK), LangGraph |
-| **Models** | `gemini-3.5-flash` (Fast tasks/Chat), `gemini-3.1-pro-preview` (Reasoning & Code Compilation) |
+| **Models** | `gemini-2.5-flash` (Fast tasks/Chat), `gemini-3.1-pro` (Reasoning & Code Compilation) |
 | **Database** | MongoDB Atlas |
 | **MCP** | `mongodb-mcp-server@latest` (Stdio bridge) |
 

@@ -49,11 +49,11 @@ if (-not $JWT_ALGORITHM) { $JWT_ALGORITHM = "HS256" }
 $USE_VERTEX_AI = [System.Environment]::GetEnvironmentVariable("USE_VERTEX_AI")
 if (-not $USE_VERTEX_AI) { $USE_VERTEX_AI = "True" }
 $GOOGLE_MODEL = [System.Environment]::GetEnvironmentVariable("GOOGLE_MODEL")
-if (-not $GOOGLE_MODEL) { $GOOGLE_MODEL = "gemini-3.1-pro-preview" }
+if (-not $GOOGLE_MODEL) { $GOOGLE_MODEL = "gemini-3.1-pro" }
 $GOOGLE_FAST_MODEL = [System.Environment]::GetEnvironmentVariable("GOOGLE_FAST_MODEL")
-if (-not $GOOGLE_FAST_MODEL) { $GOOGLE_FAST_MODEL = "gemini-3.5-flash" }
+if (-not $GOOGLE_FAST_MODEL) { $GOOGLE_FAST_MODEL = "gemini-2.5-flash" }
 $GOOGLE_REASONING_MODEL = [System.Environment]::GetEnvironmentVariable("GOOGLE_REASONING_MODEL")
-if (-not $GOOGLE_REASONING_MODEL) { $GOOGLE_REASONING_MODEL = "gemini-3.1-pro-preview" }
+if (-not $GOOGLE_REASONING_MODEL) { $GOOGLE_REASONING_MODEL = "gemini-3.1-pro" }
 
 $GOOGLE_API_KEY = [System.Environment]::GetEnvironmentVariable("GOOGLE_API_KEY")
 $NVIDIA_API_KEY = [System.Environment]::GetEnvironmentVariable("NVIDIA_API_KEY")

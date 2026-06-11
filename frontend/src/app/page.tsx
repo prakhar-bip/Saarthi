@@ -9,9 +9,10 @@ import { AboutContactDrawer } from "@/components/AboutContactDrawer";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
-import { PanelLeft, AlertTriangle } from "lucide-react";
+import { PanelLeft, AlertTriangle, Monitor, RefreshCw, Zap } from "lucide-react";
 import { WaveBackground } from "@/components/CustomSvgs";
 import { CommandMenu } from "@/components/CommandMenu";
+import { MOCK_USER, MOCK_CHATS, MOCK_PROJECTS } from "@/utils/demoData";
 
 const SandboxWarningModal: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -75,15 +76,171 @@ const SandboxWarningModal: React.FC = () => {
 };
 
 export default function Home() {
-  const { activeChatId, activeProjectId, showRightPane, showLeftPane, setShowLeftPane, projects, chats } = useWorkspace();
+  const { 
+    activeChatId, 
+    activeProjectId, 
+    showRightPane, 
+    showLeftPane, 
+    setShowLeftPane, 
+    projects, 
+    chats,
+    loadDemoData, 
+    setUser, 
+    setChats, 
+    setProjects, 
+    setActiveChatId, 
+    setActiveProjectId,
+    setShowRightPane,
+    setShowAuthModal,
+    setAuthMode,
+    user
+  } = useWorkspace();
   const [showSplash, setShowSplash] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [activeScreen, setActiveScreen] = useState("select");
+
+  const handleScreenShift = (screenKey: string) => {
+    setActiveScreen(screenKey);
+
+    // 1. If not logged out, ensure demo data is loaded first
+    if (screenKey !== "welcome_splash" && screenKey !== "logged_out_chat" && screenKey !== "auth_login_modal" && screenKey !== "auth_signup_modal") {
+      if (!user || chats.length === 0 || projects.length === 0) {
+        loadDemoData();
+      }
+    }
+
+    // Close modals
+    setShowAuthModal(false);
+    window.dispatchEvent(new CustomEvent("open-profile-modal", { detail: { close: true } }));
+    window.dispatchEvent(new CustomEvent("set-splash-screen", { detail: { show: false } }));
+
+    switch (screenKey) {
+      case "welcome_splash":
+        window.dispatchEvent(new CustomEvent("set-splash-screen", { detail: { show: true } }));
+        break;
+
+      case "logged_out_chat":
+        setUser(null);
+        setActiveChatId(null);
+        setActiveProjectId(null);
+        setShowRightPane(false);
+        break;
+
+      case "logged_in_fresh":
+        setUser(MOCK_USER);
+        setActiveChatId(null);
+        setActiveProjectId(null);
+        setShowRightPane(false);
+        break;
+
+      case "design_blueprint":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-1");
+        setActiveProjectId(null);
+        setShowRightPane(true);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("set-project-viewer-stage", { detail: { stage: "blueprint" } }));
+        }, 50);
+        break;
+
+      case "theme_selector":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-1");
+        setActiveProjectId(null);
+        setShowRightPane(true);
+        setChats(prev => prev.map(c => c.id === "chat-1" ? { ...c, selected_project: { ...c.selected_project!, name: c.selected_project?.name || "CalmPath Breathing App" } } : c));
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("set-project-viewer-stage", { detail: { stage: "theme" } }));
+        }, 50);
+        break;
+
+      case "spec_documents":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-2");
+        setActiveProjectId("proj-1");
+        setShowRightPane(true);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("set-project-viewer-doc-tab", { detail: { tab: "prd" } }));
+        }, 50);
+        break;
+
+      case "compiler_progress":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-3");
+        setActiveProjectId("proj-2");
+        setShowRightPane(true);
+        break;
+
+      case "failed_build":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-4");
+        setActiveProjectId("proj-3");
+        setShowRightPane(true);
+        break;
+
+      case "code_viewer":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-5");
+        setActiveProjectId("proj-4");
+        setShowRightPane(true);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("set-project-viewer-tab", { detail: { tab: "files" } }));
+        }, 50);
+        break;
+
+      case "vyuh_map":
+        setUser(MOCK_USER);
+        setActiveChatId("chat-5");
+        setActiveProjectId("proj-4");
+        setShowRightPane(true);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("set-project-viewer-tab", { detail: { tab: "vyuh" } }));
+        }, 50);
+        break;
+
+      case "profile_modal":
+        setUser(MOCK_USER);
+        window.dispatchEvent(new CustomEvent("open-profile-modal", { detail: { tab: "profile" } }));
+        break;
+
+      case "help_modal":
+        setUser(MOCK_USER);
+        window.dispatchEvent(new CustomEvent("open-profile-modal", { detail: { tab: "help" } }));
+        break;
+
+      case "auth_login_modal":
+        setUser(null);
+        setShowAuthModal(true);
+        setAuthMode("login");
+        break;
+
+      case "auth_signup_modal":
+        setUser(null);
+        setShowAuthModal(true);
+        setAuthMode("signup");
+        break;
+
+      default:
+        break;
+    }
+  };
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const handleSetSplash = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.show !== undefined) {
+        setShowSplash(customEvent.detail.show);
+      }
+    };
+    window.addEventListener("set-splash-screen", handleSetSplash);
+    return () => window.removeEventListener("set-splash-screen", handleSetSplash);
   }, []);
 
   // Compute finalized state
@@ -309,6 +466,49 @@ export default function Home() {
           <AboutContactDrawer />
           <SandboxWarningModal />
           <CommandMenu />
+
+          {/* Temporary Screen Navigator Toolbar for screenshots */}
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 bg-stone-950/85 backdrop-blur-md border border-stone-850 text-white rounded-2xl shadow-2xl flex items-center gap-3 text-xs max-w-[95vw] overflow-x-auto whitespace-nowrap scrollbar-none transition-all duration-300">
+            <div className="flex items-center gap-2 border-r border-stone-800 pr-3 shrink-0">
+              <Zap className="w-4 h-4 text-amber-500 fill-amber-500 animate-pulse animate-duration-1000" />
+              <span className="font-extrabold text-[10px] tracking-wider uppercase text-stone-300">Screen Navigator</span>
+            </div>
+            
+            <button
+              onClick={loadDemoData}
+              className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-lg text-[10px] font-extrabold tracking-wide flex items-center gap-1 transition-all active:scale-95 cursor-pointer shrink-0"
+            >
+              <RefreshCw className="w-3 h-3 shrink-0" />
+              Seed Demo Data
+            </button>
+
+            <div className="relative shrink-0">
+              <select
+                value={activeScreen}
+                onChange={(e) => handleScreenShift(e.target.value)}
+                className="bg-stone-900 border border-stone-800 rounded-lg px-2 py-1.5 text-[10px] font-bold text-stone-200 outline-none cursor-pointer focus:ring-1 focus:ring-amber-500/50 appearance-none pr-6"
+              >
+                <option value="select" disabled>-- Switch Screen View --</option>
+                <option value="welcome_splash">Screen 1: Welcome Splash</option>
+                <option value="logged_out_chat">Screen 2: Chat Console (Logged Out)</option>
+                <option value="logged_in_fresh">Screen 3: Chat Console (Logged In - Fresh)</option>
+                <option value="design_blueprint">Screen 4: Design Blueprint Editor</option>
+                <option value="theme_selector">Screen 5: Theme & Palette Selector</option>
+                <option value="spec_documents">Screen 6: Requirements Specs (PRD/MRD/TRD)</option>
+                <option value="compiler_progress">Screen 7: Code Compiler (Generating)</option>
+                <option value="failed_build">Screen 8: Failed Build / Correction</option>
+                <option value="code_viewer">Screen 9: Completed Code Editor (Files)</option>
+                <option value="vyuh_map">Screen 10: Vyuh Mandala Graph</option>
+                <option value="profile_modal">Screen 11: Developer Profile Modal</option>
+                <option value="help_modal">Screen 12: Help & Support Guide Modal</option>
+                <option value="auth_login_modal">Screen 13: Auth Modal (Login Mode)</option>
+                <option value="auth_signup_modal">Screen 14: Auth Modal (Signup Mode)</option>
+              </select>
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] text-stone-400 select-none">
+                ▼
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </>
