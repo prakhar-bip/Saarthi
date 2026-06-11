@@ -4,10 +4,22 @@ from loguru import logger
 from langgraph.graph import StateGraph, END
 import time
 
-from app.core.config import settings
-from app.api.websockets import broadcast_agent_progress
 from app.agents.context import AGENT_PIPELINE, IncompleteJSONError
 from app.services.llm_router import current_agent_feedback
+
+async def broadcast_agent_progress(db: Any, project_id: str, progress: int, step: str) -> None:
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {"progress": progress, "step": step}}
+    )
+    from app.services.ws_manager import manager
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=progress,
+        step=step
+    )
+    logger.info(f"Project {project_id} compilation progress: {progress}% - {step}")
+
 
 # Import all agents dynamically or explicitly
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent

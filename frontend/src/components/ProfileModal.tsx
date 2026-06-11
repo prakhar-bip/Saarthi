@@ -6,19 +6,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { 
   X, User, Briefcase, FileText, Code, Terminal, Users, Globe, 
-  AlertCircle, Save, Settings, HelpCircle, Sparkles, Key, Check, Info
+  AlertCircle, Save, HelpCircle, Sparkles, Check, Info
 } from "lucide-react";
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: "profile" | "settings" | "help";
+  initialTab?: "profile" | "help";
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, initialTab = "profile" }) => {
   const { user, updateProfile } = useWorkspace();
   
-  const [activeTab, setActiveTab] = useState<"profile" | "settings" | "help">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "help">("profile");
 
   // Profile Form states
   const [name, setName] = useState("");
@@ -33,19 +33,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
-  // Settings Form states
-  const [modelPref, setModelPref] = useState("gemini-2.5-flash");
-  const [mongoUri, setMongoUri] = useState("mongodb+srv://sarthi-admin:*****@cluster0.mongodb.net/sarthi-db");
-  const [customInstructions, setCustomInstructions] = useState("");
-  const [enableHints, setEnableHints] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsSuccess, setSettingsSuccess] = useState(false);
-
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
       setSuccess(false);
-      setSettingsSuccess(false);
       setError("");
       
       if (user) {
@@ -95,20 +86,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
     }
   };
 
-  const handleSettingsSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingSettings(true);
-    setSettingsSuccess(false);
-    
-    setTimeout(() => {
-      setSavingSettings(false);
-      setSettingsSuccess(true);
-      setTimeout(() => {
-        setSettingsSuccess(false);
-      }, 2000);
-    }, 800);
-  };
-
   const modalContent = (
     <AnimatePresence>
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -141,18 +118,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
           <div className="p-6 border-b border-stone-200/60 flex items-center gap-3 shrink-0">
             <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
               {activeTab === "profile" && <User className="w-5 h-5" />}
-              {activeTab === "settings" && <Settings className="w-5 h-5" />}
               {activeTab === "help" && <HelpCircle className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="text-lg font-bold font-display text-stone-800">
                 {activeTab === "profile" && "Developer Profile"}
-                {activeTab === "settings" && "Workspace Settings"}
                 {activeTab === "help" && "Help & Support Guide"}
               </h3>
               <p className="text-xs text-stone-400 mt-0.5">
                 {activeTab === "profile" && "Customize your developer credentials and contact links"}
-                {activeTab === "settings" && "Manage API keys, DB routes, and sandbox orchestrations"}
                 {activeTab === "help" && "Learn the concept of Sarthi and access workspace shortcuts"}
               </p>
             </div>
@@ -173,19 +147,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
               >
                 <User className="w-4 h-4 shrink-0" />
                 Profile Info
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => setActiveTab("settings")}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer w-full whitespace-nowrap ${
-                  activeTab === "settings"
-                    ? "bg-indigo-950 text-amber-500 shadow-sm border border-indigo-900/50"
-                    : "text-stone-600 hover:bg-stone-100 border border-transparent"
-                }`}
-              >
-                <Settings className="w-4 h-4 shrink-0" />
-                Settings & API
               </button>
 
               <button
@@ -337,102 +298,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
                 </form>
               )}
 
-              {/* TAB 2: WORKSPACE SETTINGS FORM */}
-              {activeTab === "settings" && (
-                <form onSubmit={handleSettingsSubmit} className="space-y-5">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wide">
-                        Gemini Model Preference
-                      </label>
-                      <div className="relative">
-                        <Sparkles className="absolute left-3 top-3 w-4 h-4 text-stone-400" />
-                        <select
-                          value={modelPref}
-                          onChange={(e) => setModelPref(e.target.value)}
-                          className="w-full bg-white/60 border border-stone-200 rounded-xl py-2 pl-10 pr-4 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-800"
-                        >
-                          <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended - Fastest)</option>
-                          <option value="gemini-2.5-pro">Gemini 2.5 Pro (Best for Complex Logic)</option>
-                          <option value="gemini-1.5-pro">Gemini 1.5 Pro (Extended Context)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wide">
-                        MongoDB Sandbox Connection URI
-                      </label>
-                      <div className="relative">
-                        <Key className="absolute left-3 top-3 w-4 h-4 text-stone-400" />
-                        <input
-                          type="text"
-                          value={mongoUri}
-                          onChange={(e) => setMongoUri(e.target.value)}
-                          placeholder="mongodb+srv://user:password@cluster.mongodb.net/dbname"
-                          className="w-full bg-white/60 border border-stone-200 rounded-xl py-2 pl-10 pr-4 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-850 font-mono"
-                        />
-                      </div>
-                      <span className="text-[9px] text-stone-400 mt-1 block">
-                        Used to mount dynamic sandboxes and store generated workspace metadata.
-                      </span>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-stone-500 block mb-1 uppercase tracking-wide">
-                        Custom Orchestration Instructions (System Prompt Extension)
-                      </label>
-                      <textarea
-                        value={customInstructions}
-                        onChange={(e) => setCustomInstructions(e.target.value)}
-                        placeholder="e.g. Always structure specs with Mermaid diagrams, use TypeScript in templates, etc..."
-                        rows={3}
-                        className="w-full bg-white/60 border border-stone-200 rounded-xl py-2 px-4 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all text-stone-850 resize-none leading-relaxed"
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between p-3.5 bg-white/40 border border-stone-200/50 rounded-xl">
-                      <div>
-                        <span className="text-xs font-bold text-stone-800 block">Developer Hints & Suggestions</span>
-                        <span className="text-[9px] text-stone-400 block mt-0.5">Show helpful alerts and layout pointers in the spec viewer</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setEnableHints(!enableHints)}
-                        className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-200 ease-in-out cursor-pointer ${
-                          enableHints ? "bg-indigo-950" : "bg-stone-300"
-                        }`}
-                      >
-                        <div
-                          className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out transform ${
-                            enableHints ? "translate-x-4" : "translate-x-0"
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {settingsSuccess && (
-                    <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-950 text-xs flex items-center justify-center gap-2 font-bold">
-                      <Check className="w-4 h-4 text-amber-500" />
-                      <span>Workspace configuration updated successfully!</span>
-                    </div>
-                  )}
-
-                  <div className="pt-3 flex justify-end gap-2 border-t border-stone-200/60">
-                    <button
-                      type="submit"
-                      disabled={savingSettings}
-                      className="bg-indigo-950 hover:bg-indigo-900 text-amber-500 border border-indigo-900/50 rounded-xl px-6 py-2 text-xs font-bold transition-all flex items-center justify-center gap-1.5 hover:shadow-md disabled:opacity-70 cursor-pointer"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      {savingSettings ? "Saving..." : "Save Config"}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* TAB 3: HELP & SUPPORT GUIDE */}
+              {/* TAB 2: HELP & SUPPORT GUIDE */}
               {activeTab === "help" && (
                 <div className="space-y-6 text-stone-700 leading-relaxed text-xs">
                   
@@ -496,7 +362,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
                         <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                         <div>
                           <p className="text-[11px] text-stone-600 leading-normal">
-                            Need help deploying your custom Flask sandbox or configuring specialized MongoDB schemas?
+                            Need help deploying your custom Flask sandbox or configuring database credentials?
                           </p>
                           <a href="mailto:sarthi.ai.charioteer@gmail.com" className="text-[10px] text-indigo-950 font-bold hover:underline mt-1 block">
                             sarthi.ai.charioteer@gmail.com

@@ -35,7 +35,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   const [editValue, setEditValue] = useState("");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileModalTab, setProfileModalTab] = useState<"profile" | "settings" | "help">("profile");
+  const [profileModalTab, setProfileModalTab] = useState<"profile" | "help">("profile");
 
   const handleAuthClick = () => {
     setAuthMode("login");
@@ -182,7 +182,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
             </motion.button>
 
             <AnimatePresence initial={false}>
-              {chats.filter(c => !c.is_confirmed && !c.project_id).length === 0 ? (
+              {chats.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -192,7 +192,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                   <p className="text-stone-400 text-xs mt-2">No active chats yet — start one above</p>
                 </motion.div>
               ) : (
-                chats.filter(c => !c.is_confirmed && !c.project_id).map((c, idx) => {
+                chats.map((c, idx) => {
                   const isActive = activeChatId === c.id && !activeProjectId;
                   return (
                     <motion.div
@@ -441,17 +441,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                   <User className="w-3.5 h-3.5" />
                   My Profile
                 </button>
-                <button 
-                  onClick={() => {
-                    setShowProfileMenu(false);
-                    setProfileModalTab("settings");
-                    setShowProfileModal(true);
-                  }}
-                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  Settings & API Keys
-                </button>
+
                 <button 
                   onClick={() => {
                     setShowProfileMenu(false);

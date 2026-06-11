@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
 import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft } from "lucide-react";
+import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
 
@@ -1448,6 +1448,38 @@ export const ProjectViewer: React.FC = () => {
                   </div>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* COMPILATION FAILED VIEW */}
+        {activeProj.status === "failed" && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 bg-transparent">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="max-w-md w-full bg-white p-8 rounded-3xl border border-rose-100 shadow-lg relative overflow-hidden text-center space-y-6"
+            >
+              <div className="absolute top-0 inset-x-0 h-1 bg-rose-500" />
+              <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-8 h-8 text-rose-500" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-stone-850">Compilation Failed</h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  {activeProj.step || "An unexpected error occurred during project build."}
+                </p>
+              </div>
+              
+              <motion.button
+                onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-indigo-950 hover:bg-indigo-900 text-white font-semibold text-xs transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
+                <span>Retry Build Codebase</span>
+              </motion.button>
             </motion.div>
           </div>
         )}
