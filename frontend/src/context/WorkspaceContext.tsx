@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import confetti from "canvas-confetti";
-import { MOCK_USER, MOCK_CHATS, MOCK_PROJECTS } from "../utils/demoData";
 
 export interface Message {
   id: string;
@@ -100,9 +99,6 @@ interface WorkspaceContextType {
   signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: any) => Promise<void>;
-  setUser: React.Dispatch<React.SetStateAction<any>>;
-  setChats: React.Dispatch<React.SetStateAction<ChatSession[]>>;
-  setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   
   chats: ChatSession[];
   activeChatId: string | null;
@@ -154,7 +150,6 @@ interface WorkspaceContextType {
   isFetchingSuggestions: boolean;
   fetchSuggestions: (category: string) => Promise<void>;
   clearSuggestions: () => void;
-  loadDemoData: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -2310,16 +2305,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSuggestions([]);
   }, []);
 
-  const loadDemoData = useCallback(() => {
-    setUser(MOCK_USER);
-    setChats(MOCK_CHATS);
-    setProjects(MOCK_PROJECTS);
-    if (MOCK_CHATS.length > 0) {
-      setActiveChatId(MOCK_CHATS[0].id);
-    }
-    setActiveProjectId(null);
-  }, []);
-
   // Fetch functions helper
   const fetchChats = useCallback(async (token: string) => {
     try {
@@ -3212,10 +3197,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isFetchingSuggestions,
     fetchSuggestions,
     clearSuggestions,
-    loadDemoData,
-    setUser,
-    setChats,
-    setProjects,
   }), [
     user,
     login,
@@ -3249,10 +3230,6 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isFetchingSuggestions,
     fetchSuggestions,
     clearSuggestions,
-    loadDemoData,
-    setUser,
-    setChats,
-    setProjects,
   ]);
 
   return (

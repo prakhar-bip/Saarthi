@@ -547,39 +547,6 @@ export const ProjectViewer: React.FC = () => {
     return () => window.removeEventListener("select-codebase-file", handleSelectFile);
   }, [activeProj?.codebase]);
 
-  useEffect(() => {
-    const handleSetStage = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      if (customEvent.detail && customEvent.detail.stage) {
-        setViewStage(customEvent.detail.stage);
-      }
-    };
-    window.addEventListener("set-project-viewer-stage", handleSetStage);
-    return () => window.removeEventListener("set-project-viewer-stage", handleSetStage);
-  }, []);
-
-  useEffect(() => {
-    const handleSetTab = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      if (customEvent.detail && customEvent.detail.tab) {
-        setCompletedTab(customEvent.detail.tab);
-      }
-    };
-    window.addEventListener("set-project-viewer-tab", handleSetTab);
-    return () => window.removeEventListener("set-project-viewer-tab", handleSetTab);
-  }, []);
-
-  useEffect(() => {
-    const handleSetDocTab = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      if (customEvent.detail && customEvent.detail.tab) {
-        setActiveDocTab(customEvent.detail.tab);
-      }
-    };
-    window.addEventListener("set-project-viewer-doc-tab", handleSetDocTab);
-    return () => window.removeEventListener("set-project-viewer-doc-tab", handleSetDocTab);
-  }, []);
-
   // Auto scroll terminal to bottom on update
   useEffect(() => {
     if (terminalLogsRef.current) {
