@@ -9,9 +9,12 @@ import { AboutContactDrawer } from "@/components/AboutContactDrawer";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
+import { PanelLeft } from "lucide-react";
+import { WaveBackground } from "@/components/CustomSvgs";
+
 
 export default function Home() {
-  const { activeChatId, activeProjectId, showRightPane, showLeftPane, projects, chats } = useWorkspace();
+  const { activeChatId, activeProjectId, showRightPane, showLeftPane, setShowLeftPane, projects, chats } = useWorkspace();
   const [showSplash, setShowSplash] = useState(true);
 
   // Compute finalized state
@@ -107,7 +110,10 @@ export default function Home() {
       </AnimatePresence>
 
       {!showSplash && (
-        <div className="flex h-screen w-screen overflow-hidden bg-stone-50/20 font-sans text-stone-800 transition-colors duration-300 relative">
+        <div className="flex h-screen w-screen overflow-hidden bg-transparent font-sans text-stone-800 transition-colors duration-300 relative">
+          {/* Global Floating Wave Background */}
+          <WaveBackground className="fixed inset-0 w-full h-full pointer-events-none -z-10 opacity-70" />
+
           {/* Full-screen invisible drag overlay to ensure smooth drags over iframes/inputs */}
           {(isDraggingLeft || isDraggingRight) && (
             <div className="fixed inset-0 z-50 cursor-col-resize select-none pointer-events-auto" />
@@ -152,6 +158,21 @@ export default function Home() {
 
           {/* Main Console Arena */}
           <main className="flex-1 flex overflow-hidden relative">
+            {/* Global restore left pane button when minimized/hidden */}
+            {(!showLeftPane && isProjectFinalized) && (
+              <motion.button
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.93 }}
+                onClick={() => setShowLeftPane(true)}
+                className="absolute top-[26px] left-6 z-50 p-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-950 transition-all shadow-sm flex items-center justify-center cursor-pointer"
+                title="Expand Sidebar"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </motion.button>
+            )}
+
             {/* Chat / Interaction Console (Center) */}
             <WorkspaceConsole isMinimized={isProjectFinalized} />
 

@@ -7,6 +7,10 @@ from openai import OpenAI
 from google import genai
 from google.genai import types
 from app.core.config import settings
+import contextvars
+
+# Context variable for LangGraph to inject feedback on retries
+current_agent_feedback = contextvars.ContextVar("current_agent_feedback", default=None)
 
 
 # Core agent mapping to preferred (provider, model). Hackathon builds default to Gemini 3.
@@ -32,34 +36,33 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     "ValidationArchitectureAgent": ("gemini", FAST_MODEL),
 
     # ---------------------------------------------------------
-    # TIER 2: NORMAL & EASY-INTERMEDIATE TASKS
-    # Routed to OpenRouter (e.g. gpt-oss-120b)
-    # Includes Chat, Planning, Ideation, Architecture & Styling
+    # TIER 2: CHAT, PLANNING & ARCHITECTURE TASKS
+    # Now routed to Gemini as primary, with OpenRouter as fallback
     # ---------------------------------------------------------
-    "ChatReply": ("openrouter", settings.OPENROUTER_MODEL),
-    "CategoryClassifier": ("openrouter", settings.OPENROUTER_MODEL),
-    "ProjectSuggestions": ("openrouter", settings.OPENROUTER_MODEL),
-    "PlannerAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "RequirementAnalyzerAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "ErrorCorrectionAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "ChatReply": ("gemini", FAST_MODEL),
+    "CategoryClassifier": ("gemini", FAST_MODEL),
+    "ProjectSuggestions": ("gemini", FAST_MODEL),
+    "PlannerAgent": ("gemini", FAST_MODEL),
+    "RequirementAnalyzerAgent": ("gemini", FAST_MODEL),
+    "ErrorCorrectionAgent": ("gemini", REASONING_MODEL),
     
     # Architecture component agents
-    "FrontendArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "BackendArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "DatabaseArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "DevOpsArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "RealtimeArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "StateManagementAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "AuthArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "SecurityArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "APIAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "FrontendArchitectureAgent": ("gemini", FAST_MODEL),
+    "BackendArchitectureAgent": ("gemini", FAST_MODEL),
+    "DatabaseArchitectureAgent": ("gemini", FAST_MODEL),
+    "DevOpsArchitectureAgent": ("gemini", FAST_MODEL),
+    "RealtimeArchitectureAgent": ("gemini", FAST_MODEL),
+    "StateManagementAgent": ("gemini", FAST_MODEL),
+    "AuthArchitectureAgent": ("gemini", FAST_MODEL),
+    "SecurityArchitectureAgent": ("gemini", FAST_MODEL),
+    "APIAgent": ("gemini", FAST_MODEL),
 
     # Fast agents / Optimization / Testing / Styling
-    "UIUXArchitectAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "OptimizationArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "TestingArchitectureAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "ThemeGeneratorAgent": ("openrouter", settings.OPENROUTER_MODEL),
-    "DocumentGeneratorAgent": ("openrouter", settings.OPENROUTER_MODEL),
+    "UIUXArchitectAgent": ("gemini", FAST_MODEL),
+    "OptimizationArchitectureAgent": ("gemini", FAST_MODEL),
+    "TestingArchitectureAgent": ("gemini", FAST_MODEL),
+    "ThemeGeneratorAgent": ("gemini", FAST_MODEL),
+    "DocumentGeneratorAgent": ("gemini", FAST_MODEL),
 }
 
 # Base global fallback (will be dynamically adjusted based on pref_provider)
@@ -157,11 +160,17 @@ async def get_raw_llm_completion(
     agent_name: str, 
     messages: List[Dict[str, str]], 
     temperature: float = 0.7, 
-    max_tokens: int = 3000
+    max_tokens: int = 4000
 ) -> str:
     """
     Standard direct API client completion call without ADK or LangGraph wrapping.
     """
+    feedback = current_agent_feedback.get()
+    if feedback:
+        # Inject feedback into the last message
+        last_msg = messages[-1]
+        last_msg["content"] += f"\n\n--- IMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT ---\n{feedback}\nPlease ensure your JSON output is complete and not truncated."
+        logger.info(f"[{agent_name}] Injecting retry feedback into prompt.")
     # Determine preferred provider and model
     pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
         agent_name, ("gemini", settings.GOOGLE_MODEL)
@@ -186,9 +195,6 @@ async def get_raw_llm_completion(
             seen.add(norm_p)
             providers_to_try.append(p)
             
-    if agent_name == "ChatReply":
-        providers_to_try = [pref_provider]
-    
     last_error = None
     input_str_len = sum(len(m.get("content", "")) for m in messages)
     
@@ -278,6 +284,109 @@ async def get_raw_llm_completion(
     raise RuntimeError(f"All LLM providers failed for agent '{agent_name}'. Last error: {last_error}")
 
 
+async def stream_raw_llm_completion(
+    agent_name: str, 
+    messages: List[Dict[str, str]], 
+    temperature: float = 0.7, 
+    max_tokens: int = 4000
+):
+    """
+    Standard direct API client completion call with streaming enabled.
+    Yields chunks of generated text.
+    """
+    pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
+        agent_name, ("gemini", settings.GOOGLE_MODEL)
+    )
+    
+    seen = set()
+    providers_to_try = []
+    
+    fallback_sequence = []
+    if pref_provider == "openrouter":
+        fallback_sequence = ["groq", "gemini", "nvidia"]
+    elif pref_provider in ("google", "gemini"):
+        fallback_sequence = ["openrouter", "groq", "nvidia"]
+    else:
+        fallback_sequence = FALLBACK_PROVIDERS
+
+    for p in [pref_provider] + fallback_sequence:
+        norm_p = "google" if p in ("google", "gemini") else p
+        if norm_p not in seen:
+            seen.add(norm_p)
+            providers_to_try.append(p)
+            
+    if agent_name == "ChatReply":
+        providers_to_try = [pref_provider]
+    
+    last_error = None
+    
+    for provider in providers_to_try:
+        client = get_provider_client(provider)
+        if not client:
+            continue
+            
+        model = pref_model if provider == pref_provider else get_default_model(provider)
+        
+        try:
+            logger.info(f"🌐 [{agent_name}] Attempting streaming call on {provider.upper()} using model {model}...")
+            
+            if provider in ("google", "gemini"):
+                system_instruction = None
+                contents = []
+                
+                for msg in messages:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    
+                    if role == "system":
+                        system_instruction = content
+                    else:
+                        role_mapped = "model" if role == "assistant" else "user"
+                        contents.append(
+                            types.Content(
+                                role=role_mapped,
+                                parts=[types.Part.from_text(text=content)]
+                            )
+                        )
+                
+                config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens
+                )
+                
+                response_stream = client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+                for chunk in response_stream:
+                    if chunk.text:
+                        yield chunk.text
+                return
+                
+            else:
+                completion_stream = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True
+                )
+                for chunk in completion_stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+                return
+                
+        except Exception as e:
+            last_error = f"[{provider.upper()} Error] {e}"
+            logger.warning(f"⚠️ Provider {provider.upper()} streaming failed for {agent_name}. Cascading to fallback: {e}")
+            continue
+            
+    raise RuntimeError(f"All LLM providers failed for streaming agent '{agent_name}'. Last error: {last_error}")
+
+
+
 async def get_llm_completion(
     agent_name: str, 
     messages: List[Dict[str, str]], 
@@ -313,7 +422,7 @@ async def get_llm_completion(
         try:
             import os
             # Cleanly skip ADK if credentials are missing to avoid noisy thread stack traces
-            if not settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get("GEMINI_API_KEY"):
+            if not settings.USE_VERTEX_AI and not settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get("GEMINI_API_KEY"):
                 logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (No Google Credentials found). Deferring to Fallback.")
                 raise ValueError("Google Credentials missing for local dev.")
 
@@ -353,7 +462,7 @@ async def get_llm_completion(
                 "ProjectExportAgent",
                 "CodebaseCompiler",
             ]
-            agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else None
+            agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else []
 
             adk_agent = ADKAgent(
                 name=agent_name,

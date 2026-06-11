@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
 import { useWorkspace, Message } from "@/context/WorkspaceContext";
 import { CategoryIcon, LockIllustration, SarthiLogo, WaveBackground, AiTypingWave, CircuitDecor, EmptyStateIllustration, FloatingBot, MorpankhBg } from "./CustomSvgs";
-import { Send, Sparkles, BookOpen, AlertCircle, ChevronDown, Cpu, ShieldAlert, PanelRight, ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
+import { Send, Sparkles, BookOpen, AlertCircle, ChevronDown, Cpu, ShieldAlert, PanelRight, ChevronLeft, ChevronRight, PanelLeft, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const slideVariants = {
@@ -375,12 +375,12 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-stone-50 relative overflow-hidden transition-colors duration-300 z-0">
+    <div className="flex-1 flex flex-col h-full bg-transparent relative overflow-hidden transition-colors duration-300 z-0">
       {/* Actual Morpankh (Peacock Feather) Global Animated Motif */}
       <MorpankhBg />
 
       {/* Top Header */}
-      <header className="h-16 px-6 border-b border-stone-200/60 bg-white/80 backdrop-blur-xl flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
+      <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-xl flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
         <div className="flex items-center gap-2">
           {!showLeftPane && (
             <motion.button
@@ -459,7 +459,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
         {!user && (
           <div
             onClick={handleLockClick}
-            className="absolute inset-0 bg-stone-50/80 backdrop-blur-lg z-20 flex flex-col items-center justify-center p-8 cursor-pointer select-none overflow-hidden"
+            className="absolute inset-0 bg-white/20 backdrop-blur-lg z-20 flex flex-col items-center justify-center p-8 cursor-pointer select-none overflow-hidden"
           >
             {/* Animated wave background */}
             <WaveBackground className="absolute inset-0 w-full h-full pointer-events-none" />
@@ -615,7 +615,14 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               let blueprintData = null;
               if (blueprintMatch) {
                 try {
-                  blueprintData = JSON.parse(blueprintMatch[1].trim());
+                  let jsonString = blueprintMatch[1].trim();
+                  // Remove markdown backticks if AI added them
+                  if (jsonString.startsWith("```json")) {
+                    jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+                  } else if (jsonString.startsWith("```")) {
+                    jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+                  }
+                  blueprintData = JSON.parse(jsonString);
                 } catch (e) {
                   console.error("Failed to parse blueprint in chat bubble", e);
                 }
@@ -699,7 +706,17 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                                   <span className="w-4 h-4 rounded bg-indigo-50 flex items-center justify-center text-[9px] text-indigo-950 font-bold border border-indigo-100">B</span>
                                   <h4 className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">Suggested Blueprint</h4>
                                 </div>
-
+                                <button 
+                                  onClick={() => {
+                                    if (blueprintData && activeChatId) {
+                                      updateChatSelectedProject(activeChatId, blueprintData);
+                                    }
+                                    setShowRightPane(true);
+                                  }}
+                                  className="text-[9px] bg-indigo-950 text-white px-2.5 py-1 rounded-md shadow-sm font-bold hover:bg-indigo-900 transition-colors flex items-center gap-1"
+                                >
+                                  Sync
+                                </button>
                               </div>
                               <p className="text-xs font-bold text-stone-850 leading-tight">{blueprintData.name}</p>
                               <p className="text-[10px] text-stone-500 mt-1 leading-relaxed line-clamp-2">{blueprintData.idea}</p>
@@ -802,6 +819,45 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               )}
             </AnimatePresence>
           </div>
+
+          {/* Sync Blueprint button */}
+          {activeChatId && !activeProjectId && (
+            <button
+              type="button"
+              onClick={() => {
+                if (activeChat) {
+                  const latestAiMessage = [...activeChat.messages]
+                    .reverse()
+                    .find((m) => m.sender === "ai" && m.text.includes("<blueprint>"));
+                    
+                  if (latestAiMessage) {
+                    const match = latestAiMessage.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
+                    if (match && match[1]) {
+                      try {
+                        let jsonString = match[1].trim();
+                        // Remove markdown backticks if AI added them
+                        if (jsonString.startsWith("```json")) {
+                          jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+                        } else if (jsonString.startsWith("```")) {
+                          jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+                        }
+                        const blueprintData = JSON.parse(jsonString);
+                        updateChatSelectedProject(activeChat.id, blueprintData);
+                      } catch (e) {
+                        console.error("Failed to parse blueprint JSON in Sync:", e);
+                      }
+                    }
+                  }
+                }
+                setShowRightPane(true);
+              }}
+              className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
+              title="Sync Blueprint to Panel"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span className="text-xs">Sync</span>
+            </button>
+          )}
 
           {/* Send button */}
           <motion.button

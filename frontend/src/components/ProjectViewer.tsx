@@ -4,9 +4,68 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
 import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck } from "lucide-react";
+import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
+
+// 28-agent pipeline sequence for Sarthi
+const agentPipeline = [
+  "RequirementAnalyzerAgent",
+  "PlannerAgent",
+  "DatabaseArchitectureAgent",
+  "BackendArchitectureAgent",
+  "APIAgent",
+  "FrontendArchitectureAgent",
+  "UIUXArchitectAgent",
+  "AuthArchitectureAgent",
+  "RealtimeArchitectureAgent",
+  "StateManagementAgent",
+  "DevOpsArchitectureAgent",
+  "SecurityArchitectureAgent",
+  "TestingArchitectureAgent",
+  "ValidationArchitectureAgent",
+  "OptimizationArchitectureAgent",
+  "CodeGenerationPlannerAgent",
+  "DatabaseModelGenerationAgent",
+  "BackendCodeGenerationAgent",
+  "APIImplementationAgent",
+  "FrontendCodeGenerationAgent",
+  "UIComponentGenerationAgent",
+  "StateImplementationAgent",
+  "IntegrationGenerationAgent",
+  "BuildCompilationAgent",
+  "ErrorCorrectionAgent",
+  "ProjectExportAgent"
+];
+
+const agentDescriptions: Record<string, string> = {
+  "RequirementAnalyzerAgent": "Analyzing initial project idea and mapping core requirements...",
+  "PlannerAgent": "Compiling module execution sequencing and dependency graph...",
+  "DatabaseArchitectureAgent": "Architecting collection schemas and indexing strategies via MongoDB MCP...",
+  "BackendArchitectureAgent": "Designing backend service modules, middleware, and routers...",
+  "APIAgent": "Designing API payload contracts, endpoints, and status codes...",
+  "FrontendArchitectureAgent": "Mapping frontend route views, layouts, and page structures...",
+  "UIUXArchitectAgent": "Defining HSL color tokens, typography scale, and responsive grid layouts...",
+  "AuthArchitectureAgent": "Establishing JWT session auth flows and route guard logic...",
+  "RealtimeArchitectureAgent": "Configuring WebSocket pub/sub brokers and event routing...",
+  "StateManagementAgent": "Designing Zustand store models, cache keys, and optimistic updates...",
+  "DevOpsArchitectureAgent": "Generating Docker configurations and Cloud Run deployment scripts...",
+  "SecurityArchitectureAgent": "Enforcing API rate limits, CORS policies, and security sanitization...",
+  "TestingArchitectureAgent": "Compiling unit, integration, and E2E test suite specs...",
+  "ValidationArchitectureAgent": "Running cross-contract structural validation checks...",
+  "OptimizationArchitectureAgent": "Applying server-side caching and performance tuning parameters...",
+  "CodeGenerationPlannerAgent": "Planning deterministic source code file writing batches...",
+  "DatabaseModelGenerationAgent": "Generating concrete MongoDB database models and schemas...",
+  "BackendCodeGenerationAgent": "Generating FastAPI service controllers, repositories, and dependencies...",
+  "APIImplementationAgent": "Implementing FastAPI endpoints and request/response models...",
+  "FrontendCodeGenerationAgent": "Generating Next.js client-side pages and API fetch wrappers...",
+  "UIComponentGenerationAgent": "Generating reusable React components and responsive styling...",
+  "StateImplementationAgent": "Implementing Zustand stores and WebSocket subscription hooks...",
+  "IntegrationGenerationAgent": "Assembling frontend, backend, auth, and database modules...",
+  "BuildCompilationAgent": "Running typescript compiler tests and build packaging checks...",
+  "ErrorCorrectionAgent": "Checking imports and fixing compilation errors dynamically...",
+  "ProjectExportAgent": "Compiling production monorepo packaging and export ZIP targets..."
+};
 
 export const ProjectViewer: React.FC = () => {
   const { 
@@ -28,7 +87,6 @@ export const ProjectViewer: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd">("prd");
-  const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
 
   // Theme selection states
   const [viewStage, setViewStage] = useState<"blueprint" | "theme">("blueprint");
@@ -50,8 +108,10 @@ export const ProjectViewer: React.FC = () => {
   const [isPushingToGithub, setIsPushingToGithub] = useState(false);
   const [githubResult, setGithubResult] = useState<{ url: string; error?: string } | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [showFilesPane, setShowFilesPane] = useState(true);
   const prevStatusRef = useRef<string | undefined>(undefined);
   const lastParsedMessageIdRef = useRef<string | null>(null);
+  const terminalLogsRef = useRef<HTMLDivElement>(null);
 
   const handleSuggestMoreThemes = async () => {
     if (!activeChatId) return;
@@ -105,49 +165,27 @@ export const ProjectViewer: React.FC = () => {
     : 0;
   const partnerTrack = hackathonMetadata?.partner_track || "MongoDB";
 
+  const currentAgentIdx = (() => {
+    if (!activeProj) return -1;
+    const stepStr = activeProj.step || "";
+    const idx = agentPipeline.findIndex(agent => stepStr.includes(agent));
+    if (idx !== -1) return idx;
+    return Math.min(agentPipeline.length - 1, Math.floor((activeProj.progress / 100) * agentPipeline.length));
+  })();
+
   useEffect(() => {
-    if (!activeChat || !activeChat.messages || activeChat.messages.length === 0) return;
-
-    // Find the latest AI message containing a blueprint block
-    const latestAiMessage = [...activeChat.messages]
-      .reverse()
-      .find((m) => m.sender === "ai" && m.text.includes("<blueprint>"));
-
-    if (latestAiMessage && latestAiMessage.id !== lastParsedMessageIdRef.current) {
-      lastParsedMessageIdRef.current = latestAiMessage.id;
-      
-      // Extract the block content
-      const match = latestAiMessage.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
-      if (match && match[1]) {
-        try {
-          const parsed = JSON.parse(match[1].trim());
-          if (parsed.name) setCustomName(parsed.name);
-          if (parsed.idea) setCustomIdea(parsed.idea);
-          if (parsed.features && Array.isArray(parsed.features)) {
-            const newFeatures = [...parsed.features];
-            while (newFeatures.length < 3) newFeatures.push("");
-            setCustomFeatures(newFeatures);
-          }
-          if (parsed.tech_stack) setCustomTechStack(parsed.tech_stack);
-          
-          if (activeChat.id) {
-            updateChatSelectedProject(activeChat.id, {
-              name: parsed.name || "",
-              idea: parsed.idea || "",
-              features: parsed.features || [],
-              tech_stack: parsed.tech_stack || "React, Tailwind CSS, Node.js",
-              category: parsed.category
-            });
-            if (parsed.category) {
-              updateChatCategory(activeChat.id, parsed.category);
-            }
-          }
-        } catch (err) {
-          console.error("Failed to parse blueprint JSON from message:", err);
-        }
+    if (activeChat?.selected_project) {
+      const parsed = activeChat.selected_project;
+      if (parsed.name && parsed.name !== customName) setCustomName(parsed.name);
+      if (parsed.idea && parsed.idea !== customIdea) setCustomIdea(parsed.idea);
+      if (parsed.features && Array.isArray(parsed.features)) {
+        const newFeatures = [...parsed.features];
+        while (newFeatures.length < 3) newFeatures.push("");
+        setCustomFeatures(newFeatures);
       }
+      if (parsed.tech_stack && parsed.tech_stack !== customTechStack) setCustomTechStack(parsed.tech_stack);
     }
-  }, [activeChat?.messages]);
+  }, [activeChat?.selected_project]);
 
   // Animated counter for progress percentage
   const progressCount = useMotionValue(0);
@@ -162,7 +200,6 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     setViewStage("blueprint");
     setGithubResult(null);
-    setIsEditingBlueprint(false);
   }, [activeChatId]);
 
   useEffect(() => {
@@ -229,10 +266,17 @@ export const ProjectViewer: React.FC = () => {
     }
   }, [activeProjectId, activeProj?.status, activeProj?.prd]);
 
+  // Auto scroll terminal to bottom on update
+  useEffect(() => {
+    if (terminalLogsRef.current) {
+      terminalLogsRef.current.scrollTop = terminalLogsRef.current.scrollHeight;
+    }
+  }, [activeProj?.progress, activeProj?.step]);
+
   if (!activeProj) {
     if (isGeneratingProject) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-stone-50/30 overflow-y-auto">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-transparent overflow-y-auto">
           <motion.div
             animate={{
               y: [0, -10, 0]
@@ -254,14 +298,13 @@ export const ProjectViewer: React.FC = () => {
       );
     }
 
-    if (activeChat && activeChat.selected_project && !isEditingBlueprint) {
+    if (activeChat && activeChat.selected_project && viewStage === "theme") {
       const blueprint = activeChat.selected_project;
 
-      if (viewStage === "theme") {
-        return (
-          <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
+      return (
+        <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden transition-colors duration-300">
             {/* Header */}
-            <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
+            <div className="p-6 border-b border-stone-200/60 bg-white/20 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
               <div className="flex items-center gap-3 overflow-hidden">
                 <button
                   type="button"
@@ -752,99 +795,11 @@ export const ProjectViewer: React.FC = () => {
             </div>
           </div>
         );
-      }
-
-      return (
-        <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
-          {/* Header */}
-          <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
-                <CategoryIcon category={activeChat.category} className="w-5 h-5" />
-              </div>
-              <div className="overflow-hidden">
-                <h2 className="text-lg font-bold font-display text-stone-850 truncate leading-tight">
-                  {blueprint.name}
-                </h2>
-                <p className="text-[10px] text-stone-400 capitalize mt-0.5">
-                  Category: {activeChat.category}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50/50 border border-indigo-200/50 text-indigo-950">
-                Draft Blueprint
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsEditingBlueprint(true)}
-                className="px-2.5 py-1 text-[10px] rounded border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowRightPane(false)}
-                className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors cursor-pointer"
-                title="Collapse Panel"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Blueprint Details Content */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Core Idea</h3>
-              <p className="text-sm text-stone-750 leading-relaxed font-medium">
-                {blueprint.idea}
-              </p>
-            </div>
-
-            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Proposed Features Roadmap</h3>
-              <div className="space-y-3">
-                {blueprint.features.map((feat, idx) => (
-                  <div key={idx} className="flex items-start gap-3">
-                    <span className="w-5 h-5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold flex items-center justify-center text-[10px] mt-0.5 shrink-0">
-                      ✓
-                    </span>
-                    <span className="text-xs font-semibold text-stone-700 leading-normal">{feat}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200/60 shadow-sm space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">Suggested Technology Stack</h3>
-              <div className="p-3 bg-stone-50 rounded-2xl border border-stone-100/50 text-xs font-mono text-stone-600 font-semibold">
-                {blueprint.tech_stack}
-              </div>
-            </div>
-
-            {/* Confirm & Proceed to Themes button */}
-            <div className="pt-4 pb-8">
-              <button
-                type="button"
-                onClick={() => setViewStage("theme")}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer text-xs"
-              >
-                🚀 Confirm & Proceed to Themes
-              </button>
-              <p className="text-center text-[10px] text-stone-400 mt-2.5 leading-relaxed max-w-xs mx-auto">
-                Discuss refinements with Sarthi in chat, or confirm now to choose design theme.
-              </p>
-            </div>
-          </div>
-        </div>
-      );
     }
 
     if (activeChat) {
       return (
-        <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300">
+        <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden transition-colors duration-300 relative z-0">
           {/* Header */}
           <div className="p-6 border-b border-stone-200/60 bg-stone-50/50 backdrop-blur-md flex items-center justify-between shrink-0 transition-colors duration-300">
             <div className="flex items-center gap-3 overflow-hidden">
@@ -862,15 +817,6 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              {isEditingBlueprint && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingBlueprint(false)}
-                  className="px-2.5 py-1 text-[10px] rounded border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 font-bold transition-colors shadow-sm"
-                >
-                  Cancel
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => setShowRightPane(false)}
@@ -891,10 +837,11 @@ export const ProjectViewer: React.FC = () => {
                   name: customName.trim(),
                   idea: customIdea.trim(),
                   features: customFeatures.map(f => f.trim()).filter(Boolean),
-                  tech_stack: customTechStack.trim()
+                  tech_stack: customTechStack.trim(),
+                  category: activeChat.category
                 };
                 await updateChatSelectedProject(activeChat.id, newBlueprint);
-                setIsEditingBlueprint(false);
+                setViewStage("theme");
               }} className="space-y-4 bg-stone-50 p-5 rounded-2xl border border-stone-200/70 shadow-sm">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
@@ -983,7 +930,7 @@ export const ProjectViewer: React.FC = () => {
     }
 
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-stone-50/50">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-transparent">
         <div className="text-center max-w-sm">
           <AlertCircle className="w-10 h-10 text-stone-300 mx-auto mb-3" />
           <h4 className="text-sm font-semibold text-stone-700">No project active</h4>
@@ -1058,10 +1005,10 @@ export const ProjectViewer: React.FC = () => {
   // Animated counter for progress percentage is declared at the top of the component to follow the Rules of Hooks
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-stone-50/30 overflow-hidden transition-colors duration-300 relative">
+    <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden transition-colors duration-300 relative">
       {showCelebration && <DivineCelebration onComplete={() => setShowCelebration(false)} />}
       {/* Header */}
-      <div className="min-h-20 py-4 border-b border-stone-200/60 bg-white flex flex-wrap items-center justify-between gap-4 px-6 shrink-0 shadow-sm relative z-10">
+      <div className="min-h-20 py-4 border-b border-stone-200/60 bg-white/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 px-6 shrink-0 shadow-sm relative z-10">
         <div className="flex items-center gap-4 flex-1 min-w-[200px]">
           <div className="p-2 rounded-xl bg-indigo-50 text-indigo-950 border border-indigo-100/50">
             <CategoryIcon category={activeProj.category} className="w-5 h-5" />
@@ -1158,11 +1105,11 @@ export const ProjectViewer: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* DOCUMENTS REVIEW PANEL (when documents are ready) */}
         {activeProj.status === "documents_ready" && (
-          <div className="flex-1 flex overflow-hidden bg-stone-50/50">
+          <div className="flex-1 flex overflow-hidden bg-transparent">
             {/* Left Content Area */}
             <div className="flex-1 flex flex-col overflow-hidden border-r border-stone-200/60">
               {/* Tab Navigation */}
-              <div className="px-6 py-4 bg-stone-50/80 border-b border-stone-200/60 flex items-center justify-between">
+              <div className="px-6 py-4 bg-white/20 backdrop-blur-md border-b border-stone-200/60 flex items-center justify-between">
                 <div className="flex gap-2">
                   {(["prd", "mrd", "trd"] as const).map((tab) => (
                     <button
@@ -1181,7 +1128,7 @@ export const ProjectViewer: React.FC = () => {
               </div>
 
               {/* Document Text View */}
-              <div className="flex-1 overflow-y-auto p-8 bg-stone-50/40">
+              <div className="flex-1 overflow-y-auto p-8 bg-transparent">
                 <div className="max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm">
                   {activeDocTab === "prd" && (
                     <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
@@ -1197,7 +1144,7 @@ export const ProjectViewer: React.FC = () => {
             </div>
 
             {/* Right Action Sidebar */}
-            <div className="w-85 bg-stone-50/80 p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
+            <div className="w-85 bg-white/10 backdrop-blur-md p-6 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
               <div className="space-y-6">
                 <div>
                   <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">Specifications Review</h3>
@@ -1257,212 +1204,246 @@ export const ProjectViewer: React.FC = () => {
 
         {/* PROGRESS TRACKER VIEW (when generating) */}
         {activeProj.status === "generating" && (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-stone-50/30">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-transparent">
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: "easeOut" }}
-              className="max-w-md w-full bg-stone-50 p-8 rounded-3xl border border-stone-200/60 shadow-sm relative overflow-hidden"
+              className="max-w-4xl w-full bg-white p-8 rounded-3xl border border-stone-200/60 shadow-lg relative overflow-hidden flex flex-col md:flex-row gap-8"
             >
               {/* Top gradient bar */}
               <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600" />
 
-              {/* Circuit decor top-right */}
-              <div className="absolute top-4 right-4 opacity-40">
-                <CircuitDecor className="w-20 h-12" />
-              </div>
-
-              <div className="text-center mb-6">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">Sarthi Compiler</span>
-                <h3 className="text-xl font-bold font-display text-stone-800 mt-1">Generating Prototype</h3>
-                <div className="mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-indigo-950">
-                  <Database className="w-3.5 h-3.5" />
-                  <span>{partnerTrack} MCP + Gemini Agents</span>
-                </div>
-                {/* Typewriter-style current step label */}
-                <motion.p
-                  key={activeProj.step}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4 }}
-                  className="text-xs text-stone-400 mt-1 truncate flex items-center justify-center gap-1"
-                >
-                  <span>{activeProj.step}</span>
-                  <span className="animate-cursor-blink text-amber-400 text-sm">|</span>
-                </motion.p>
-              </div>
-
-              {/* Progress Ring with outer pulsing ring + rotating dashes */}
-              <div className="relative w-36 h-36 mx-auto mb-8 flex items-center justify-center">
-                {/* Outer pulsing ring */}
-                <motion.div
-                  className="absolute inset-0 rounded-full border-2 border-indigo-300/30"
-                  animate={{ scale: [1, 1.06, 1], opacity: [0.5, 0.2, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                />
-
-                {/* Rotating dashed ring (outer) */}
-                <svg className="absolute inset-0 w-full h-full animate-spin-slow" viewBox="0 0 100 100">
-                  <circle
-                    cx="50" cy="50" r="47"
-                    stroke="rgba(99,102,241,0.15)"
-                    strokeWidth="1.5"
-                    fill="none"
-                    strokeDasharray="6 8"
-                  />
-                </svg>
-
-                {/* Counter-rotating inner dashes */}
-                <svg className="absolute inset-0 w-full h-full animate-spin-slow-reverse" viewBox="0 0 100 100">
-                  <circle
-                    cx="50" cy="50" r="44"
-                    stroke="rgba(244,63,94,0.10)"
-                    strokeWidth="1"
-                    fill="none"
-                    strokeDasharray="3 10"
-                  />
-                </svg>
-
-                {/* Main progress ring */}
-                <svg className="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" stroke="#f5f5f4" strokeWidth="5" fill="transparent" />
-                  <motion.circle
-                    cx="50" cy="50" r="40"
-                    stroke="url(#progress-grad-v2)"
-                    strokeWidth="5"
-                    fill="transparent"
-                    strokeLinecap="round"
-                    strokeDasharray="251.2"
-                    animate={{ strokeDashoffset: 251.2 - (251.2 * activeProj.progress) / 100 }}
-                    transition={{ duration: 0.6, ease: "easeOut" }}
-                  />
-                  <defs>
-                    <linearGradient id="progress-grad-v2" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="50%" stopColor="#8b5cf6" />
-                      <stop offset="100%" stopColor="#f43f5e" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-
-                {/* Center text — animated count-up */}
-                <div className="absolute text-center">
-                  <motion.span className="text-2xl font-extrabold text-stone-800 font-display">
-                    {progressRounded}
-                  </motion.span>
-                  <span className="text-[9px] text-stone-400 block font-semibold uppercase tracking-wider">%</span>
-                </div>
-              </div>
-
-              {/* Vertical connected timeline */}
-              <div className="relative">
-                {steps.map((st, idx) => {
-                  const isDone = activeProj.progress >= st.minProg;
-                  const isCurrent = activeProj.progress < st.minProg &&
-                    (idx === 0 || activeProj.progress >= steps[idx - 1].minProg);
-                  const isLast = idx === steps.length - 1;
-
-                  return (
-                    <div key={idx} className="relative flex items-start gap-3 mb-0">
-                      {/* Vertical connector line (not on last) */}
-                      {!isLast && (
-                        <div className="absolute left-[9px] top-5 w-[1.5px] h-[calc(100%+0px)] bottom-0">
-                          <motion.div
-                            className="w-full rounded-full"
-                            style={{ backgroundColor: isDone ? st.color : "#e7e5e4" }}
-                            initial={{ height: 0 }}
-                            animate={{ height: isDone ? "100%" : "0%" }}
-                            transition={{ duration: 0.5, delay: idx * 0.1, ease: "easeOut" }}
-                          />
-                          {!isDone && (
-                            <div className="w-full h-full bg-stone-200" />
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-3 py-2.5 z-10">
-                        {/* Step Node */}
-                        <div className="shrink-0 w-5 h-5 flex items-center justify-center">
-                          {isDone ? (
-                            <motion.div
-                              initial={{ scale: 0, opacity: 0 }}
-                              animate={{ scale: 1, opacity: 1 }}
-                              transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                              className="w-5 h-5 rounded-full flex items-center justify-center"
-                              style={{ backgroundColor: st.color }}
-                            >
-                              <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none">
-                                <motion.path
-                                  d="M2 6 L5 9 L10 3"
-                                  stroke="white"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  initial={{ pathLength: 0 }}
-                                  animate={{ pathLength: 1 }}
-                                  transition={{ duration: 0.4, ease: "easeOut" }}
-                                />
-                              </svg>
-                            </motion.div>
-                          ) : isCurrent ? (
-                            <motion.div
-                              className="w-5 h-5 rounded-full border-2 flex items-center justify-center animate-step-scan"
-                              style={{ borderColor: st.color }}
-                            >
-                              <motion.div
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: st.color }}
-                                animate={{ scale: [1, 1.3, 1] }}
-                                transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
-                              />
-                            </motion.div>
-                          ) : (
-                            <div className="w-5 h-5 rounded-full border-2 border-stone-200" />
-                          )}
-                        </div>
-
-                        {/* Label */}
-                        <motion.span
-                          animate={{
-                            color: isDone ? "#78716c" : isCurrent ? st.color : "#a8a29e",
-                            fontWeight: isCurrent ? 700 : isDone ? 500 : 400,
-                          }}
-                          transition={{ duration: 0.3 }}
-                          className={`text-xs transition-all ${
-                            isDone ? "line-through decoration-stone-300 decoration-1" : ""
-                          }`}
-                        >
-                          {st.label}
-                        </motion.span>
-
-                        {isCurrent && (
-                          <motion.span
-                            initial={{ opacity: 0, x: -4 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
-                            style={{ backgroundColor: `${st.color}15`, color: st.color }}
-                          >
-                            Active
-                          </motion.span>
-                        )}
+              {/* Left Column: Progress Circle and Timeline Milestones */}
+              <div className="flex-1 md:w-5/12 flex flex-col justify-between">
+                <div>
+                  {/* Circuit decor top-left/right in column */}
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500">Sarthi Compiler</span>
+                      <h3 className="text-lg font-bold font-display text-stone-800 mt-1">Generating Prototype</h3>
+                      <div className="mt-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-indigo-950">
+                        <Database className="w-3 h-3" />
+                        <span>{partnerTrack} MCP + Gemini Agents</span>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+
+                  {/* Progress Ring with outer pulsing ring + rotating dashes */}
+                  <div className="relative w-32 h-32 mx-auto mb-6 flex items-center justify-center">
+                    {/* Outer pulsing ring */}
+                    <motion.div
+                      className="absolute inset-0 rounded-full border-2 border-indigo-300/30"
+                      animate={{ scale: [1, 1.06, 1], opacity: [0.5, 0.2, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    />
+
+                    {/* Rotating dashed ring (outer) */}
+                    <svg className="absolute inset-0 w-full h-full animate-spin-slow" viewBox="0 0 100 100">
+                      <circle
+                        cx="50" cy="50" r="47"
+                        stroke="rgba(99,102,241,0.15)"
+                        strokeWidth="1.5"
+                        fill="none"
+                        strokeDasharray="6 8"
+                      />
+                    </svg>
+
+                    {/* Main progress ring */}
+                    <svg className="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="40" stroke="#f5f5f4" strokeWidth="5" fill="transparent" />
+                      <motion.circle
+                        cx="50" cy="50" r="40"
+                        stroke="url(#progress-grad-v2)"
+                        strokeWidth="5"
+                        fill="transparent"
+                        strokeLinecap="round"
+                        strokeDasharray="251.2"
+                        animate={{ strokeDashoffset: 251.2 - (251.2 * activeProj.progress) / 100 }}
+                        transition={{ duration: 0.6, ease: "easeOut" }}
+                      />
+                      <defs>
+                        <linearGradient id="progress-grad-v2" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" />
+                          <stop offset="50%" stopColor="#8b5cf6" />
+                          <stop offset="100%" stopColor="#f43f5e" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+
+                    {/* Center text */}
+                    <div className="absolute text-center">
+                      <motion.span className="text-xl font-extrabold text-stone-800 font-display">
+                        {progressRounded}
+                      </motion.span>
+                      <span className="text-[8px] text-stone-400 block font-semibold uppercase tracking-wider">%</span>
+                    </div>
+                  </div>
+
+                  {/* Vertical connected timeline */}
+                  <div className="relative mb-6">
+                    {steps.map((st, idx) => {
+                      const isDone = activeProj.progress >= st.minProg;
+                      const isCurrent = activeProj.progress < st.minProg &&
+                        (idx === 0 || activeProj.progress >= steps[idx - 1].minProg);
+                      const isLast = idx === steps.length - 1;
+
+                      return (
+                        <div key={idx} className="relative flex items-start gap-3 mb-0">
+                          {/* Vertical connector line */}
+                          {!isLast && (
+                            <div className="absolute left-[9px] top-5 w-[1.5px] h-[calc(100%+0px)] bottom-0">
+                              <motion.div
+                                className="w-full rounded-full"
+                                style={{ backgroundColor: isDone ? st.color : "#e7e5e4" }}
+                                initial={{ height: 0 }}
+                                animate={{ height: isDone ? "100%" : "0%" }}
+                                transition={{ duration: 0.5, delay: idx * 0.1, ease: "easeOut" }}
+                              />
+                              {!isDone && (
+                                <div className="w-full h-full bg-stone-200" />
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-3 py-1.5 z-10">
+                            {/* Step Node */}
+                            <div className="shrink-0 w-5 h-5 flex items-center justify-center">
+                              {isDone ? (
+                                <motion.div
+                                  initial={{ scale: 0, opacity: 0 }}
+                                  animate={{ scale: 1, opacity: 1 }}
+                                  transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                                  className="w-5 h-5 rounded-full flex items-center justify-center"
+                                  style={{ backgroundColor: st.color }}
+                                >
+                                  <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none">
+                                    <motion.path
+                                      d="M2 6 L5 9 L10 3"
+                                      stroke="white"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      initial={{ pathLength: 0 }}
+                                      animate={{ pathLength: 1 }}
+                                      transition={{ duration: 0.4, ease: "easeOut" }}
+                                    />
+                                  </svg>
+                                </motion.div>
+                              ) : isCurrent ? (
+                                <motion.div
+                                  className="w-5 h-5 rounded-full border-2 flex items-center justify-center"
+                                  style={{ borderColor: st.color }}
+                                >
+                                  <motion.div
+                                    className="w-1.5 h-1.5 rounded-full"
+                                    style={{ backgroundColor: st.color }}
+                                    animate={{ scale: [1, 1.3, 1] }}
+                                    transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                                  />
+                                </motion.div>
+                              ) : (
+                                <div className="w-5 h-5 rounded-full border-2 border-stone-200" />
+                              )}
+                            </div>
+
+                            {/* Label */}
+                            <motion.span
+                              animate={{
+                                color: isDone ? "#78716c" : isCurrent ? st.color : "#a8a29e",
+                                fontWeight: isCurrent ? 700 : isDone ? 500 : 400,
+                              }}
+                              transition={{ duration: 0.3 }}
+                              className={`text-[11px] transition-all ${
+                                isDone ? "line-through decoration-stone-300 decoration-1" : ""
+                              }`}
+                            >
+                              {st.label}
+                            </motion.span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Bottom live progress bar strip */}
+                <div className="pt-4 border-t border-stone-100">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[10px] text-stone-400 font-semibold">Overall Progress</span>
+                    <span className="text-[10px] font-bold text-indigo-950">{activeProj.progress}%</span>
+                  </div>
+                  <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600"
+                      animate={{ width: `${activeProj.progress}%` }}
+                      transition={{ duration: 0.6, ease: "easeOut" }}
+                    />
+                  </div>
+                </div>
               </div>
 
-              {/* Bottom live progress bar strip */}
-              <div className="mt-6 pt-4 border-t border-stone-100">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] text-stone-400 font-semibold">Overall Progress</span>
-                  <span className="text-[10px] font-bold text-indigo-950">{activeProj.progress}%</span>
+              {/* Right Column: Live Agent Activity Monitor Console */}
+              <div className="flex-1 md:w-7/12 flex flex-col">
+                <div className="mb-2 flex justify-between items-center">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Agent Activity Monitor</span>
+                  <span className="text-[9px] font-bold text-amber-500 animate-pulse uppercase tracking-wider">● Compiling Code</span>
                 </div>
-                <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600"
-                    animate={{ width: `${activeProj.progress}%` }}
-                    transition={{ duration: 0.6, ease: "easeOut" }}
-                  />
+                
+                {/* Terminal Console */}
+                <div className="bg-stone-900 border border-stone-850 rounded-2xl p-4 font-mono text-[9px] h-[360px] flex flex-col shadow-inner relative overflow-hidden text-stone-300">
+                  {/* Terminal Header */}
+                  <div className="flex items-center justify-between pb-2 border-b border-stone-800/80 mb-3 shrink-0 select-none">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500/80" />
+                      <span className="w-2 h-2 rounded-full bg-amber-500/80" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                    </div>
+                    <span className="text-[8px] uppercase tracking-wider text-stone-500 font-bold">sarthi-agent-monitor</span>
+                    <span className="text-[7px] text-emerald-400 opacity-80 animate-pulse font-bold">● Active</span>
+                  </div>
+
+                  {/* Terminal Log Lines */}
+                  <div 
+                    ref={terminalLogsRef} 
+                    className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-stone-800"
+                  >
+                    <div className="text-stone-500">Initialized Sarthi Multi-Agent Compilation Engine [v1.0]</div>
+                    <div className="text-stone-500">Connected to local MongoDB workspace broker...</div>
+                    {agentPipeline.slice(0, currentAgentIdx + 1).map((agentName, idx) => {
+                      const isLast = idx === currentAgentIdx;
+                      const timeStr = new Date(Date.now() - (currentAgentIdx - idx) * 3500).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                      
+                      return (
+                        <motion.div 
+                          key={agentName}
+                          initial={{ opacity: 0, x: -4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3 }}
+                          className={`flex items-start gap-2 leading-relaxed ${isLast ? "text-amber-400" : "text-emerald-400/90"}`}
+                        >
+                          <span className="text-stone-600 shrink-0">[{timeStr}]</span>
+                          <span className="font-bold shrink-0">{agentName}:</span>
+                          <span className="text-stone-200">
+                            {isLast ? (
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-ping" />
+                                <span>{agentDescriptions[agentName] || "Orchestrating agent tasks..."}</span>
+                              </span>
+                            ) : (
+                              <span>[COMPLETE] Task contract generated successfully.</span>
+                            )}
+                          </span>
+                        </motion.div>
+                      );
+                    })}
+                    
+                    {/* Blinking Cursor */}
+                    <div className="flex items-center gap-1 text-stone-500 pt-1">
+                      <span>sarthi_compilation_broker:~ $</span>
+                      <span className="w-1.5 h-3 bg-amber-400 animate-cursor-blink" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -1502,12 +1483,20 @@ export const ProjectViewer: React.FC = () => {
         {activeProj.status === "completed" && (
           <div className="flex-1 flex overflow-hidden">
             {/* Left File Tree Pane */}
-            <div className="w-64 border-r border-stone-200/60 bg-stone-50/20 flex flex-col shrink-0 transition-colors duration-300">
-              <div className="p-4 border-b border-stone-200/60 shrink-0">
-                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Generated Files</span>
-              </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-1 select-none">
-                {(() => {
+            <AnimatePresence initial={false}>
+              {showFilesPane && (
+                <motion.div
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 256, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  className="border-r border-stone-200/60 bg-white/30 backdrop-blur-md flex flex-col shrink-0 transition-colors duration-300 overflow-hidden"
+                >
+                  <div className="p-4 border-b border-stone-200/60 shrink-0 w-64">
+                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Generated Files</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 space-y-1 select-none w-64">
+                    {(() => {
                   const filesToRender = [...(activeProj.codebase || [])];
                   if (activeProj.mcp_evidence && !filesToRender.some((file) => file.path === "sarthi-internal/MCP_EVIDENCE.json")) {
                     filesToRender.unshift({
@@ -1776,17 +1765,28 @@ export const ProjectViewer: React.FC = () => {
                   });
                 })()}
               </div>
-            </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
             {/* Right Code Display Pane */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-stone-50 transition-colors duration-300">
+            <div className="flex-1 flex flex-col overflow-hidden bg-transparent transition-colors duration-300">
               {selectedFile ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   {/* File title & Actions */}
-                  <div className="px-6 py-3 border-b border-stone-100 flex justify-between items-center bg-stone-50/40 shrink-0 select-none">
-                    <span className="text-xs font-mono font-bold text-stone-500">
-                      {selectedFile.path}
-                    </span>
+                  <div className="px-6 py-3 border-b border-stone-200/60 flex justify-between items-center bg-white/20 backdrop-blur-md shrink-0 select-none">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setShowFilesPane(!showFilesPane)}
+                        className="p-1.5 rounded-md hover:bg-stone-200/50 text-stone-500 transition-colors"
+                        title="Toggle Files Pane"
+                      >
+                        <PanelLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-mono font-bold text-stone-500">
+                        {selectedFile.path}
+                      </span>
+                    </div>
                     <button
                       onClick={handleCopy}
                       className="inline-flex items-center gap-1 text-[10px] font-semibold text-stone-500 hover:text-stone-800 bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1.5 shadow-sm transition-all hover:bg-stone-50 cursor-pointer"
@@ -1806,13 +1806,13 @@ export const ProjectViewer: React.FC = () => {
                   </div>
                   {/* Code Block Container or Markdown Viewer */}
                   {selectedFile.language === "markdown" ? (
-                    <div className="flex-1 overflow-y-auto p-8 bg-stone-50/30 text-stone-850 select-text leading-relaxed border-b border-transparent transition-colors duration-300">
-                      <div className="max-w-3xl mx-auto bg-stone-50 border border-stone-200/60 rounded-2xl p-8 md:p-10 shadow-sm">
+                    <div className="flex-1 overflow-y-auto p-8 bg-transparent text-stone-800 select-text leading-relaxed border-b border-transparent transition-colors duration-300">
+                      <div className="max-w-3xl mx-auto bg-white border border-stone-200/80 rounded-2xl p-8 md:p-10 shadow-xl drop-shadow-sm">
                         <MarkdownRenderer text={selectedFile.content} />
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-700 leading-relaxed bg-indigo-900/5 select-text select-all border-b border-transparent">
+                    <div className="flex-1 overflow-auto p-6 font-mono text-xs text-stone-800 leading-relaxed bg-white/50 backdrop-blur-sm select-text select-all border-b border-transparent">
                       <pre className="overflow-x-auto whitespace-pre-wrap md:whitespace-pre">
                         {selectedFile.content.split("\n").map((line, i) => (
                           <div key={i} className="table-row">

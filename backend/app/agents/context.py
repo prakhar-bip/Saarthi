@@ -110,8 +110,17 @@ def strip_json_code_fence(raw_response: str) -> str:
     return raw
 
 
+class IncompleteJSONError(BaseException):
+    def __init__(self, message, raw_response):
+        super().__init__(message)
+        self.raw_response = raw_response
+
 def parse_json_response(raw_response: str) -> Dict[str, Any]:
-    return json.loads(strip_json_code_fence(raw_response))
+    try:
+        return json.loads(strip_json_code_fence(raw_response))
+    except json.JSONDecodeError as e:
+        # Raise BaseException so it bypasses the agent's `except Exception:` blocks
+        raise IncompleteJSONError(f"JSONDecodeError: {e}", raw_response)
 
 
 def _names_from_items(items: Any, name_key: str) -> List[str]:

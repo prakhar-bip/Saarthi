@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.gitignore
+
+# Ignore node_modules and next build artifacts
+node_modules/
+.next/
+out/
+build/
+*.log

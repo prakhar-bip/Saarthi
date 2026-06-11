@@ -41,7 +41,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   };
 
   return (
-    <aside className="w-full border-r border-stone-200/60 bg-white/50 backdrop-blur-md flex flex-col h-full select-none transition-colors duration-300">
+    <aside className="w-full border-r border-stone-200/60 bg-white/30 backdrop-blur-lg flex flex-col h-full select-none transition-colors duration-300">
       {/* Header / Logo */}
       <div className="p-6 border-b border-stone-200/60 flex items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
@@ -218,60 +218,64 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                         >
                           <CategoryIcon category={c.category} className="w-4 h-4" />
                         </motion.div>
-                        <div className="overflow-hidden flex-1">
-                          {editingId === c.id ? (
-                            <input 
-                              type="text"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  renameChat(c.id, editValue);
-                                  setEditingId(null);
-                                } else if (e.key === 'Escape') {
-                                  setEditingId(null);
-                                }
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              autoFocus
-                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400"
-                            />
-                          ) : (
-                            <p className="text-xs font-semibold truncate leading-tight" title={c.title}>{c.title}</p>
-                          )}
-                          <span className="text-[9px] text-stone-400 block mt-0.5">{c.created}</span>
+                        {!isCollapsed && (
+                          <div className="overflow-hidden flex-1">
+                            {editingId === c.id ? (
+                              <input 
+                                type="text"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    renameChat(c.id, editValue);
+                                    setEditingId(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingId(null);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                autoFocus
+                                className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400"
+                              />
+                            ) : (
+                              <p className="text-xs font-semibold truncate leading-tight" title={c.title}>{c.title}</p>
+                            )}
+                            <span className="text-[9px] text-stone-400 block mt-0.5">{c.created}</span>
+                          </div>
+                        )}
+                      </div>
+                      {!isCollapsed && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <motion.button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (editingId === c.id) {
+                                renameChat(c.id, editValue);
+                                setEditingId(null);
+                              } else {
+                                setEditingId(c.id);
+                                setEditValue(c.title);
+                              }
+                            }}
+                            whileHover={{ scale: 1.15 }}
+                            whileTap={{ scale: 0.85 }}
+                            className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </motion.button>
+                          <motion.button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteChat(c.id);
+                            }}
+                            whileHover={{ scale: 1.15 }}
+                            whileTap={{ scale: 0.85 }}
+                            className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </motion.button>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <motion.button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (editingId === c.id) {
-                              renameChat(c.id, editValue);
-                              setEditingId(null);
-                            } else {
-                              setEditingId(c.id);
-                              setEditValue(c.title);
-                            }
-                          }}
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.85 }}
-                          className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </motion.button>
-                        <motion.button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteChat(c.id);
-                          }}
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.85 }}
-                          className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </motion.button>
-                      </div>
+                      )}
                     </motion.div>
                   );
                 })
@@ -321,76 +325,80 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                       >
                         <CategoryIcon category={p.category} className="w-4 h-4" />
                       </div>
-                      <div className="overflow-hidden flex-1 min-w-0">
-                        {editingId === p.id ? (
-                          <input 
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                renameProject(p.id, editValue);
-                                setEditingId(null);
-                              } else if (e.key === 'Escape') {
-                                setEditingId(null);
-                              }
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            autoFocus
-                            className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400 mb-1"
-                          />
-                        ) : (
-                          <p className="text-xs font-semibold truncate leading-tight" title={p.name}>{p.name}</p>
-                        )}
-                        {isCompiling ? (
-                          <div className="mt-1">
-                            {/* Live progress bar strip */}
-                            <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
-                              <motion.div
-                                className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500"
-                                animate={{ width: `${p.progress}%` }}
-                                transition={{ duration: 0.6, ease: "easeOut" }}
-                              />
+                      {!isCollapsed && (
+                        <div className="overflow-hidden flex-1 min-w-0">
+                          {editingId === p.id ? (
+                            <input 
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  renameProject(p.id, editValue);
+                                  setEditingId(null);
+                                } else if (e.key === 'Escape') {
+                                  setEditingId(null);
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400 mb-1"
+                            />
+                          ) : (
+                            <p className="text-xs font-semibold truncate leading-tight" title={p.name}>{p.name}</p>
+                          )}
+                          {isCompiling ? (
+                            <div className="mt-1">
+                              {/* Live progress bar strip */}
+                              <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                                <motion.div
+                                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500"
+                                  animate={{ width: `${p.progress}%` }}
+                                  transition={{ duration: 0.6, ease: "easeOut" }}
+                                />
+                              </div>
+                              <span className="text-[9px] text-amber-500 font-semibold mt-0.5 block">
+                                {p.progress}% — Compiling
+                              </span>
                             </div>
-                            <span className="text-[9px] text-amber-500 font-semibold mt-0.5 block">
-                              {p.progress}% — Compiling
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] text-stone-400 block mt-0.5">{p.created}</span>
-                        )}
+                          ) : (
+                            <span className="text-[9px] text-stone-400 block mt-0.5">{p.created}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {!isCollapsed && (
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (editingId === p.id) {
+                              renameProject(p.id, editValue);
+                              setEditingId(null);
+                            } else {
+                              setEditingId(p.id);
+                              setEditValue(p.name);
+                            }
+                          }}
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.85 }}
+                          className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </motion.button>
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteProject(p.id);
+                          }}
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.85 }}
+                          className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </motion.button>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <motion.button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (editingId === p.id) {
-                            renameProject(p.id, editValue);
-                            setEditingId(null);
-                          } else {
-                            setEditingId(p.id);
-                            setEditValue(p.name);
-                          }
-                        }}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.85 }}
-                        className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </motion.button>
-                      <motion.button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteProject(p.id);
-                        }}
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.85 }}
-                        className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </motion.button>
-                    </div>
+                    )}
                   </motion.div>
                 );
               })

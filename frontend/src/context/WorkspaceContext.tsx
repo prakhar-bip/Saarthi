@@ -2513,7 +2513,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!token) return;
     
     try {
-      const res = await fetch(`${API_BASE}/api/chats/${chatId}/messages`, {
+      const res = await fetch(`${API_BASE}/api/chats/${chatId}/messages?stream=true`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2531,38 +2531,115 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         throw new Error(`API returned status: ${res.status}`);
       }
       
-      if (res.ok) {
-        const data = await res.json();
-        setChats((prev) =>
-          prev.map((c) => {
-            if (c.id === chatId) {
-              const filtered = c.messages.filter(m => m.id !== tempUserMsgId);
-              return {
-                ...c,
-                messages: [...filtered, data.user_message, data.ai_message]
-              };
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const aiMessageId = `ai-temp-${Date.now()}`;
+      let aiText = "";
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last partial line in the buffer
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith("data: ")) {
+            const jsonStr = trimmedLine.slice(6).trim();
+            if (!jsonStr) continue;
+            
+            try {
+              const payload = JSON.parse(jsonStr);
+              if (payload.type === "user_msg") {
+                const savedUserMsg = payload.message;
+                setChats((prev) =>
+                  prev.map((c) => {
+                    if (c.id === chatId) {
+                      return {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === tempUserMsgId ? savedUserMsg : m
+                        )
+                      };
+                    }
+                    return c;
+                  })
+                );
+              } else if (payload.type === "chunk") {
+                const chunkText = payload.text;
+                aiText += chunkText;
+                
+                setChats((prev) =>
+                  prev.map((c) => {
+                    if (c.id === chatId) {
+                      const hasAiMessage = c.messages.some((m) => m.id === aiMessageId);
+                      if (hasAiMessage) {
+                        return {
+                          ...c,
+                          messages: c.messages.map((m) =>
+                            m.id === aiMessageId ? { ...m, text: aiText } : m
+                          )
+                        };
+                      } else {
+                        const newAiMsg = {
+                          id: aiMessageId,
+                          sender: "ai" as const,
+                          text: aiText,
+                          timestamp: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                        };
+                        return {
+                          ...c,
+                          messages: [...c.messages, newAiMsg]
+                        };
+                      }
+                    }
+                    return c;
+                  })
+                );
+              } else if (payload.type === "ai_msg") {
+                const savedAiMsg = payload.message;
+                setChats((prev) =>
+                  prev.map((c) => {
+                    if (c.id === chatId) {
+                      // Filter out the temp AI message and add the saved one
+                      const filtered = c.messages.filter((m) => m.id !== aiMessageId);
+                      return {
+                        ...c,
+                        messages: [...filtered, savedAiMsg]
+                      };
+                    }
+                    return c;
+                  })
+                );
+                
+                // Parse blueprint and update selected project
+                const bpMatch = savedAiMsg.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
+                if (bpMatch && bpMatch[1]) {
+                  try {
+                    const parsed = JSON.parse(bpMatch[1].trim());
+                    if (parsed.name || parsed.idea || parsed.features) {
+                      const bp: ProjectSuggestion = {
+                        name: parsed.name || "",
+                        idea: parsed.idea || "",
+                        features: parsed.features || [],
+                        tech_stack: parsed.tech_stack || "Flask, HTML, CSS"
+                      };
+                      updateChatSelectedProject(chatId, bp);
+                    }
+                  } catch (_bpErr) {
+                    // Ignore silently
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("Failed to parse stream chunk:", jsonStr, e);
             }
-            return c;
-          })
-        );
-
-        // Auto-parse <blueprint> from AI response and update selected_project
-        const aiText = data.ai_message?.text || "";
-        const bpMatch = aiText.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
-        if (bpMatch && bpMatch[1]) {
-          try {
-            const parsed = JSON.parse(bpMatch[1].trim());
-            if (parsed.name || parsed.idea || parsed.features) {
-              const bp: ProjectSuggestion = {
-                name: parsed.name || "",
-                idea: parsed.idea || "",
-                features: parsed.features || [],
-                tech_stack: parsed.tech_stack || "Flask, HTML, CSS"
-              };
-              updateChatSelectedProject(chatId, bp);
-            }
-          } catch (_bpErr) {
-            // Blueprint parse failed, ignore silently
           }
         }
       }

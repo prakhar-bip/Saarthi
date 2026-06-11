@@ -9,8 +9,7 @@ from google.adk.agents.run_config import RunConfig
 from google.genai.types import Content, Part
 
 from app.core.config import settings
-from app.services.ai import generate_theme_suggestions
-
+from app.services.ai import generate_theme_suggestions, stream_chat_reply
 
 
 # 1. Define custom Python tools first for ADK
@@ -95,7 +94,6 @@ runner = Runner(
     session_service=session_service
 )
 
-
 # 3. LangGraph Fallback Orchestration Setup
 try:
     from langgraph.graph import StateGraph, END
@@ -127,7 +125,6 @@ try:
 except Exception as init_err:
     logger.error(f"Failed to initialize LangGraph fallback workflow: {init_err}")
     fallback_app = None
-
 
 async def run_langgraph_fallback(
     category: str,
@@ -162,9 +159,60 @@ async def run_adk_chat(
     selected_project: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Bypasses the Google Cloud ADK agent to route chatting strictly through OpenRouter
-    via the LangGraph fallback pipeline.
+    Executes the chat session using the Google Cloud ADK agent platform when Vertex AI is active.
+    Falls back to LangGraph workflow if Vertex AI is not used or if it fails.
     """
+    if settings.USE_VERTEX_AI:
+        try:
+            # Find the last user message
+            last_user_message = ""
+            for msg in reversed(messages):
+                if msg.get("sender") == "user":
+                    last_user_message = msg.get("text", "")
+                    break
+            
+            if last_user_message:
+                logger.info(f"🔌 [ADK CHAT RUNNER] Invoking Sarthi root agent via ADK for session {chat_id}...")
+                
+                # Get or create session
+                session = await session_service.get_session(
+                    app_name="SarthiApp", 
+                    user_id=user_id, 
+                    session_id=chat_id
+                )
+                if not session:
+                    session = await session_service.create_session(
+                        app_name="SarthiApp", 
+                        user_id=user_id, 
+                        session_id=chat_id
+                    )
+                
+                user_message = Content(role="user", parts=[Part.from_text(text=last_user_message)])
+                run_config = RunConfig(response_modalities=["TEXT"])
+                
+                # Run ADK agent runner
+                events = runner.run(
+                    user_id=session.user_id,
+                    session_id=session.id,
+                    new_message=user_message,
+                    run_config=run_config
+                )
+                
+                response_text = ""
+                for event in events:
+                    if event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                response_text += part.text
+                                
+                if response_text:
+                    logger.info(f"✅ [ADK CHAT RUNNER] Successfully generated chat reply via ADK.")
+                    return response_text
+                    
+        except Exception as adk_err:
+            logger.warning(f"⚠️ [ADK CHAT RUNNER] Failed: {adk_err}. Cascading to LangGraph Fallback...")
+
+    # Fallback path (LangGraph)
     category = "general"
     for msg in messages:
         if msg.get("category"):
@@ -176,3 +224,80 @@ async def run_adk_chat(
         messages=messages,
         selected_project=selected_project
     )
+
+
+async def stream_adk_chat(
+    chat_id: str,
+    user_id: str,
+    messages: List[Dict[str, Any]],
+    selected_project: Optional[Dict[str, Any]] = None
+):
+    """
+    Asynchronously streams the chat session response.
+    Cascades to stream_chat_reply as fallback.
+    """
+    if settings.USE_VERTEX_AI:
+        try:
+            # Find the last user message
+            last_user_message = ""
+            for msg in reversed(messages):
+                if msg.get("sender") == "user":
+                    last_user_message = msg.get("text", "")
+                    break
+            
+            if last_user_message:
+                logger.info(f"🌐 [ADK CHAT RUNNER] Invoking Sarthi root agent via ADK for session {chat_id} (Streaming)...")
+                
+                # Get or create session
+                session = await session_service.get_session(
+                    app_name="SarthiApp", 
+                    user_id=user_id, 
+                    session_id=chat_id
+                )
+                if not session:
+                    session = await session_service.create_session(
+                        app_name="SarthiApp", 
+                        user_id=user_id, 
+                        session_id=chat_id
+                    )
+                
+                user_message = Content(role="user", parts=[Part.from_text(text=last_user_message)])
+                run_config = RunConfig(response_modalities=["TEXT"])
+                
+                # Run ADK agent runner
+                events = runner.run(
+                    user_id=session.user_id,
+                    session_id=session.id,
+                    new_message=user_message,
+                    run_config=run_config
+                )
+                
+                has_yielded = False
+                for event in events:
+                    if event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                has_yielded = True
+                                yield part.text
+                                
+                if has_yielded:
+                    logger.info(f"✅ [ADK CHAT RUNNER] Successfully generated chat reply via ADK streaming.")
+                    return
+                    
+        except Exception as adk_err:
+            logger.warning(f"⚠️ [ADK CHAT RUNNER] Streaming failed: {adk_err}. Cascading to stream_chat_reply...")
+
+    # Fallback path (streaming chat reply)
+    category = "general"
+    for msg in messages:
+        if msg.get("category"):
+            category = msg.get("category")
+            break
+            
+    async for chunk in stream_chat_reply(
+        category=category,
+        messages=messages,
+        selected_project=selected_project
+    ):
+        yield chunk
+

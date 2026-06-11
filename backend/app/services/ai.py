@@ -5,7 +5,8 @@ import time
 from typing import List, Dict, Any
 from app.core.config import settings
 from app.agents.context import build_compilation_context
-from app.services.llm_router import get_llm_completion
+from app.services.llm_router import get_llm_completion, stream_raw_llm_completion
+
 
 
 async def generate_chat_reply(category: str, messages: List[Dict[str, str]], selected_project: dict = None) -> str:
@@ -81,6 +82,82 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
         duration = time.perf_counter() - start_time
         logger.error(f"❌ [CHAT COMPLETION FAILED] Error: {e} | Duration: {duration:.2f}s")
         return get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
+
+
+async def stream_chat_reply(category: str, messages: List[Dict[str, str]], selected_project: dict = None):
+    """
+    Generate a reply using the LLM Router stream completion.
+    Yields chunks of text.
+    """
+    try:
+        if selected_project:
+            system_prompt = (
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
+                f"## Active Project Context\n"
+                f"- **Project Name**: {selected_project.get('name')}\n"
+                f"- **Core Idea**: {selected_project.get('idea')}\n"
+                f"- **Key Features**: {', '.join(selected_project.get('features', []))}\n"
+                f"- **Tech Stack**: {selected_project.get('tech_stack')}\n\n"
+                "## Mindset & Semantic Routing\n"
+                "Analyze the user's intent semantically across messages:\n"
+                "1. **Casual/General Chat**: Talk naturally and warmly. Do not force technical jargon, templates, or blueprint blocks.\n"
+                "2. **Learning/Concept Q&A**: Explain clearly with code snippets and markdown formatting, focusing on the specific question.\n"
+                "3. **Refining & Brainstorming**: Discuss ideas as a co-founder. Suggest features gradually and listen to feedback. Do not dump complete structures immediately.\n\n"
+                "## Blueprint Block (Locking in Configuration)\n"
+                "ONLY append the `<blueprint>` block at the very end of your message if the user has EXPLICITLY requested to save, finalize, update, or compile the project blueprint, OR if they agree on a specific feature set configuration. Otherwise, chat normally without any blocks.\n"
+                "Format of the block when requested:\n"
+                "<blueprint>\n"
+                "{\n"
+                "  \"name\": \"Updated Project Name\",\n"
+                "  \"idea\": \"Core Idea/Description\",\n"
+                "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\",\n"
+                "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
+                "}\n"
+                "</blueprint>"
+            )
+        else:
+            system_prompt = (
+                f"You are **Sarthi**, an expert AI development partner for the '{category}' domain. You adapt dynamically to the user's state of mind.\n\n"
+                "## Your Role & Vibe\n"
+                "You are an empathetic, intelligent, and conversational co-pilot. Listen carefully, analyze the user's mindset, and build context step-by-step over the chat history.\n\n"
+                "## Mindset & Semantic Routing\n"
+                "Analyze the user's intent semantically across messages:\n"
+                "1. **Casual/General Chat**: Talk naturally, enthusiastically, and warmly. Do not force templates or project planning.\n"
+                "2. **Learning/Concept Q&A**: Provide clear, direct, and well-commented code snippets with concise explanations.\n"
+                "3. **Brainstorming Project Ideas**: Engage in active, friendly brainstorming. Suggest 1-2 creative directions rather than overloading the user. Build on their ideas.\n\n"
+                "## Blueprint Block (Locking in Configuration)\n"
+                "ONLY append the `<blueprint>` block at the very end of your message if the user has EXPLICITLY requested to finalize, save, or compile a project blueprint. Do NOT output this block for greetings, casual chat, brainstorming, or normal Q&A.\n"
+                "Format of the block when requested:\n"
+                "<blueprint>\n"
+                "{\n"
+                "  \"name\": \"Project Name\",\n"
+                "  \"idea\": \"Core Idea/Description\",\n"
+                "  \"features\": [\"Feature 1\", \"Feature 2\", \"Feature 3\"],\n"
+                "  \"tech_stack\": \"Flask, HTML, CSS\",\n"
+                "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
+                "}\n"
+                "</blueprint>"
+            )
+        
+        chat_messages = [{"role": "system", "content": system_prompt}]
+        for msg in messages:
+            role = "user" if msg["sender"] == "user" else "assistant"
+            chat_messages.append({"role": role, "content": msg["text"]})
+
+        async for chunk in stream_raw_llm_completion(
+            agent_name="ChatReply",
+            messages=chat_messages,
+            temperature=0.7,
+            max_tokens=2048
+        ):
+            yield chunk
+    except Exception as e:
+        logger.error(f"❌ [STREAM CHAT COMPLETION FAILED] Error: {e}")
+        # Yield fallback reply
+        fallback = get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
+        yield fallback
+
 
 
 async def auto_identify_category(blueprint: dict, messages: List[Dict[str, str]]) -> str:
@@ -934,7 +1011,7 @@ async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     or fall back to the structured fallback lists.
     """
     category_lower = category.lower()
-    if not (settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM keys configured. Falling back to local structured suggestions.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
     
@@ -1177,7 +1254,7 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
     Generate exactly 3 custom color/style themes for the selected project blueprint using Gemini / fallback LLM,
     or fall back to the structured category-specific lists.
     """
-    if not (settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM keys configured. Falling back to local dynamic themes.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt)
 

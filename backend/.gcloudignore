@@ -1,0 +1,22 @@
+.gcloudignore
+.git
+.gitignore
+
+# Ignore virtual environments
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Ignore databases and local data
+mongodb_data/
+sarthi.db
+sarthi.db-journal
+*.log
+
+# Ignore node_modules if any
+node_modules/

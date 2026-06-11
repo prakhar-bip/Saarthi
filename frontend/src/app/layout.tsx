@@ -14,8 +14,8 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Sarthi - Gemini Agent Builder Workspace",
-  description: "Build hackathon-ready action agents with Gemini orchestration, MongoDB MCP evidence, requirements docs, and runnable prototypes.",
+  title: "Sarthi",
+  description: "Sarthi is an advanced AI coding assistant inspired by divine guidance. Build complete prototypes, documents, and codebases seamlessly.",
 };
 
 export default function RootLayout({

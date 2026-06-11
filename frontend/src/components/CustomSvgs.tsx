@@ -493,27 +493,11 @@ export const FloatingBot: React.FC<{ className?: string }> = ({ className = "w-1
 // 11. Morpankh (Peacock Feather) Global Animated Background
 export const MorpankhBg: React.FC<{ className?: string }> = ({ className = "" }) => {
   return (
-    <div className={`absolute inset-0 pointer-events-none overflow-hidden z-0 bg-stone-50 ${className}`}>
-      {/* The Photorealistic Image with Framer Motion for continuous Ken Burns effect */}
-      <motion.img
-        src="/morpankh-bg.png"
-        alt="Sarthi Morpankh Background"
-        className="absolute w-[110vw] h-[110vw] max-w-[150vw] max-h-[150vh] object-cover origin-center opacity-80 left-[-5vw] top-[-5vh]"
-        initial={{ scale: 1, rotate: -2 }}
-        animate={{ 
-          scale: [1, 1.1, 1],
-          rotate: [-2, 2, -2],
-          x: [0, -20, 0],
-          y: [0, 10, 0]
-        }}
-        transition={{ duration: 60, repeat: Infinity, ease: "easeInOut" }}
-      />
-      
-      {/* Softening Overlay to ensure perfect text readability (Glassmorphism layer) */}
-      <div className="absolute inset-0 bg-stone-50/60 backdrop-blur-[4px]" />
-      
-      {/* Subtle color blending overlay to tie it back to the Sarthi theme */}
-      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-teal-500/5 to-amber-500/10 mix-blend-overlay" />
+    <div className={`absolute inset-0 pointer-events-none overflow-hidden z-0 bg-transparent ${className}`}>
+      {/* Subtle abstract CSS gradients representing Morpankh colors without any heavy images */}
+      <div className="absolute top-0 left-0 w-full h-full opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-200 via-stone-50 to-transparent" />
+      <div className="absolute top-0 left-0 w-full h-full opacity-30 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-teal-200 via-transparent to-transparent" />
+      <div className="absolute top-0 left-0 w-full h-full opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-amber-200 via-transparent to-transparent" />
     </div>
   );
 };

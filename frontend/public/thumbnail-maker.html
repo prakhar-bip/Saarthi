@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sarthi Thumbnail Generator</title>
+  <!-- Load Tailwind CSS to use the exact same classes as Sarthi -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Load the exact same Dancing Script font -->
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+  <!-- html-to-image library for converting CSS gradients to PNG accurately -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+  
+  <style>
+    .font-sarthi { font-family: 'Dancing Script', cursive; }
+    /* Faded Morpankh (Peacock Feather) Gradient Background */
+    .bg-morpankh-faded {
+      background: radial-gradient(circle at center, #f0fdfa 0%, #ccfbf1 35%, #e0e7ff 75%, #dbeafe 100%);
+    }
+  </style>
+</head>
+<body class="bg-stone-900 flex flex-col items-center justify-center min-h-screen m-0 overflow-hidden font-sans">
+
+  <!-- Control Panel -->
+  <div class="mb-8 flex flex-col items-center z-50">
+    <h1 class="text-white text-2xl font-bold mb-4 font-sarthi tracking-wider">Sarthi Thumbnail Engine</h1>
+    <button onclick="downloadImage()" class="px-8 py-4 bg-amber-500 hover:bg-amber-400 text-amber-950 text-lg font-bold rounded-2xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition-all transform hover:scale-105 active:scale-95">
+      ⬇️ Download High-Res Thumbnail
+    </button>
+    <p class="text-stone-400 text-sm mt-3">Click the button to generate a 2560x1440 HD PNG image.</p>
+  </div>
+
+  <!-- The Thumbnail Canvas (1280x720 scaled down for browser preview) -->
+  <div class="relative shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-lg border border-white/10" style="width: 1280px; height: 720px; transform-origin: top center; transform: scale(0.65);">
+    
+    <!-- This is the actual node that gets converted to image -->
+    <div id="thumbnail-node" class="w-full h-full relative bg-morpankh-faded flex items-center justify-center overflow-hidden">
+      
+      <!-- Faded Ambient Glows for premium look -->
+      <div class="absolute top-[-15%] left-[-10%] w-[60%] h-[60%] bg-teal-200/50 blur-[120px] rounded-full pointer-events-none"></div>
+      <div class="absolute bottom-[-15%] right-[-10%] w-[60%] h-[60%] bg-indigo-200/50 blur-[120px] rounded-full pointer-events-none"></div>
+      
+      <!-- Sarthi Text Exactly As Used In Sidebar -->
+      <div 
+        class="font-sarthi font-bold select-none whitespace-nowrap bg-gradient-to-r from-[#1e1b4b] via-[#0f766e] to-[#4338ca] bg-clip-text text-transparent z-10"
+        style="font-size: 260px; background-size: 200% auto; line-height: 1.2; padding: 20px; filter: drop-shadow(0px 10px 20px rgba(15, 118, 110, 0.15));"
+      >
+        Sarthi
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function downloadImage() {
+      const node = document.getElementById('thumbnail-node');
+      const btn = document.querySelector('button');
+      const originalText = btn.innerHTML;
+      
+      btn.innerText = "⏳ Generating Image... Please wait";
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+      // Add a slight delay to allow font and DOM to settle just in case
+      setTimeout(() => {
+        // We use pixelRatio: 2 to export it as a 2K resolution image (2560x1440) for extreme sharpness
+        htmlToImage.toPng(node, { pixelRatio: 2, quality: 1.0 })
+          .then(function (dataUrl) {
+            const link = document.createElement('a');
+            link.download = 'sarthi_hackathon_thumbnail_hd.png';
+            link.href = dataUrl;
+            link.click();
+          })
+          .catch(function (error) {
+            console.error('Oops, something went wrong!', error);
+            alert('Error generating image. Try taking a screenshot instead!');
+          })
+          .finally(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+          });
+      }, 500);
+    }
+  </script>
+</body>
+</html>

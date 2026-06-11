@@ -75,3 +75,10 @@ Thumbs.db
 recovered_code.txt
 *.zip
 *.tar.gz
+
+# ==========================================
+# 6. Deployment environment files
+# ==========================================
+env.yaml
+backend/env.yaml
+

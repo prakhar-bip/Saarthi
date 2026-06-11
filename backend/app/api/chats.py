@@ -85,7 +85,12 @@ async def delete_chat(chat_id: str, current_user: dict = Depends(get_current_use
     return {"status": "success", "message": "Chat and related projects deleted successfully"}
 
 @router.post("/{chat_id}/messages")
-async def send_message(chat_id: str, message: dict, current_user: dict = Depends(get_current_user)):
+async def send_message(
+    chat_id: str, 
+    message: dict, 
+    stream: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
     db = get_database()
     chat = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
     if not chat:
@@ -112,7 +117,53 @@ async def send_message(chat_id: str, message: dict, current_user: dict = Depends
     # Refresh chat object
     updated_chat = await db.chats.find_one({"_id": chat_id})
     
-    # Generate AI response using Google Cloud ADK agent
+    if stream:
+        from fastapi.responses import StreamingResponse
+        from app.services.adk_agent import stream_adk_chat
+        from loguru import logger
+        import json
+        
+        async def event_generator():
+            # 1. Yield the saved user message first
+            yield f"data: {json.dumps({'type': 'user_msg', 'message': user_msg})}\n\n"
+            
+            # 2. Iterate over the AI stream and yield chunks
+            ai_reply_chunks = []
+            try:
+                async for chunk in stream_adk_chat(
+                    chat_id=chat_id,
+                    user_id=current_user["id"],
+                    messages=updated_chat["messages"],
+                    selected_project=updated_chat.get("selected_project")
+                ):
+                    ai_reply_chunks.append(chunk)
+                    yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
+            except Exception as e:
+                logger.error(f"Error streaming AI response: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'text': 'Failed to generate response.'})}\n\n"
+                return
+            
+            # 3. Create the final AI message and save to DB
+            ai_reply_text = "".join(ai_reply_chunks)
+            ai_time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
+            ai_msg = {
+                "id": f"m-{uuid.uuid4().hex[:8]}",
+                "sender": "ai",
+                "text": ai_reply_text,
+                "timestamp": ai_time_str
+            }
+            
+            await db.chats.update_one(
+                {"_id": chat_id},
+                {"$push": {"messages": ai_msg}}
+            )
+            
+            # 4. Yield the final AI message payload
+            yield f"data: {json.dumps({'type': 'ai_msg', 'message': ai_msg})}\n\n"
+            
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+        
+    # Generate AI response using Google Cloud ADK agent (non-streaming fallback)
     from app.services.adk_agent import run_adk_chat
     ai_reply_text = await run_adk_chat(
         chat_id=chat_id,
@@ -136,6 +187,7 @@ async def send_message(chat_id: str, message: dict, current_user: dict = Depends
     )
     
     return {"user_message": user_msg, "ai_message": ai_msg}
+
 
 @router.put("/{chat_id}/messages/{message_id}")
 async def edit_message(chat_id: str, message_id: str, payload: dict, current_user: dict = Depends(get_current_user)):

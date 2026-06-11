@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
-from typing import List
+from pydantic import Field, field_validator
+from typing import List, Any
 
 
 class Settings(BaseSettings):
@@ -35,6 +35,24 @@ class Settings(BaseSettings):
         default=["*"]
     )
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed]
+                except Exception:
+                    pass
+            return [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v]
+        return ["*"]
+
     # Frontend URL (used to build absolute links in notifications etc.)
     FRONTEND_URL: str = Field(default="http://localhost:3000")
 
@@ -60,34 +78,30 @@ class Settings(BaseSettings):
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")
     GOOGLE_MODEL: str = Field(default="gemini-3.1-pro-preview")
-    GOOGLE_FAST_MODEL: str = Field(default="gemini-3.1-pro-preview")
+    GOOGLE_FAST_MODEL: str = Field(default="gemini-3.5-flash")
     GOOGLE_REASONING_MODEL: str = Field(default="gemini-3.1-pro-preview")
 
     # Google Cloud Vertex AI
-    GCP_PROJECT_ID: str = Field(default="")
+    GCP_PROJECT_ID: str = Field(default="project-e3e4dcb5-593d-4e61-9a8")
     GCP_LOCATION: str = Field(default="us-central1")
-    USE_VERTEX_AI: bool = Field(default=False)
+    USE_VERTEX_AI: bool = Field(default=True)
 
 
 settings = Settings()
 
-# Auto-detect if we should default to Vertex AI (when GCP project is configured but no API key is provided)
-if not settings.GOOGLE_API_KEY and settings.GCP_PROJECT_ID:
-    settings.USE_VERTEX_AI = True
-
-# Ensure the underlying google-genai SDK discovers the API key or Vertex configurations
+# Ensure the underlying google-genai SDK discovers the Vertex configurations
 import os
 if settings.USE_VERTEX_AI and settings.GCP_PROJECT_ID:
     os.environ["GEMINI_VERTEX_PROJECT"] = settings.GCP_PROJECT_ID
     os.environ["GEMINI_VERTEX_LOCATION"] = settings.GCP_LOCATION
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
-    # Clear developer API key env variables to prevent SDK conflict
+    # Ensure any developer keys are ignored to avoid conflict
     if "GEMINI_API_KEY" in os.environ:
         del os.environ["GEMINI_API_KEY"]
     if "GOOGLE_GENAI_API_KEY" in os.environ:
         del os.environ["GOOGLE_GENAI_API_KEY"]
 else:
-    # Use standard developer Gemini API key
+    # Use standard developer Gemini API key fallback if set
     if settings.GOOGLE_API_KEY:
         os.environ["GEMINI_API_KEY"] = settings.GOOGLE_API_KEY
         os.environ["GOOGLE_GENAI_API_KEY"] = settings.GOOGLE_API_KEY
