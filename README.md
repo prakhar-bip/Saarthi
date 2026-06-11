@@ -1,6 +1,6 @@
 # 🛡️ Sarthi — AI-Powered Project Charioteer
 
-An enterprise-grade, action-oriented multi-agent pipeline that transforms your raw ideas into fully documented, compiled, and deployable software codebases.
+An enterprise-grade, action-oriented multi-agent workspace that transforms raw product ideas into fully-documented, compiled, and deployable software repositories.
 
 <div align="center">
 
@@ -9,7 +9,7 @@ An enterprise-grade, action-oriented multi-agent pipeline that transforms your r
 [![MongoDB MCP](https://img.shields.io/badge/MongoDB-MCP%20Server-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://github.com/mongodb-js/mongodb-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-**[🌐 Live App](https://sarthi-gtu3eysx6q-uc.a.run.app) · [🔌 Deployed API](https://sarthi-backend-gtu3eysx6q-uc.a.run.app) · [🏛️ Architecture](#-system-architecture) · [🛠️ Setup Guide](#-quick-start) · [🔌 MCP Evidence](#-mongodb-mcp-verification)**
+**[🌐 Live Web Workspace](https://sarthi-gtu3eysx6q-uc.a.run.app) · [🏛️ System Architecture](#-system-architecture) · [🛠️ Local Setup Guide](#-quick-start) · [🔌 MCP Verification](#-mongodb-mcp-verification)**
 
 </div>
 
@@ -17,27 +17,53 @@ An enterprise-grade, action-oriented multi-agent pipeline that transforms your r
 
 ## 🌟 What is Sarthi?
 
-Inspired by the concept of a **Sarthi** (a divine guide/charioteer), this platform is **not another simple AI wrapper or chatbot**. It is a **fully automated software engineering workspace** powered by Google Cloud Vertex AI, Google Agent Development Kit (ADK), and MongoDB MCP.
+Inspired by the concept of a **Sarthi** (a divine guide and charioteer), this platform is **not another generic AI wrapper or simple chatbot**. It is a **fully-realized software engineering workspace** powered by Google Cloud Vertex AI, Google Agent Development Kit (ADK), and MongoDB MCP.
 
-Instead of writing code snippet-by-snippet, you converse with Sarthi to brainstorm your idea. Once finalized, Sarthi orchestrates a **hierarchical pipeline of 28 specialized AI agents** that work in parallel and sequence to architect, generate, test, repair, compile, and bundle your application.
+Instead of writing code snippet-by-snippet, you brainstorm your product idea interactively. Once finalized, Sarthi orchestrates a **hierarchical pipeline of specialized AI agents** that work in parallel and sequence to architect, generate, test, repair, compile, and bundle your application.
 
-> **💡 The Result:** A downloadable zip containing a complete backend/frontend repository (e.g., FastAPI + Next.js), structured database models, JWT authentication, deployment configurations, a full PRD/MRD/TRD package, and a Devpost-ready submission checklist.
+```
+       [ Raw Product Idea ]
+                │
+                ▼
+      ┌──────────────────┐
+      │  Sarthi Chat &   │  ◄─── Brainstorm & refine with the "Charioteer"
+      │  Requirements    │
+      └─────────┬────────┘
+                │
+                ▼
+      ┌──────────────────┐
+      │  28-Agent Vyuh   │  ◄─── Parallel/Sequential specialized agents
+      │  Assembly Line   │       (Database, API, Security, Frontend, UI/UX)
+      └─────────┬────────┘
+                │
+                ▼
+      ┌──────────────────┐
+      │  Live Compiler   │  ◄─── Codebase generation & real-time self-repair
+      │  & Code Console  │
+      └─────────┬────────┘
+                │
+                ▼
+      [ 📦 Complete Downloadable Repository ]
+      - FastAPI Backend & Next.js Frontend
+      - MongoDB Schemas & JWT Security Guards
+      - Docker Compose & Cloud Deploy Scripts
+```
 
 ---
 
-## 🚀 Active Cloud Run Endpoints
-*   **Frontend Service**: [https://sarthi-gtu3eysx6q-uc.a.run.app](https://sarthi-gtu3eysx6q-uc.a.run.app)
-*   **Backend API Service**: [https://sarthi-backend-gtu3eysx6q-uc.a.run.app](https://sarthi-backend-gtu3eysx6q-uc.a.run.app)
+## 🚀 Live Environment
+
+*   **Production Web Workspace**: [https://sarthi-gtu3eysx6q-uc.a.run.app](https://sarthi-gtu3eysx6q-uc.a.run.app)
 
 ---
 
-## ✨ Key Capabilities
+## ✨ Key Features & Capabilities
 
-*   🧠 **Dynamic Brainstorming & Co-Founding**: Actively suggests features, database schemas, styling themes, and stacks.
-*   🏗️ **28-Agent Assembly Line**: Specialized subagents design and validate every single layer—from APIs and authorization flows to DevOps scripts and error correction.
-*   🔌 **MongoDB Model Context Protocol (MCP)**: Utilizes the official `mongodb-mcp-server` to inspect active collections, pull database contexts, and validate queries dynamically.
-*   ⚡ **Google Cloud Vertex AI (IAM-based)**: Fully migrated to Vertex AI for enterprise reliability, authenticating automatically via Service Account Application Default Credentials (ADC) without exposing cleartext API keys.
-*   🔄 **WebSocket Progress Engine**: Stream real-time agent execution logs, step progressions, and compilation outputs directly to a console UI.
+*   🧠 **Interactive Co-Founder Mode**: Refines user ideas into functional specifications, proposing database collections, UX colors, and custom routes.
+*   🏗️ **Specialized Agent Assembly**: Pipeline agents design individual layers—from MongoDB database schemas and API contracts to security guards and Docker configs.
+*   🔌 **MongoDB Model Context Protocol (MCP)**: Interfaces directly with the official `mongodb-mcp-server` to automatically inspect collections, run queries, and optimize schemas.
+*   ⚡ **Google Cloud Vertex AI (IAM-based)**: Fully migrated to Vertex AI for enterprise reliability, authenticating automatically via Service Account Application Default Credentials (ADC) without cleartext API keys.
+*   🔄 **Live Code Console & Vyuh Map**: Stream real-time progress, read terminal-style execution logs, play workspace audio cues (`sarthiAudio`), and view module dependencies dynamically.
 
 ---
 
@@ -86,11 +112,11 @@ flowchart TB
 
 | Layer | Technologies |
 |---|---|
-| **Frontend** | Next.js 16 (Turbopack), React 19, Tailwind CSS, Framer Motion |
+| **Frontend** | Next.js 16 (Turbopack), React 19, Tailwind CSS, Framer Motion, Web Audio API |
 | **Backend** | FastAPI, Uvicorn, Python 3.11+, Motor (async MongoDB driver) |
 | **Orchestration** | Google Agent Development Kit (ADK), LangGraph |
 | **Models** | `gemini-3.5-flash` (Fast tasks/Chat), `gemini-3.1-pro-preview` (Reasoning & Code Compilation) |
-| **Database** | MongoDB Atlas, Redis (Celery backend routing) |
+| **Database** | MongoDB Atlas |
 | **MCP** | `mongodb-mcp-server@latest` (Stdio bridge) |
 
 ---
@@ -127,30 +153,33 @@ cd frontend
 npm install
 npm run dev
 ```
-Open **[http://localhost:3000](http://localhost:3000)** to launch your local charioteer.
+Open **[http://localhost:3000](http://localhost:3000)** to launch your local workspace.
 
 ---
 
 ## 🔌 MongoDB MCP Verification
-For hackathon evaluation and technical audits, Sarthi exposes system integration endpoints that prove live MongoDB MCP operation:
+
+Sarthi exposes system integration endpoints to verify live MongoDB MCP operations:
 
 *   **System Health & MCP Status**: `GET /api/health`
 *   **MCP Connection Details**: `GET /api/mcp/status`
 *   **Available MCP Tools**: `GET /api/mcp/tools`
 *   **MCP Proof Evidence Bundle**: `GET /api/mcp/evidence`
 
-### Quick Verification Curl
+### Verification via Local Terminal
+Once your backend is running locally:
 ```bash
-# Check MCP status
-curl https://sarthi-backend-gtu3eysx6q-uc.a.run.app/api/health
+# Check system health & MongoDB connection
+curl http://localhost:8000/api/health
 
 # Fetch MCP judging evidence
-curl https://sarthi-backend-gtu3eysx6q-uc.a.run.app/api/mcp/evidence
+curl http://localhost:8000/api/mcp/evidence
 ```
 
 ---
 
 ## 📂 Repository Structure
+
 ```
 Sarthi/
 ├── backend/
