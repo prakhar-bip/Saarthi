@@ -213,7 +213,7 @@ class UIComponentGenerationAgent:
                 entity_names.append(e["entity_name"])
 
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
 
         shared_components = ["Button", "Input", "Card", "Badge", "Separator"]
         dashboard_components = ["SidebarNavigation", "DashboardHeader", "SummaryMetricCard"]

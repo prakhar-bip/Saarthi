@@ -204,7 +204,7 @@ Return ONLY valid JSON in this exact format:
                     protected_api_groups.append(group_name)
 
         if not protected_api_groups:
-            protected_api_groups = ["users", "portfolios", "assets"]
+            protected_api_groups = ["users", "items"]
 
         # Build rate limiting rules
         rate_limiting_rules = [

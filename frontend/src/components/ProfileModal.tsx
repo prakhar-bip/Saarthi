@@ -6,9 +6,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { 
   X, User, Briefcase, FileText, Code, Terminal, Users, Globe, 
-  AlertCircle, Save, HelpCircle, Sparkles, Check, Info, Volume2, VolumeX
+  AlertCircle, Save, HelpCircle, Sparkles, Check, Info
 } from "lucide-react";
-import { sarthiAudio } from "@/utils/audio";
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -23,7 +22,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
 
   // Settings states
   const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
-  const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Profile Form states
   const [name, setName] = useState("");
@@ -43,7 +41,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
       setActiveTab(initialTab);
       setSuccess(false);
       setError("");
-      setSoundEnabled(!sarthiAudio.isMuted());
       const savedModel = localStorage.getItem("sarthi_gemini_model") || "gemini-2.5-flash";
       setSelectedModel(savedModel);
       
@@ -102,16 +99,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
     
     try {
       localStorage.setItem("sarthi_gemini_model", selectedModel);
-      if (soundEnabled && sarthiAudio.isMuted()) {
-        sarthiAudio.toggleMute();
-      } else if (!soundEnabled && !sarthiAudio.isMuted()) {
-        sarthiAudio.toggleMute();
-      }
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
       }, 1500);
-      sarthiAudio.playClick();
     } catch (err) {
       setError("Failed to save settings.");
     } finally {
@@ -373,34 +364,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
                       <span className="text-[9px] text-stone-400 block leading-normal">
                         Choose the orchestration model used by Sarthi to compose blueprints and assemble codebase structures.
                       </span>
-                    </div>
-
-                    {/* Sound Effects Toggle */}
-                    <div className="flex items-center justify-between p-4 bg-white border border-stone-200 rounded-2xl shadow-sm transition-all hover:border-indigo-100/50">
-                      <div className="space-y-0.5 max-w-[80%]">
-                        <label className="text-xs font-bold text-stone-850 flex items-center gap-1.5">
-                          {soundEnabled ? <Volume2 className="w-4 h-4 text-amber-500" /> : <VolumeX className="w-4 h-4 text-stone-400" />}
-                          Sound Effects & Chimes
-                        </label>
-                        <span className="text-[10px] text-stone-500 block leading-relaxed font-semibold">
-                          Enable procedurally synthesized auditory chimes when starting tasks, reaching progress milestones, and on compilation finish.
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSoundEnabled(!soundEnabled)}
-                        className={`w-12 h-6.5 rounded-full p-0.5 transition-colors duration-250 ease-in-out outline-none cursor-pointer ${
-                          soundEnabled ? "bg-indigo-950" : "bg-stone-200"
-                        }`}
-                      >
-                        <div
-                          className={`w-5.5 h-5.5 rounded-full bg-white shadow-md transform transition-transform duration-250 ease-in-out flex items-center justify-center text-[9px] font-bold ${
-                            soundEnabled ? "translate-x-5.5 text-indigo-950" : "translate-x-0 text-stone-400"
-                          }`}
-                        >
-                          {soundEnabled ? "I" : "O"}
-                        </div>
-                      </button>
                     </div>
 
                   </div>

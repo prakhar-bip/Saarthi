@@ -676,8 +676,30 @@ async def generate_codebase(
     if mcp_evidence:
         mcp_prompt = f"\n\nMCP Evidence Data:\n{json.dumps(mcp_evidence, indent=2)}"
 
+    db_name = "MongoDB"
+    if architecture_context:
+        db_arch = architecture_context.get("db_architecture", {}) or {}
+        db_strat = db_arch.get("database_strategy", {}) or {}
+        primary_db = db_strat.get("primary_database")
+        if primary_db:
+            db_name = primary_db
+
+    if db_name.lower() in ["postgresql", "postgres", "sqlite", "mysql", "mariadb", "sql"]:
+        db_instructions = (
+            f"- Use {db_name} as the relational database. Use SQLAlchemy (or SQLModel) declarative base models with async engine mappings.\n"
+            f"- Include real {db_name} connection client code using SQLAlchemy and appropriate async drivers (e.g., asyncpg for PostgreSQL, aiosqlite for SQLite).\n"
+            f"- Do NOT use MongoDB queries or syntax; use standard SQL or ORM operations."
+        )
+        reqs_example = "fastapi\\nuvicorn\\nsqlalchemy\\nasyncpg\\naiosqlite\\npydantic\\npython-jose[cryptography]\\npasslib[bcrypt]\\ngoogle-genai\\npython-multipart\\npython-dotenv"
+    else:
+        db_instructions = (
+            "- Use MongoDB as the document database. Include real MongoDB connection client code using motor.\n"
+            "- Do not use MongoDB `$search` since it is not supported on standard local MongoDB docker instances. For local search, use `$text` or standard regex queries, or use `$vectorSearch` with Atlas embeddings if and only if Atlas is configured."
+        )
+        reqs_example = "fastapi\\nuvicorn\\nmotor\\npydantic\\npython-jose[cryptography]\\npasslib[bcrypt]\\ngoogle-genai\\npython-multipart\\npython-dotenv"
+
     prompt = f"""
-You are Sarthi AI compiler. You need to generate a high-fidelity production-ready codebase for a project using FastAPI (Python) for the backend and React/Next.js (TypeScript) for the frontend, with MongoDB as the database.
+You are Sarthi AI compiler. You need to generate a high-fidelity production-ready codebase for a project using FastAPI (Python) for the backend and React/Next.js (TypeScript) for the frontend, with {db_name} as the database.
 Project Name: {project_name}
 Category: {category}{theme_prompt}{blueprint_prompt}{theme_palette_prompt}{architecture_context_prompt}{hackathon_prompt}{mcp_prompt}
 Context/Chat History:
@@ -685,13 +707,22 @@ Context/Chat History:
 
 Generate a complete, fully functional, multi-file codebase structure separating backend (FastAPI) and frontend (Next.js/React).
 Honor the Connected Sarthi Agent Architecture Context as the source of truth:
-- Create backend files in `backend/` directory (e.g., `backend/app/main.py`, `backend/requirements.txt`, models, routes, session dependencies).
-- Create frontend files in `frontend/` directory (e.g., `frontend/src/app/page.tsx`, `frontend/package.json`, components, utilities).
+- Create backend files in `backend/` directory (e.g., `backend/requirements.txt`, `backend/app/main.py`, `backend/app/database.py`, `backend/app/models.py`, routes, etc.).
+- Create frontend files in `frontend/` directory (e.g., `frontend/package.json`, `frontend/tailwind.config.ts`, `frontend/src/app/globals.css`, `frontend/src/app/layout.tsx`, `frontend/src/app/page.tsx`, components, utilities).
 - Use declared entities, endpoints, pages, theme tokens, auth rules, and validation notes when present.
 - Keep names consistent across README, requirements, components, and routes.
 - Implement JWT authentication verification and role checks where required.
-- Include real MongoDB connection client code using motor.
+{db_instructions}
 - Include a real PDF viewer panel component and a secure JSON editor with client-side validation on the frontend.
+- When generating backend endpoints that call Gemini, use the new official `google-genai` SDK and call a valid, existing model like `gemini-2.5-flash` or `gemini-2.5-pro` (DO NOT use deprecated `google-generativeai` or fake models like `gemini-3.5-flash`). Example:
+  ```python
+  from google import genai
+  client = genai.Client()
+  response = client.models.generate_content(model="gemini-2.5-flash", contents="...")
+  ```
+- Ensure the frontend connects to the backend API endpoints (with authentication headers where required) instead of using static placeholder data.
+- Ensure there is an auth UI/page (like `/login` and `/signup` routes or modals) on the frontend that obtains the JWT token and uses it to authenticate subsequent API calls.
+
 Return your output ONLY as a valid JSON object. Do not include markdown code block syntax (like ```json ... ```). Just return the raw JSON.
 The JSON must follow this exact schema:
 {{
@@ -704,27 +735,33 @@ The JSON must follow this exact schema:
       "content": "# MarkDown content here..."
     }},
     {{
-      "name": "app.py",
-      "path": "app.py",
+      "name": "requirements.txt",
+      "path": "backend/requirements.txt",
+      "language": "plaintext",
+      "content": "{reqs_example}"
+    }},
+    {{
+      "name": "main.py",
+      "path": "backend/app/main.py",
       "language": "python",
-      "content": "Full Flask python application with routing and logic..."
+      "content": "Full FastAPI application with routing, database client setup and routers..."
     }},
     {{
-      "name": "index.html",
-      "path": "templates/index.html",
-      "language": "html",
-      "content": "Full HTML template using Tailwind CSS (via CDN) and custom styling..."
+      "name": "package.json",
+      "path": "frontend/package.json",
+      "language": "json",
+      "content": "Next.js frontend package.json dependencies..."
     }},
     {{
-      "name": "style.css",
-      "path": "static/style.css",
-      "language": "css",
-      "content": "CSS styling definitions matching the theme palette..."
+      "name": "page.tsx",
+      "path": "frontend/src/app/page.tsx",
+      "language": "typescript",
+      "content": "Fully functional React page rendering the dashboard and fetching backend API data..."
     }}
   ]
 }}
 
-Generate at least 4 files (README.md, app.py, templates/index.html, static/style.css). Make sure the HTML page has a beautiful UI layout, matching the color palette and styled with CSS.
+Generate at least 5 files including: README.md, backend/requirements.txt, backend/app/main.py, frontend/package.json, and frontend/src/app/page.tsx. Make sure the files are fully integrated and provide a cohesive, complete, functioning application without any TODO comments.
 """
     try:
         content = await get_llm_completion(

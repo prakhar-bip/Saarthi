@@ -7,7 +7,6 @@ import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
 import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
-import { sarthiAudio } from "@/utils/audio";
 
 // 28-agent pipeline sequence for Sarthi
 const agentPipeline = [
@@ -502,11 +501,6 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     if (activeProj?.status === "completed" && prevStatusRef.current === "generating") {
       setShowCelebration(true);
-      sarthiAudio.playSuccess();
-    } else if (activeProj?.status === "failed" && prevStatusRef.current === "generating") {
-      sarthiAudio.playFailure();
-    } else if (activeProj?.status === "generating" && prevStatusRef.current !== "generating") {
-      sarthiAudio.playMilestone();
     }
     prevStatusRef.current = activeProj?.status;
 
@@ -551,9 +545,6 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     if (terminalLogsRef.current) {
       terminalLogsRef.current.scrollTop = terminalLogsRef.current.scrollHeight;
-    }
-    if (activeProj?.status === "generating" && activeProj.progress > 0 && activeProj.progress < 100) {
-      sarthiAudio.playMilestone();
     }
   }, [activeProj?.progress, activeProj?.step]);
 
@@ -2016,7 +2007,6 @@ export const ProjectViewer: React.FC = () => {
                               onClick={() => {
                                 setSelectedVyuhNode(node);
                                 setHoveredVyuhNode(node);
-                                sarthiAudio.playClick();
                               }}
                               className={`w-full flex items-start gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer border ${
                                 isSel 
@@ -2210,7 +2200,6 @@ export const ProjectViewer: React.FC = () => {
                               onMouseLeave={() => setHoveredVyuhNode(null)}
                               onClick={() => {
                                 setSelectedVyuhNode(node);
-                                sarthiAudio.playClick();
                               }}
                             >
                               {/* Glow Halo */}
@@ -2348,7 +2337,6 @@ export const ProjectViewer: React.FC = () => {
                                       onClick={() => {
                                         setSelectedFile(file);
                                         setCompletedTab("files");
-                                        sarthiAudio.playClick();
                                       }}
                                       className="w-full flex items-center justify-between p-2.5 rounded-xl text-left border border-stone-200/50 bg-stone-50 hover:bg-indigo-50/40 hover:border-indigo-150 hover:text-indigo-950 transition-all text-stone-600 group cursor-pointer"
                                     >

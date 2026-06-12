@@ -216,7 +216,7 @@ Return ONLY valid JSON in this exact format:
                 entity_names.append(e["entity_name"])
 
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
 
         generated_routes = []
         router_modules = ["app/api/v1/auth.py"]

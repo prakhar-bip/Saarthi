@@ -236,7 +236,7 @@ Return ONLY valid JSON in this exact format:
                 entity_names.append(e["entity_name"])
         
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
 
         services = []
         repositories = []
@@ -279,8 +279,10 @@ Return ONLY valid JSON in this exact format:
             "service_generation": {
                 "generated_services": services,
                 "transactional_workflows": [
-                    "User signup workflow executing password hashing, unique check, database write, and JWT response generation.",
-                    "Portfolio allocation workflow modifying multiple asset records inside a single transaction boundary."
+                    "User signup workflow executing password hashing, unique check, database write, and JWT response generation."
+                ] + [
+                    f"Create {name} transaction workflow modifying records within database transaction boundaries."
+                    for name in entity_names if name != "User"
                 ],
                 "cross_service_dependencies": []
             },

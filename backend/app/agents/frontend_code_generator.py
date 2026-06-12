@@ -208,7 +208,7 @@ Return ONLY valid JSON in this exact format:
                 entity_names.append(e["entity_name"])
 
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
 
         app_routes = ["app/page.tsx", "app/layout.tsx", "app/globals.css", "app/login/page.tsx", "app/signup/page.tsx"]
         layout_modules = ["app/layout.tsx", "app/dashboard/layout.tsx"]

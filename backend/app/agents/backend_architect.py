@@ -162,44 +162,46 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
 
     def _get_fallback_backend_architecture(self, requirements: Dict[str, Any], planning: Dict[str, Any], db_architecture: Dict[str, Any]) -> Dict[str, Any]:
         overview = requirements.get("project_overview", {})
-        name = overview.get("name", "FinSight")
         tech_stack = requirements.get("tech_stack", {})
-        modules = requirements.get("core_modules", ["UserAuth", "Portfolio"])
+        modules = requirements.get("core_modules", ["UserAuth", "Core"])
         entities = db_architecture.get("entities", [])
         
-        # Check backend tech framework
+        entity_names = []
+        for ent in entities:
+            if isinstance(ent, str):
+                entity_names.append(ent)
+            elif isinstance(ent, dict) and ent.get("entity_name"):
+                entity_names.append(ent["entity_name"])
+                
+        if not entity_names:
+            entity_names = ["User", "Item"]
+
         be_list = tech_stack.get("backend", [])
         primary_framework = be_list[0] if be_list else "FastAPI"
         
-        # Build features and services mapping
         services = []
         repositories = []
         api_groups = []
         workflows = []
         
-        # Check realtime and task queues
-        realtime_needed = planning.get("realtime_architecture", {}).get("required", False)
-        async_needed = len(planning.get("risk_analysis", {}).get("optimization_suggestions", [])) > 0
-        
-        for ent in entities:
-            ent_name = ent.get("entity_name", "Core")
+        for name in entity_names:
             services.append({
-                "service_name": f"{ent_name}Service",
-                "responsibility": f"Executes core business operations and logic validation for {ent_name} domain.",
-                "dependencies": [f"{ent_name}Repository"]
+                "service_name": f"{name}Service",
+                "responsibility": f"Executes core business operations and logic validation for {name} domain.",
+                "dependencies": [f"{name}Repository"]
             })
-            repositories.append(f"{ent_name}Repository")
+            repositories.append(f"{name}Repository")
             api_groups.append({
-                "group_name": f"{ent_name} Endpoints",
-                "related_entities": [ent_name],
-                "priority": "High" if ent_name in ["User", "Auth"] else "Medium"
+                "group_name": f"{name} Endpoints",
+                "related_entities": [name],
+                "priority": "High" if name == "User" else "Medium"
             })
             workflows.append({
-                "workflow_name": f"Process {ent_name.lower()} logic",
+                "workflow_name": f"Process {name.lower()} logic",
                 "execution_flow": [
                     f"Validate request inputs.",
-                    f"Invoke {ent_name}Service processing actions.",
-                    f"Query and persist data using {ent_name}Repository.",
+                    f"Invoke {name}Service processing actions.",
+                    f"Query and persist data using {name}Repository.",
                     f"Generate response serialization models."
                 ]
             })
@@ -210,7 +212,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "architecture_style": "Feature-Folder modular MVC architecture.",
                 "backend_framework": f"{primary_framework} (Python Uvicorn)",
                 "execution_model": "Asynchronous event-loop execution mapping async/await calls.",
-                "scalability_model": "Stateless app configuration allowing multi-container horizontally scaled pods."
+                "scalability_model": "Stateless app configuration allowing horizontally scaled containers."
             },
             "backend_structure": {
                 "root_modules": ["core", "db", "api", "models", "services"],
@@ -226,72 +228,58 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             },
             "service_architecture": services,
             "repository_patterns": {
-                "pattern_type": "Repository and Unit of Work patterns for abstracting data layers.",
+                "pattern_type": "Repository pattern abstracting data access.",
                 "repositories": repositories
             },
             "middleware_architecture": [
                 {
                     "middleware": "CORSMiddleware",
-                    "purpose": "Allow cross-origin frontend requests from local dev servers."
+                    "purpose": "Allow cross-origin requests."
                 },
                 {
                     "middleware": "JWTAuthMiddleware",
-                    "purpose": "Intercept requests to protected API endpoints, validating auth bearer token values."
-                },
-                {
-                    "middleware": "LoggingAndErrorHandlingMiddleware",
-                    "purpose": "Intercept global exceptions to return standard JSON error payload wrappers."
+                    "purpose": "Intercept requests to protected routes to validate authorization tokens."
                 }
             ],
             "authentication_backend_flow": {
-                "auth_strategy": "OAuth2 Password Flow with Bearer Access and Refresh tokens.",
+                "auth_strategy": "OAuth2 Password Flow with Bearer JWT tokens.",
                 "protected_modules": [m.lower() for m in modules if m.lower() not in ["auth", "userauth"]],
                 "token_flow": [
-                    "User credentials received at POST /api/auth/login.",
-                    "Verify password hash match.",
-                    "Generate access token (24-hour expiration) and cryptographically signed refresh token.",
-                    "Return access token keys in standard JSON header."
+                    "User credentials received at login.",
+                    "Verify password hash.",
+                    "Generate and return cryptographically signed JWT token."
                 ],
-                "session_management": "Stateless session authentication with refresh token validations stored in cache memory."
+                "session_management": "Stateless session authentication."
             },
             "api_groupings": api_groups,
             "websocket_architecture": {
-                "required": realtime_needed,
-                "channels": ["ws/notifications", "ws/feed"] if realtime_needed else [],
-                "realtime_modules": [m for m in modules if "Realtime" in m or "Live" in m] or ["NotificationBroker"] if realtime_needed else []
+                "required": False,
+                "channels": [],
+                "realtime_modules": []
             },
             "async_task_architecture": {
-                "required": async_needed,
-                "background_jobs": ["Process auto round-up savings log", "Execute model portfolio optimizer"],
-                "queue_strategy": "Redis-backed background tasks queue running async workers."
+                "required": False,
+                "background_jobs": [],
+                "queue_strategy": "None"
             },
             "dependency_injection_strategy": {
                 "required": True,
-                "shared_dependencies": ["get_database_pool", "get_redis_client", "get_current_active_user"],
+                "shared_dependencies": ["get_db", "get_current_user"],
                 "service_bindings": [
-                    "Inject Repository class into Service layer constructor.",
-                    "Bind FastAPI router Dependencies directly into controller routes."
+                    "Inject Repository classes into Service layer constructors.",
+                    "Bind dependencies directly into controller routes."
                 ]
             },
             "backend_workflows": workflows,
             "scalability_architecture": {
-                "microservice_ready": True,
+                "microservice_ready": False,
                 "horizontal_scaling": True,
-                "high_load_modules": ["Transaction", "RoundupApi"] if async_needed else ["MainApi"],
-                "optimization_targets": ["Redis caching targets for heavy dashboard aggregation metrics API calls."]
+                "high_load_modules": [],
+                "optimization_targets": []
             },
             "future_agent_context": {
-                "important_notes_for_api_agents": [
-                    "Map routes using Pydantic serialization models to ensure clean input validation.",
-                    "Document all routes using OpenAPI/Swagger models."
-                ],
-                "important_notes_for_frontend_agents": [
-                    "Write API helper hooks referencing the API endpoint routing groupings.",
-                    "Utilize standard HTTP response wrappers for error handling dialogues."
-                ],
-                "important_notes_for_devops_agents": [
-                    "Configure multi-stage Docker build files optimizing dependencies sizing.",
-                    "Register environment settings variables mapping database pools size values."
-                ]
+                "important_notes_for_api_agents": ["Map routes using Pydantic serializers."],
+                "important_notes_for_frontend_agents": ["Inject authorization tokens on requests."],
+                "important_notes_for_devops_agents": ["Expose standard ports in Docker configs."]
             }
         }

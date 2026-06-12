@@ -158,16 +158,12 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
         db_architecture: Dict[str, Any], 
         backend_architecture: Dict[str, Any]
     ) -> Dict[str, Any]:
-        # Extract features and entities
         overview = requirements.get("project_overview", {})
-        name = overview.get("name", "FinSight")
         tech_stack = requirements.get("tech_stack", {})
-        entities = db_architecture.get("entities", [])
+        entities = db_architecture.get("entities", []) if db_architecture else []
         
-        # Build endpoints based on database entities
         endpoints = []
         
-        # 1. Login/Signup endpoint if authentication is active
         auth_req = requirements.get("authentication", {}).get("required", True)
         if auth_req:
             endpoints.append({
@@ -193,7 +189,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "group_name": "Authentication API",
                 "path": "/api/v1/auth/login",
                 "method": "POST",
-                "description": "Verifies password and issues JWT token credentials.",
+                "description": "Verifies password and issues JWT tokens.",
                 "request_body": {
                     "email": { "type": "string", "format": "email", "required": True },
                     "password": { "type": "string", "required": True }
@@ -209,17 +205,19 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "roles_allowed": []
             })
 
-        # 2. CRUD routes for entities
         for ent in entities:
-            ent_name = ent.get("entity_name", "Core")
+            ent_name = ent.get("entity_name", "Core") if isinstance(ent, dict) else ent
             ent_lower = ent_name.lower()
             
-            # List entities route
+            # Skip User if we already did Auth signup/login above
+            if ent_name == "User" and auth_req:
+                continue
+
             endpoints.append({
                 "group_name": f"{ent_name} API",
                 "path": f"/api/v1/{ent_lower}s",
                 "method": "GET",
-                "description": f"Retrieves a list of {ent_name} records filtered by query options.",
+                "description": f"Retrieves a list of {ent_name} records.",
                 "request_body": {},
                 "query_parameters": [
                     { "name": "limit", "type": "integer", "required": False, "default": 20 },
@@ -229,13 +227,13 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                     "status": "success",
                     f"{ent_lower}s": "array"
                 },
-                "requires_auth": auth_req and ent_name != "User",
+                "requires_auth": auth_req,
                 "roles_allowed": []
             })
 
-            # Create entity route
             fields_creation = {}
-            for f in ent.get("fields", []):
+            fields_list = ent.get("fields", []) if isinstance(ent, dict) else []
+            for f in fields_list:
                 if f.get("name") not in ["id", "created_at", "updated_at"]:
                     fields_creation[f.get("name")] = {
                         "type": f.get("type", "string").lower(),
@@ -252,18 +250,17 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "response_payload": {
                     "status": "success",
                     "id": "string",
-                    "message": f"{ent_name} record created successfully."
+                    "message": f"{ent_name} created successfully."
                 },
                 "requires_auth": auth_req,
                 "roles_allowed": []
             })
 
-            # Get specific entity route
             endpoints.append({
                 "group_name": f"{ent_name} API",
                 "path": f"/api/v1/{ent_lower}s/{{id}}",
                 "method": "GET",
-                "description": f"Fetches details of a single {ent_name} by unique identifier.",
+                "description": f"Fetches details of a single {ent_name}.",
                 "request_body": {},
                 "query_parameters": [],
                 "response_payload": {
@@ -274,12 +271,11 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "roles_allowed": []
             })
 
-            # Delete specific entity route
             endpoints.append({
                 "group_name": f"{ent_name} API",
                 "path": f"/api/v1/{ent_lower}s/{{id}}",
                 "method": "DELETE",
-                "description": f"Deletes a specific {ent_name} record.",
+                "description": f"Deletes a specific {ent_name}.",
                 "request_body": {},
                 "query_parameters": [],
                 "response_payload": {
@@ -303,7 +299,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "cors_policy": {
                     "allowed_origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
                     "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                    "allowed_headers": ["Content-Type", "Authorization", "X-Requested-With"]
+                    "allowed_headers": ["Content-Type", "Authorization"]
                 },
                 "rate_limiting": {
                     "rate_limit_enabled": True,
@@ -328,25 +324,16 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                     }
                 },
                 "error_codes": [
-                    { "code": "UNAUTHORIZED", "http_status": 401, "message": "Access credential headers are missing or expired." },
-                    { "code": "FORBIDDEN", "http_status": 403, "message": "You do not have privilege to execute this action." },
-                    { "code": "NOT_FOUND", "http_status": 404, "message": "Requested database entity record was not found." },
-                    { "code": "VALIDATION_FAILED", "http_status": 422, "message": "Request validation rule checks failed." },
-                    { "code": "INTERNAL_SERVER_ERROR", "http_status": 500, "message": "An unexpected error occurred during execution." }
+                    { "code": "UNAUTHORIZED", "http_status": 401, "message": "Access headers missing or invalid." },
+                    { "code": "FORBIDDEN", "http_status": 403, "message": "Insufficient privileges." },
+                    { "code": "NOT_FOUND", "http_status": 404, "message": "Resource not found." },
+                    { "code": "VALIDATION_FAILED", "http_status": 422, "message": "Request validation failed." },
+                    { "code": "INTERNAL_SERVER_ERROR", "http_status": 500, "message": "Internal server error." }
                 ]
             },
             "future_agent_context": {
-                "important_notes_for_frontend_agents": [
-                    "Construct API helper functions mappings using path variables matching group routing structures.",
-                    "Verify Authorization header is set on all endpoints requires_auth = true."
-                ],
-                "important_notes_for_backend_agents": [
-                    "Decorate endpoint routers with Dependency injection checking token requirements.",
-                    "Return standardized JSON models for exception/validation errors."
-                ],
-                "important_notes_for_devops_agents": [
-                    "Expose routing ports in docker-compose configs matching frontend cors configurations.",
-                    "Set rate-limiting threshold variables via deployment environment settings."
-                ]
+                "important_notes_for_frontend_agents": ["Match client actions to grouping paths."],
+                "important_notes_for_backend_agents": ["Decorate routes with authentication checks."],
+                "important_notes_for_devops_agents": ["Expose matching ports in routing rules."]
             }
         }

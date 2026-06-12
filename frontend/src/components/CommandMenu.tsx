@@ -7,9 +7,8 @@ import { useWorkspace, API_BASE } from "@/context/WorkspaceContext";
 import { 
   Search, Terminal, User, HelpCircle, Settings, X, Play, 
   ChevronRight, ArrowRight, FolderGit2, Sidebar as SidebarIcon,
-  PanelRight, Keyboard, Database, Sparkles, Volume2
+  PanelRight, Keyboard, Database, Sparkles
 } from "lucide-react";
-import { sarthiAudio } from "@/utils/audio";
 
 export const CommandMenu: React.FC = () => {
   const {
@@ -44,7 +43,6 @@ export const CommandMenu: React.FC = () => {
         setIsOpen((prev) => !prev);
         setSearchQuery("");
         setSelectedIndex(0);
-        sarthiAudio.playClick();
       }
       if (e.key === "Escape" && isOpen) {
         setIsOpen(false);
@@ -197,17 +195,14 @@ export const CommandMenu: React.FC = () => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) => (prev + 1) % Math.max(1, filteredItems.length));
-      sarthiAudio.playClick();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % Math.max(1, filteredItems.length));
-      sarthiAudio.playClick();
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (filteredItems[selectedIndex]) {
         filteredItems[selectedIndex].action();
         setIsOpen(false);
-        sarthiAudio.playClick();
       }
     }
   };
@@ -266,7 +261,6 @@ export const CommandMenu: React.FC = () => {
                     onClick={() => {
                       item.action();
                       setIsOpen(false);
-                      sarthiAudio.playClick();
                     }}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     className={`w-full flex items-center justify-between p-3 rounded-2xl text-left transition-all outline-none border border-transparent cursor-pointer ${

@@ -42,58 +42,6 @@ export const DivineCelebration: React.FC<DivineCelebrationProps> = ({ onComplete
   const [show, setShow] = useState(true);
 
   useEffect(() => {
-    // Play a divine, magical chord using Web Audio API
-    const playDivineSound = () => {
-      try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
-        
-        // A majestic, resonant chord (C Major with octaves)
-        const frequencies = [261.63, 329.63, 392.00, 523.25]; 
-        
-        frequencies.forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, ctx.currentTime);
-          
-          gain.gain.setValueAtTime(0, ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.3 - (i * 0.05), ctx.currentTime + 0.1);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.5);
-          
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          
-          osc.start();
-          osc.stop(ctx.currentTime + 4.5);
-        });
-
-        // Magical sweep effect (Swarna particles sound)
-        const sweep = ctx.createOscillator();
-        const sweepGain = ctx.createGain();
-        sweep.type = "triangle";
-        sweep.frequency.setValueAtTime(600, ctx.currentTime);
-        sweep.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 2.0);
-        
-        sweepGain.gain.setValueAtTime(0, ctx.currentTime);
-        sweepGain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.2);
-        sweepGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5);
-        
-        sweep.connect(sweepGain);
-        sweepGain.connect(ctx.destination);
-        
-        sweep.start();
-        sweep.stop(ctx.currentTime + 2.5);
-        
-      } catch (e) {
-        console.log("Audio playback failed", e);
-      }
-    };
-
-    playDivineSound();
-
     // Show celebration for exactly 5 seconds, then unmount
     const timer = setTimeout(() => {
       setShow(false);

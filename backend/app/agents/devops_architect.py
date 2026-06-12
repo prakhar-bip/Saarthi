@@ -209,6 +209,8 @@ Return ONLY valid JSON in this exact format:
         fe_port = "3000:3000" if "next" in fe_framework.lower() else "5173:5173"
         be_port = "8000:8000"
 
+        db_env = "DATABASE_URL" if primary_db.lower() in ["postgresql", "sqlite", "mysql"] else "MONGODB_URI"
+
         # Docker Container List
         service_containers = [
             {
@@ -221,7 +223,7 @@ Return ONLY valid JSON in this exact format:
                 "name": "backend",
                 "image": "python:3.11-slim",
                 "ports": [be_port],
-                "env_vars": ["MONGODB_URI", "REDIS_HOST", "JWT_SECRET", "NODE_ENV"]
+                "env_vars": [db_env, "REDIS_HOST", "JWT_SECRET", "NODE_ENV"]
             }
         ]
 

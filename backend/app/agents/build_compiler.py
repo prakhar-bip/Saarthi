@@ -215,11 +215,24 @@ class BuildCompilationAgent:
                 entity_names.append(e["entity_name"])
 
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
+
+        db_strategy = db_architecture.get("database_strategy", {}) if db_architecture else {}
+        primary_db = db_strategy.get("primary_database", "PostgreSQL")
+        is_sql = primary_db.lower() in ["postgresql", "sqlite", "mysql"]
+
+        if is_sql:
+            db_dep = "sqlalchemy>=2.0.0"
+            db_uri = f"{primary_db.upper()}_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/dbname"
+            db_secret = f"{primary_db.upper()}_URL"
+        else:
+            db_dep = "pymongo>=4.3.3"
+            db_uri = "MONGODB_URI=mongodb://localhost:27017"
+            db_secret = "MONGODB_URI"
 
         backend_structure = ["app/main.py", "app/core/config.py", "app/db/session.py"]
         frontend_structure = ["app/page.tsx", "app/layout.tsx", "app/globals.css"]
-        resolved_dependencies = ["fastapi>=0.100.0", "uvicorn>=0.22.0", "pydantic>=2.0", "pymongo>=4.3.3", "react>=18.2.0", "zustand>=4.3.8", "swr>=2.2.0"]
+        resolved_dependencies = ["fastapi>=0.100.0", "uvicorn>=0.22.0", "pydantic>=2.0", db_dep, "react>=18.2.0", "zustand>=4.3.8", "swr>=2.2.0"]
         api_runtime_integrations = ["HTTP REST integrations bridging CORS APIs"]
         event_runtime_flows = []
         compilation_integrity_rules = ["All typescript packages compile with zero --noEmit warnings", "Python routes match router definitions"]
@@ -267,9 +280,9 @@ class BuildCompilationAgent:
                 "realtime_runtime_integrations": ["Websocket subscriptions synching dashboard store models"]
             },
             "configuration_assembly": {
-                "environment_configs": ["VITE_API_URL=http://localhost:8000", "MONGODB_URI=mongodb://localhost:27017"],
+                "environment_configs": ["VITE_API_URL=http://localhost:8000", db_uri],
                 "runtime_configs": ["next.config.js", "tsconfig.json", "requirements.txt"],
-                "secret_runtime_dependencies": ["JWT_SECRET", "MONGODB_URI"]
+                "secret_runtime_dependencies": ["JWT_SECRET", db_secret]
             },
             "realtime_compilation": {
                 "websocket_runtime_systems": ["Websocket router mapping channels"],

@@ -210,7 +210,7 @@ class IntegrationGenerationAgent:
                 entity_names.append(e["entity_name"])
 
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            entity_names = ["User", "Item"]
 
         api_bindings = []
         service_integrations = []

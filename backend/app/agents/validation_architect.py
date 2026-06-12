@@ -202,7 +202,7 @@ Return ONLY valid JSON in this exact format:
                 validated_entities.append(name)
 
         if not validated_entities:
-            validated_entities = ["User", "Portfolio", "Asset", "Transaction"]
+            validated_entities = ["User", "Item"]
 
         # Validate Router contracts
         endpoints = []
@@ -218,11 +218,12 @@ Return ONLY valid JSON in this exact format:
             validated_routes = ["/api/v1/auth/signup", "/api/v1/auth/login", "/api/v1/projects"]
 
         # Validate Relationships
-        validated_relationships = [
-            "User (1) has many Portfolios (N)",
-            "Portfolio (1) contains many Assets (N)",
-            "User (1) records many Transactions (N)"
-        ]
+        validated_relationships = []
+        if len(validated_entities) > 1:
+            for entity in validated_entities[1:]:
+                validated_relationships.append(f"{validated_entities[0]} (1) has many {entity}s (N)")
+        else:
+            validated_relationships = [f"{validated_entities[0]} self-referencing relationship"]
 
         # Auth flows validation
         validated_auth_flows = ["JWT login token validation loop", "Stateless bearer header validations"]

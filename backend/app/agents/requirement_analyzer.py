@@ -125,27 +125,64 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             return enrich_agent_output(self._get_fallback_requirements(blueprint, theme), self.agent_name, agent_inputs)
 
     def _get_fallback_requirements(self, blueprint: Dict[str, Any], theme: Optional[str] = None) -> Dict[str, Any]:
-        name = blueprint.get("name", "FinSight")
-        idea = blueprint.get("idea", "")
+        name = blueprint.get("name", "Saarthi Project")
+        idea = blueprint.get("idea", "A customized Sarthi application.")
         features = blueprint.get("features", [])
-        tech_stack = blueprint.get("tech_stack", "")
+        tech_stack_str = blueprint.get("tech_stack", "")
 
-        frontend = ["React", "Next.js", "Tailwind CSS"]
+        # Try to infer some parameters from tech_stack_str
+        tech_lower = tech_stack_str.lower() if tech_stack_str else ""
+        
+        frontend = ["React", "Tailwind CSS"]
+        if "next" in tech_lower:
+            frontend.append("Next.js")
+        
         backend = ["FastAPI", "Python", "Uvicorn"]
+        if "django" in tech_lower:
+            backend = ["Django", "Python"]
+        elif "express" in tech_lower or "node" in tech_lower:
+            backend = ["Express", "Node.js"]
+
         database = ["MongoDB"]
-        ai_tools = []
-        db_req = {"required": True, "entities": ["User", "Item"], "storage_type": "Document"}
+        if "postgres" in tech_lower:
+            database = ["PostgreSQL"]
+        elif "mysql" in tech_lower:
+            database = ["MySQL"]
+        elif "sqlite" in tech_lower:
+            database = ["SQLite"]
+
+        db_type = "Document"
+        if any(db in tech_lower for db in ["postgres", "mysql", "sqlite", "sql"]):
+            db_type = "Relational"
 
         feature_identifiers = []
+        core_modules = ["Authentication"]
         for f in features:
-            fid = f.lower().replace(" ", "_").replace("-", "_").replace(",", "")
-            feature_identifiers.append(fid[:30])
+            fid = f.lower().replace(" ", "_").replace("-", "_").replace(",", "")[:30]
+            feature_identifiers.append(fid)
+            # Infer a module name in PascalCase
+            words = [w.capitalize() for w in f.replace("-", " ").replace("_", " ").split() if w]
+            module_name = "".join(words)[:20]
+            if module_name and module_name not in core_modules and len(module_name) > 3:
+                core_modules.append(module_name)
+        
+        if not feature_identifiers:
+            feature_identifiers = ["dashboard_view", "user_profile"]
+            core_modules.append("Dashboard")
+
+        db_req = {
+            "required": True,
+            "entities": [m for m in core_modules if m != "Authentication"],
+            "storage_type": db_type
+        }
+        if not db_req["entities"]:
+            db_req["entities"] = ["Item"]
 
         return {
             "status": "success",
             "project_overview": {
                 "name": name,
-                "type": "Fintech / Micro-investment SaaS",
+                "type": "Custom Application",
                 "description": idea,
                 "complexity": "Medium"
             },
@@ -153,35 +190,34 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "frontend": frontend,
                 "backend": backend,
                 "database": database,
-                "ai_tools": ai_tools,
-                "deployment": ["Docker", "Vercel / Render"]
+                "ai_tools": ["LangChain"] if "ai" in tech_lower or "gemini" in tech_lower else [],
+                "deployment": ["Docker"]
             },
             "theme": {
                 "design_style": theme or "Minimal Slate",
                 "ui_type": "Dashboard",
-                "special_effects": ["Smooth transitions", "Animated progress circles"]
+                "special_effects": ["Smooth transitions"]
             },
             "features": feature_identifiers,
-            "core_modules": ["Authentication", "Portfolio Management", "AI Recommendations", "Gamified Learning"],
+            "core_modules": core_modules,
             "authentication": {
                 "required": True,
                 "type": "JWT Session Auth"
             },
             "database_requirements": db_req,
-            "api_integrations": ["ETF pricing feeds"],
+            "api_integrations": [],
             "scalability": {
-                "realtime_features": False,
+                "realtime_features": "websocket" in tech_lower or "socket" in tech_lower,
                 "high_scalability_needed": False,
                 "microservices_ready": False
             },
             "project_workflow_summary": [
-                "User authenticates and completes AI-driven risk assessment",
-                "App suggests personalized portfolio allocation using Python and Scikit-learn",
-                "User configures micro-savings to auto-convert into diversified ETFs",
-                "User participates in gamified educational challenges and tracks leaderboard points"
+                "User logs in and authenticates.",
+                f"User navigates to the dashboard of {name}.",
+                "User interacts with core features and views real-time data integrations."
             ],
             "recommendations": [
-                "Use a secure banking aggregator API like Plaid for micro-savings auto-conversion",
-                "Implement robust encryption for portfolios and user financial data"
+                "Implement secure encryption for passwords and user profiles.",
+                "Ensure proper error boundaries are set up on the frontend."
             ]
         }

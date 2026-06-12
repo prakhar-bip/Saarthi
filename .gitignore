@@ -82,3 +82,11 @@ recovered_code.txt
 env.yaml
 backend/env.yaml
 
+# ==========================================
+# 7. Local Agent Scratch & Artifacts
+# ==========================================
+brain/
+backend/scratch/
+scratch/
+
+

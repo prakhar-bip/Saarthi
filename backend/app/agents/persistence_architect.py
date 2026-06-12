@@ -240,7 +240,10 @@ Return ONLY valid JSON in this exact format:
                 entity_names.append(entity["entity_name"])
         
         if not entity_names:
-            entity_names = ["User", "Portfolio", "Asset", "Transaction"]
+            req_entities = requirements.get("database_requirements", {}).get("entities", []) if requirements else []
+            entity_names = [e for e in req_entities if e]
+        if not entity_names:
+            entity_names = ["User", "Item"]
 
         generated_models = []
         foreign_keys = []
@@ -257,59 +260,36 @@ Return ONLY valid JSON in this exact format:
             if name == "User":
                 fields.append({"name": "email", "type": "String(255)", "primary_key": False, "nullable": False, "default": None})
                 fields.append({"name": "hashed_password", "type": "String(255)", "primary_key": False, "nullable": False, "default": None})
-            elif name == "Portfolio":
-                fields.append({"name": "name", "type": "String(100)", "primary_key": False, "nullable": False, "default": None})
-                fields.append({"name": "user_id", "type": "UUID", "primary_key": False, "nullable": False, "default": None})
-                foreign_keys.append({
-                    "constrained_table": "portfolios",
-                    "constrained_column": "user_id",
-                    "referenced_table": "users",
-                    "referenced_column": "id",
-                    "on_delete": "CASCADE"
-                })
-            elif name == "Asset":
-                fields.append({"name": "symbol", "type": "String(10)", "primary_key": False, "nullable": False, "default": None})
-                fields.append({"name": "portfolio_id", "type": "UUID", "primary_key": False, "nullable": False, "default": None})
-                foreign_keys.append({
-                    "constrained_table": "assets",
-                    "constrained_column": "portfolio_id",
-                    "referenced_table": "portfolios",
-                    "referenced_column": "id",
-                    "on_delete": "CASCADE"
-                })
-            elif name == "Transaction":
-                fields.append({"name": "amount", "type": "Numeric(12, 2)", "primary_key": False, "nullable": False, "default": None})
-                fields.append({"name": "asset_id", "type": "UUID", "primary_key": False, "nullable": False, "default": None})
-                foreign_keys.append({
-                    "constrained_table": "transactions",
-                    "constrained_column": "asset_id",
-                    "referenced_table": "assets",
-                    "referenced_column": "id",
-                    "on_delete": "CASCADE"
-                })
+            else:
+                fields.append({"name": "name", "type": "String(255)", "primary_key": False, "nullable": False, "default": None})
+                if "User" in entity_names:
+                    fields.append({"name": "user_id", "type": "UUID", "primary_key": False, "nullable": True, "default": None})
+                    foreign_keys.append({
+                        "constrained_table": tbl_name,
+                        "constrained_column": "user_id",
+                        "referenced_table": "users",
+                        "referenced_column": "id",
+                        "on_delete": "CASCADE"
+                    })
 
             relationships = []
             if name == "User":
-                relationships.append({
-                    "target_model": "Portfolio",
-                    "relationship_type": "one-to-many",
-                    "backref": "user",
-                    "cascade": "all, delete-orphan"
-                })
-            elif name == "Portfolio":
-                relationships.append({
-                    "target_model": "Asset",
-                    "relationship_type": "one-to-many",
-                    "backref": "portfolio",
-                    "cascade": "all, delete-orphan"
-                })
-            elif name == "Asset":
-                relationships.append({
-                    "target_model": "Transaction",
-                    "relationship_type": "one-to-many",
-                    "backref": "asset",
-                    "cascade": "all, delete-orphan"
-                })
+                for other in entity_names:
+                    if other != "User":
+                        relationships.append({
+                            "target_model": other,
+                            "relationship_type": "one-to-many",
+                            "backref": "user",
+                            "cascade": "all, delete-orphan"
+                        })
+            else:
+                if "User" in entity_names:
+                    relationships.append({
+                        "target_model": "User",
+                        "relationship_type": "many-to-one",
+                        "backref": tbl_name,
+                        "cascade": ""
+                    })
 
             indexes = []
             if name == "User":
@@ -339,10 +319,9 @@ Return ONLY valid JSON in this exact format:
 
         migration_groups = [f"{name.lower()}s_migration" for name in entity_names]
         dependency_order = []
-        # Ensure User migration runs before Portfolio, Portfolio before Asset, etc.
-        for item in ["User", "Portfolio", "Asset", "Transaction"]:
-            if item in entity_names:
-                dependency_order.append(f"{item.lower()}s_migration")
+        # Ensure User migration runs before dependent ones
+        if "User" in entity_names:
+            dependency_order.append("users_migration")
         for item in entity_names:
             grp = f"{item.lower()}s_migration"
             if grp not in dependency_order:
@@ -361,9 +340,8 @@ Return ONLY valid JSON in this exact format:
                 "foreign_keys": foreign_keys,
                 "many_to_many_mappings": [],
                 "cascade_rules": [
-                    "User cascades delete-orphan to Portfolio.",
-                    "Portfolio cascades delete-orphan to Asset.",
-                    "Asset cascades delete-orphan to Transaction."
+                    f"User cascades delete-orphan to {e}."
+                    for e in entity_names if e != "User"
                 ]
             },
             "migration_generation": {
@@ -396,8 +374,8 @@ Return ONLY valid JSON in this exact format:
             },
             "optimization_generation": {
                 "index_generation_targets": ["idx_users_email"],
-                "cache_compatible_models": ["User", "Portfolio"],
-                "high_frequency_models": ["Transaction"]
+                "cache_compatible_models": [e for e in entity_names if e in ["User", "Item"]] or ["User"],
+                "high_frequency_models": [e for e in entity_names if e != "User"] or ["Item"]
             },
             "generation_dependencies": {
                 "blocking_models": ["User"],

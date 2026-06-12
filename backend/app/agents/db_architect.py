@@ -167,65 +167,48 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             return enrich_agent_output(self._get_fallback_db_architecture(requirements, planning), self.agent_name, agent_inputs)
 
     def _get_fallback_db_architecture(self, requirements: Dict[str, Any], planning: Dict[str, Any]) -> Dict[str, Any]:
-        realtime_req = planning.get("realtime_architecture", {}).get("required", False)
         overview = requirements.get("project_overview", {})
-        name = overview.get("name", "FinSight")
         tech_stack = requirements.get("tech_stack", {})
         db_req = requirements.get("database_requirements", {})
-        entities = db_req.get("entities", ["User", "Portfolio", "Asset", "Transaction"])
+        entities = db_req.get("entities", ["User", "Item"])
         
-        # Detect database type
         db_list = tech_stack.get("database", [])
-        primary_db = db_list[0] if db_list else "PostgreSQL"
+        primary_db = db_list[0] if db_list else "MongoDB"
         
-        cache = "None"
-        for tech in tech_stack.get("backend", []) + tech_stack.get("database", []):
-            if "redis" in tech.lower():
-                cache = "Redis"
-                
-        # Detect if SQL
-        is_sql = "postgre" in primary_db.lower() or "mysql" in primary_db.lower() or "sqlite" in primary_db.lower()
+        is_sql = any(db in primary_db.lower() for db in ["postgre", "mysql", "sqlite", "sql"])
         entity_type = "Table" if is_sql else "Collection"
         id_type = "UUID" if is_sql else "ObjectID"
         
-        fields_map = {
-            "User": [
-                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()"},
-                {"name": "email", "type": "String", "required": True, "unique": True, "indexed": True, "default": None},
-                {"name": "password_hash", "type": "String", "required": True, "unique": False, "indexed": False, "default": None},
-                {"name": "name", "type": "String", "required": True, "unique": False, "indexed": False, "default": None},
-                {"name": "created_at", "type": "DateTime", "required": True, "unique": False, "indexed": False, "default": "Now()"}
-            ],
-            "Portfolio": [
-                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()"},
-                {"name": "user_id", "type": id_type, "required": True, "unique": False, "indexed": True, "default": None},
-                {"name": "name", "type": "String", "required": True, "unique": False, "indexed": False, "default": "'Default Portfolio'"},
-                {"name": "risk_score", "type": "Integer", "required": False, "unique": False, "indexed": False, "default": "5"},
-                {"name": "created_at", "type": "DateTime", "required": True, "unique": False, "indexed": False, "default": "Now()"}
-            ],
-            "Asset": [
-                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()"},
-                {"name": "portfolio_id", "type": id_type, "required": True, "unique": False, "indexed": True, "default": None},
-                {"name": "ticker", "type": "String", "required": True, "unique": False, "indexed": True, "default": None},
-                {"name": "shares", "type": "Decimal", "required": True, "unique": False, "indexed": False, "default": "0.0"},
-                {"name": "avg_buy_price", "type": "Decimal", "required": True, "unique": False, "indexed": False, "default": "0.0"}
-            ],
-            "Transaction": [
-                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()"},
-                {"name": "user_id", "type": id_type, "required": True, "unique": False, "indexed": True, "default": None},
-                {"name": "amount", "type": "Decimal", "required": True, "unique": False, "indexed": False, "default": None},
-                {"name": "type", "type": "String", "required": True, "unique": False, "indexed": False, "default": None},
-                {"name": "timestamp", "type": "DateTime", "required": True, "unique": False, "indexed": True, "default": "Now()"}
-            ]
-        }
-        
         fallback_entities = []
+        relationships = []
+        
+        # Always ensure User is present if auth is required
+        auth_req = requirements.get("authentication", {}).get("required", True)
+        if auth_req and "User" not in entities:
+            entities = ["User"] + [e for e in entities if e != "User"]
+
         for ent in entities:
-            fields = fields_map.get(ent, [
-                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()"},
-                {"name": "name", "type": "String", "required": True, "unique": False, "indexed": False, "default": None},
+            fields = [
+                {"name": "id", "type": id_type, "required": True, "unique": True, "indexed": True, "default": "GenUUID()" if is_sql else None},
                 {"name": "created_at", "type": "DateTime", "required": True, "unique": False, "indexed": False, "default": "Now()"}
-            ])
+            ]
+            
+            if ent == "User":
+                fields.append({"name": "email", "type": "String", "required": True, "unique": True, "indexed": True, "default": None})
+                fields.append({"name": "password_hash", "type": "String", "required": True, "unique": False, "indexed": False, "default": None})
+                fields.append({"name": "name", "type": "String", "required": True, "unique": False, "indexed": False, "default": None})
+            else:
+                fields.append({"name": "name", "type": "String", "required": True, "unique": False, "indexed": False, "default": None})
+                if auth_req and "User" in entities:
+                    # Link to user
+                    fields.append({"name": "user_id", "type": id_type, "required": True, "unique": False, "indexed": True, "default": None})
+                    relationships.append({
+                        "from_entity": "User",
+                        "to_entity": ent,
+                        "relationship_type": "One-to-Many",
+                        "description": f"A user can own multiple {ent} records."
+                    })
+            
             fallback_entities.append({
                 "entity_name": ent,
                 "entity_type": entity_type,
@@ -233,109 +216,61 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 "fields": fields
             })
             
-        relationships = [
-            {
-                "from_entity": "User",
-                "to_entity": "Portfolio",
-                "relationship_type": "One-to-Many",
-                "description": "A user can have multiple investment portfolios."
-            },
-            {
-                "from_entity": "Portfolio",
-                "to_entity": "Asset",
-                "relationship_type": "One-to-Many",
-                "description": "A portfolio owns multiple asset holdings."
-            },
-            {
-                "from_entity": "User",
-                "to_entity": "Transaction",
-                "relationship_type": "One-to-Many",
-                "description": "A user records multiple micro-savings transactions."
-            }
-        ]
-
         return {
             "status": "success",
             "database_strategy": {
                 "primary_database": primary_db,
                 "secondary_databases": [],
-                "cache_layer": "Redis" if cache == "Redis" else "None",
+                "cache_layer": "Redis" if any("redis" in str(t).lower() for t in tech_stack.get("backend", []) + tech_stack.get("database", [])) else "None",
                 "vector_database": "None",
                 "database_reasoning": [
-                    f"Selected {primary_db} to provide robust transaction handling and data integrity.",
-                    "Configured Redis cache target tables to ensure fast dashboard rendering."
+                    f"Selected {primary_db} to match requirements.",
+                    "Configured schemas based on project entity requirements."
                 ]
             },
             "entities": fallback_entities,
             "relationships": relationships,
             "authentication_storage": {
-                "required": True,
-                "auth_entities": ["User"],
-                "security_requirements": [
-                    "Bcrypt hashing for user password storage.",
-                    "Enable SSL verification for active database pool."
-                ],
-                "token_storage_strategy": "Store refresh tokens in Redis with 24-hour expiration."
+                "required": auth_req,
+                "auth_entities": ["User"] if auth_req else [],
+                "security_requirements": ["Bcrypt hashing for user credentials."] if auth_req else [],
+                "token_storage_strategy": "Stateless client-side JWT with optional server-side session lookup."
             },
             "indexing_strategy": {
-                "indexes": [
-                    "idx_user_email",
-                    "idx_portfolio_user",
-                    "idx_transaction_timestamp"
-                ],
-                "search_optimization": [
-                    "Full-text search indexed on asset ticker names."
-                ],
+                "indexes": [f"idx_{e.lower()}_id" for e in entities],
+                "search_optimization": [],
                 "vector_indexes": []
             },
             "realtime_architecture": {
-                "required": realtime_req,
-                "sync_strategy": ["WebSocket pushes on Transaction insert and leaderboard rank update."] if realtime_req else [],
-                "event_driven_entities": ["Transaction"] if realtime_req else []
+                "required": False,
+                "sync_strategy": [],
+                "event_driven_entities": []
             },
             "scalability_strategy": {
                 "horizontal_scaling": True,
                 "sharding_required": False,
-                "high_write_load_entities": ["Transaction"],
-                "caching_targets": ["Portfolio holdings", "User session profile"]
+                "high_write_load_entities": [],
+                "caching_targets": []
             },
             "backend_integration_context": {
                 "important_models": [f"{e}Model" for e in entities],
-                "service_dependencies": ["Database Connection Pool", "Redis Client Pool"],
+                "service_dependencies": ["Database Connection Pool"],
                 "repository_patterns": [f"{e}Repository" for e in entities]
             },
             "api_integration_context": {
                 "crud_entities": entities,
                 "protected_entities": [e for e in entities if e != "User"],
-                "high_frequency_routes": [
-                    "GET /api/portfolios",
-                    "POST /api/transactions/roundup"
-                ]
+                "high_frequency_routes": []
             },
             "frontend_data_contracts": {
                 "stateful_entities": entities,
-                "realtime_entities": ["Transaction"],
-                "dashboard_entities": ["Portfolio", "Asset"]
+                "realtime_entities": [],
+                "dashboard_entities": entities
             },
-            "workflow_mappings": [
-                {
-                    "workflow": "User risk assessment submission",
-                    "database_interactions": ["Update risk_score in Portfolio table."]
-                },
-                {
-                    "workflow": "Micro-savings auto roundup",
-                    "database_interactions": ["Insert Transaction record.", "Increment Asset shares or balance."]
-                }
-            ],
+            "workflow_mappings": [],
             "future_agent_context": {
-                "important_notes_for_backend_agents": [
-                    "Use SQLAlchemy or Motor ORM/ODM models with lazy loading on assets relationship."
-                ],
-                "important_notes_for_api_agents": [
-                    "Add JWT validation to all endpoints querying Portfolio or holdings data."
-                ],
-                "important_notes_for_frontend_agents": [
-                    "Dashboard should pool or WebSocket listen to transaction updates."
-                ]
+                "important_notes_for_backend_agents": ["Use async repositories connected to primary DB."],
+                "important_notes_for_api_agents": ["Verify route access permissions map to roles."],
+                "important_notes_for_frontend_agents": ["Perform client-side validation before api fetch."]
             }
         }

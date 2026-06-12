@@ -227,7 +227,14 @@ Return ONLY valid JSON in this exact format:
             cross_module_dependencies.append("Dashboard components check useAuthStore.isAuthenticated before mounting views.")
 
         # 2. Main Dashboard & Data Store
-        entity_names = [e.get("entity_name") for e in db_entities] if db_entities else ["Transaction"]
+        entity_names = []
+        for e in db_entities:
+            if isinstance(e, str):
+                entity_names.append(e)
+            elif isinstance(e, dict) and e.get("entity_name"):
+                entity_names.append(e["entity_name"])
+        if not entity_names:
+            entity_names = ["Item"]
         state_vars = [f"{e.lower()}_list" for e in entity_names] + ["is_loading", "active_errors"]
         actions_list = [f"fetch_{e.lower()}s" for e in entity_names] + [f"create_{e.lower()}" for e in entity_names]
         
