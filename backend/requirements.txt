@@ -19,3 +19,5 @@ PyGithub>=2.3.0
 python-dotenv>=1.0.0
 mcp>=1.1.2
 loguru>=0.7.3
+newrelic>=9.0.0
+

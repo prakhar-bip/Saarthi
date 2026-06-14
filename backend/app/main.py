@@ -1,3 +1,10 @@
+import os
+import newrelic.agent
+
+# Initialize New Relic Agent if config exists
+if os.path.exists("newrelic.ini"):
+    newrelic.agent.initialize("newrelic.ini")
+
 import json
 import logging
 from contextlib import asynccontextmanager
