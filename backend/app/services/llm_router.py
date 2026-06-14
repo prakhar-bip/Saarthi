@@ -223,82 +223,93 @@ async def get_raw_llm_completion(
             continue
             
         model = pref_model if provider == pref_provider else get_default_model(provider)
-        start_time = time.perf_counter()
-        
-        try:
-            logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model}...")
-            
-            if provider in ("google", "gemini"):
-                system_instruction = None
-                contents = []
-                
-                for msg in messages:
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    
-                    if role == "system":
-                        system_instruction = content
-                    else:
-                        role_mapped = "model" if role == "assistant" else "user"
-                        contents.append(
-                            types.Content(
-                                role=role_mapped,
-                                parts=[types.Part.from_text(text=content)]
-                            )
-                        )
-                
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=temperature,
-                    max_output_tokens=max_tokens
-                )
-                
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=config
-                )
-                reply = response.text
-                
-            else:
-                completion = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-                reply = completion.choices[0].message.content
-                
-            if not reply:
-                raise ValueError("Received empty or null response content")
-                
-            latency = time.perf_counter() - start_time
-            log_llm_call(
-                agent_name=agent_name,
-                provider=provider,
-                model=model,
-                latency=latency,
-                input_len=input_str_len,
-                output_len=len(reply),
-                status="SUCCESS"
-            )
-            return reply
-            
-        except Exception as e:
-            latency = time.perf_counter() - start_time
-            last_error = f"[{provider.upper()} Error] {e}"
-            log_llm_call(
-                agent_name=agent_name,
-                provider=provider,
-                model=model,
-                latency=latency,
-                input_len=input_str_len,
-                output_len=0,
-                status="FAILED",
-                error=str(e)
-            )
-            logger.warning(f"⚠️ Provider {provider.upper()} failed for {agent_name}. Cascading to fallback...")
+        models = [m.strip() for m in model.split(",") if m.strip()] if model else []
+        if not models:
             continue
+            
+        start_time = time.perf_counter()
+        last_model_error = None
+        
+        for model_item in models:
+            try:
+                logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model_item}...")
+                
+                if provider in ("google", "gemini"):
+                    system_instruction = None
+                    contents = []
+                    
+                    for msg in messages:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        
+                        if role == "system":
+                            system_instruction = content
+                        else:
+                            role_mapped = "model" if role == "assistant" else "user"
+                            contents.append(
+                                types.Content(
+                                    role=role_mapped,
+                                    parts=[types.Part.from_text(text=content)]
+                                )
+                            )
+                    
+                    config = types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=temperature,
+                        max_output_tokens=max_tokens
+                    )
+                    
+                    response = client.models.generate_content(
+                        model=model_item,
+                        contents=contents,
+                        config=config
+                    )
+                    reply = response.text
+                    
+                else:
+                    completion = client.chat.completions.create(
+                        model=model_item,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    reply = completion.choices[0].message.content
+                    
+                if not reply:
+                    raise ValueError("Received empty or null response content")
+                    
+                latency = time.perf_counter() - start_time
+                log_llm_call(
+                    agent_name=agent_name,
+                    provider=provider,
+                    model=model_item,
+                    latency=latency,
+                    input_len=input_str_len,
+                    output_len=len(reply),
+                    status="SUCCESS"
+                )
+                return reply
+                
+            except Exception as e:
+                last_model_error = e
+                logger.warning(f"⚠️ Model {model_item} failed on {provider.upper()}: {e}")
+                continue
+                
+        # If we exhausted all models for this provider
+        latency = time.perf_counter() - start_time
+        last_error = f"[{provider.upper()} Error] {last_model_error}"
+        log_llm_call(
+            agent_name=agent_name,
+            provider=provider,
+            model=model,
+            latency=latency,
+            input_len=input_str_len,
+            output_len=0,
+            status="FAILED",
+            error=str(last_model_error)
+        )
+        logger.warning(f"⚠️ Provider {provider.upper()} failed for {agent_name}. Cascading to fallback...")
+        continue
             
     raise RuntimeError(f"All LLM providers failed for agent '{agent_name}'. Last error: {last_error}")
 
@@ -346,62 +357,78 @@ async def stream_raw_llm_completion(
             continue
             
         model = pref_model if provider == pref_provider else get_default_model(provider)
-        
-        try:
-            logger.info(f"🌐 [{agent_name}] Attempting streaming call on {provider.upper()} using model {model}...")
-            
-            if provider in ("google", "gemini"):
-                system_instruction = None
-                contents = []
-                
-                for msg in messages:
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    
-                    if role == "system":
-                        system_instruction = content
-                    else:
-                        role_mapped = "model" if role == "assistant" else "user"
-                        contents.append(
-                            types.Content(
-                                role=role_mapped,
-                                parts=[types.Part.from_text(text=content)]
-                            )
-                        )
-                
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=temperature,
-                    max_output_tokens=max_tokens
-                )
-                
-                response_stream = client.models.generate_content_stream(
-                    model=model,
-                    contents=contents,
-                    config=config
-                )
-                for chunk in response_stream:
-                    if chunk.text:
-                        yield chunk.text
-                return
-                
-            else:
-                completion_stream = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True
-                )
-                for chunk in completion_stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
-                return
-                
-        except Exception as e:
-            last_error = f"[{provider.upper()} Error] {e}"
-            logger.warning(f"⚠️ Provider {provider.upper()} streaming failed for {agent_name}. Cascading to fallback: {e}")
+        models = [m.strip() for m in model.split(",") if m.strip()] if model else []
+        if not models:
             continue
+            
+        last_model_error = None
+        stream_started = False
+        
+        for model_item in models:
+            try:
+                logger.info(f"🌐 [{agent_name}] Attempting streaming call on {provider.upper()} using model {model_item}...")
+                
+                if provider in ("google", "gemini"):
+                    system_instruction = None
+                    contents = []
+                    
+                    for msg in messages:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        
+                        if role == "system":
+                            system_instruction = content
+                        else:
+                            role_mapped = "model" if role == "assistant" else "user"
+                            contents.append(
+                                types.Content(
+                                    role=role_mapped,
+                                    parts=[types.Part.from_text(text=content)]
+                                )
+                            )
+                    
+                    config = types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=temperature,
+                        max_output_tokens=max_tokens
+                    )
+                    
+                    response_stream = client.models.generate_content_stream(
+                        model=model_item,
+                        contents=contents,
+                        config=config
+                    )
+                    for chunk in response_stream:
+                        if chunk.text:
+                            stream_started = True
+                            yield chunk.text
+                    return
+                    
+                else:
+                    completion_stream = client.chat.completions.create(
+                        model=model_item,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stream=True
+                    )
+                    for chunk in completion_stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            stream_started = True
+                            yield chunk.choices[0].delta.content
+                    return
+                    
+            except Exception as e:
+                last_model_error = e
+                logger.warning(f"⚠️ Model {model_item} streaming failed on {provider.upper()}: {e}")
+                if stream_started:
+                    logger.error(f"❌ Streaming failed mid-stream for model {model_item}. Cannot fallback.")
+                    raise e
+                continue
+                
+        last_error = f"[{provider.upper()} Error] {last_model_error}"
+        logger.warning(f"⚠️ Provider {provider.upper()} streaming failed for {agent_name}. Cascading to fallback: {last_model_error}")
+        continue
             
     raise RuntimeError(f"All LLM providers failed for streaming agent '{agent_name}'. Last error: {last_error}")
 
