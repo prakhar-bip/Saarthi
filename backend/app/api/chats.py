@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from app.models.chat import ChatSessionResponse, ChatSessionCreate, MessageSchema
+from fastapi import APIRouter, Depends, HTTPException
+from app.models.chat import ChatSessionResponse, ChatSessionCreate
 from app.db.mongodb import get_database
 from app.api.auth import get_current_user
-from app.services.ai import generate_chat_reply, generate_theme_suggestions
+from app.services.ai import generate_theme_suggestions
 from datetime import datetime, timezone
 import uuid
 
@@ -23,7 +23,8 @@ async def list_chats(current_user: dict = Depends(get_current_user)):
             user_id=doc["user_id"],
             selected_project=doc.get("selected_project"),
             is_confirmed=doc.get("is_confirmed", False),
-            project_id=doc.get("project_id")
+            project_id=doc.get("project_id"),
+            is_paused=doc.get("is_paused", False)
         ))
     return chats
 
@@ -58,7 +59,8 @@ async def create_chat(payload: ChatSessionCreate, current_user: dict = Depends(g
         "user_id": current_user["id"],
         "selected_project": payload.selected_project.dict() if payload.selected_project else None,
         "is_confirmed": False,
-        "project_id": None
+        "project_id": None,
+        "is_paused": False
     }
     await db.chats.insert_one(new_chat)
     
@@ -71,7 +73,8 @@ async def create_chat(payload: ChatSessionCreate, current_user: dict = Depends(g
         user_id=new_chat["user_id"],
         selected_project=new_chat["selected_project"],
         is_confirmed=new_chat["is_confirmed"],
-        project_id=new_chat["project_id"]
+        project_id=new_chat["project_id"],
+        is_paused=new_chat["is_paused"]
     )
 
 @router.delete("/{chat_id}")
@@ -95,6 +98,9 @@ async def send_message(
     chat = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+        
+    if chat.get("is_paused"):
+        raise HTTPException(status_code=400, detail="Chat session is paused")
         
     user_msg_text = message.get("text", "")
     if not user_msg_text:
@@ -225,6 +231,12 @@ async def update_chat(chat_id: str, payload: dict, current_user: dict = Depends(
         updates["category"] = payload["category"]
     if "title" in payload:
         updates["title"] = payload["title"]
+    if "is_paused" in payload:
+        updates["is_paused"] = bool(payload["is_paused"])
+    if "is_confirmed" in payload:
+        updates["is_confirmed"] = bool(payload["is_confirmed"])
+    if "project_id" in payload:
+        updates["project_id"] = payload["project_id"]
         
     if updates:
         await db.chats.update_one({"_id": chat_id}, {"$set": updates})

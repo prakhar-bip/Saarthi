@@ -1,4 +1,4 @@
-from typing import Any, Tuple, Dict
+from typing import Any, Tuple
 from loguru import logger
 from app.agents.context import IncompleteJSONError
 
@@ -38,6 +38,7 @@ class VerifierAgent:
         required_keys = {
             "RequirementAnalyzerAgent": ["project_overview", "tech_stack", "features", "core_modules"],
             "PlannerAgent": ["execution_strategy", "project_phases", "module_execution_order"],
+            "ResearchPlanningAgent": ["plan_markdown", "proposed_changes"],
             "DatabaseArchitectureAgent": ["database_strategy", "entities", "relationships"],
             "BackendArchitectureAgent": ["backend_strategy", "backend_structure", "service_architecture"],
             "APIAgent": ["api_strategy", "endpoints", "global_configurations"],

@@ -228,7 +228,7 @@ export default function Home() {
                       className="absolute top-0 right-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
                     >
                       {/* The vertical divider line */}
-                      <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
+                      <div className="w-[1px] h-full bg-transparent group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
                       
                       {/* Visual grab handle */}
                       <div className="absolute top-1/2 right-1/2 translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
@@ -271,7 +271,7 @@ export default function Home() {
                   animate={isMobile ? { x: 0, opacity: 1, width: "100%" } : (isProjectFinalized ? { width: "100%", opacity: 1 } : { width: `${rightWidth}px`, opacity: 1 })}
                   exit={isMobile ? { x: "100%", opacity: 0 } : { width: 0, opacity: 0 }}
                   transition={{ duration: isDraggingRight ? 0 : 0.4, ease: [0.4, 0, 0.2, 1] }}
-                  className={`${isMobile ? "fixed inset-0 z-30 bg-stone-50" : (isProjectFinalized ? "w-full" : "border-l border-stone-200/60")} h-full flex shrink-0 overflow-visible relative`}
+                  className={`${isMobile ? "fixed inset-0 z-30 bg-stone-50" : (isProjectFinalized ? "w-full" : "border-l border-transparent")} h-full flex shrink-0 overflow-visible relative`}
                   style={!isMobile && isProjectFinalized ? { flex: 1 } : {}}
                 >
                   {/* Right Resizer Handle (Only show if not finalized and not mobile) */}
@@ -285,7 +285,7 @@ export default function Home() {
                       className="absolute top-0 left-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
                     >
                       {/* The vertical divider line */}
-                      <div className="w-[1px] h-full bg-stone-200/60 group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
+                      <div className="w-[1px] h-full bg-transparent group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
 
                       {/* Visual grab handle */}
                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">

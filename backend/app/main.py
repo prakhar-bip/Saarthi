@@ -1,12 +1,27 @@
 import os
 import newrelic.agent
 
-# Initialize New Relic Agent if config exists
+# Initialize New Relic Agent if config exists and has a valid license key
 if os.path.exists("newrelic.ini"):
-    newrelic.agent.initialize("newrelic.ini")
+    has_valid_license = False
+    if os.environ.get("NEW_RELIC_LICENSE_KEY"):
+        has_valid_license = True
+    else:
+        try:
+            with open("newrelic.ini", "r") as f:
+                for line in f:
+                    trimmed = line.strip()
+                    if trimmed.startswith("license_key") and "YOUR_NEW_RELIC_LICENSE_KEY" not in trimmed:
+                        parts = trimmed.split("=")
+                        if len(parts) > 1 and parts[1].strip():
+                            has_valid_license = True
+                            break
+        except Exception:
+            pass
+    if has_valid_license:
+        newrelic.agent.initialize("newrelic.ini")
 
 import json
-import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware

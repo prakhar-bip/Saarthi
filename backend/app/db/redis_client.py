@@ -1,5 +1,4 @@
 from loguru import logger
-import logging
 import redis.asyncio as aioredis
 from app.core.config import settings
 

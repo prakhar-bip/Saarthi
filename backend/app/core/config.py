@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     )
 
     PROJECT_NAME: str = "Sarthi API"
+    ENVIRONMENT: str = Field(default="development")  # "development" or "production"
 
     # Auth Security
     JWT_SECRET: str = Field(default="sarthi-jwt-super-secret-key-2026")
@@ -70,10 +71,10 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = Field(default="https://openrouter.ai/api/v1")
     OPENROUTER_MODEL: str = Field(default="openai/gpt-oss-120b:free")
 
-    # Groq LLM Configurations
+    # Groq LLM Configurations (Deprecated - kept for agent compatibility)
     GROQ_API_KEY: str = Field(default="")
     GROQ_BASE_URL: str = Field(default="https://api.groq.com/openai/v1")
-    GROQ_MODEL: str = Field(default="llama-3.3-70b-versatile")
+    GROQ_MODEL: str = Field(default="")
 
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")

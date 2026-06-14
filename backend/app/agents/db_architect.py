@@ -1,11 +1,10 @@
 import json
 from loguru import logger
-import logging
 from typing import Dict, Any, Optional
 from openai import OpenAI
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
-from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
+from app.agents.context import enrich_agent_output, parse_json_response, generate_agent_prompt
 
 
 class DatabaseArchitectureAgent:
@@ -26,33 +25,31 @@ class DatabaseArchitectureAgent:
             timeout=10.0
         )
 
-    async def design(self, requirements: Dict[str, Any], planning: Dict[str, Any]) -> Dict[str, Any]:
+    async def design(
+        self,
+        requirements: Dict[str, Any],
+        planning: Dict[str, Any],
+        implementation_plan: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Analyze requirements and planning data to output the database architecture.
         """
-        agent_inputs = {"requirements": requirements, "planning": planning}
+        agent_inputs = {
+            "requirements": requirements,
+            "planning": planning,
+            "implementation_plan": implementation_plan or {}
+        }
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
             logger.warning("NVIDIA_API_KEY not configured. Using intelligent fallback database design.")
             return enrich_agent_output(self._get_fallback_db_architecture(requirements, planning), self.agent_name, agent_inputs)
 
-        system_prompt = build_agent_system_prompt(
-            self.agent_name,
-            (
-                "## Role\n"
-                "You are a senior database architect. Design the complete persistence layer: entities, fields, relationships, indexes, caching, and data contracts that all downstream agents will consume.\n\n"
-                "## Instructions\n"
-                "1. Think step by step: first choose the primary database based on the tech stack, then derive entities from requirements.database_requirements.entities and core_modules, then define fields with proper types and constraints, then map relationships.\n"
-                "2. Every entity MUST have: id (primary key), created_at (timestamp). Include foreign key fields for relationships.\n"
-                "3. Apply 3NF normalization for relational DBs. For document DBs, design embedded vs referenced patterns explicitly.\n"
-                "4. Index all foreign keys and fields used in WHERE/ORDER BY clauses.\n"
-                "5. backend_integration_context and api_integration_context are critical contracts — downstream agents rely on these names exactly.\n\n"
-                "## Constraints\n"
-                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
-                "- Entity names must be PascalCase. Field names must be snake_case.\n"
-                "- field.type must be one of: UUID, ObjectID, String, Integer, Decimal, Boolean, DateTime, JSON, Text.\n"
-                "- relationship_type must be one of: One-to-One, One-to-Many, Many-to-Many."
-            )
-        )
+        # Construct state dict for dynamic prompt generation
+        state = {
+            "requirements": requirements,
+            "planning": planning,
+            "implementation_plan": implementation_plan or {}
+        }
+        system_prompt = generate_agent_prompt(self.agent_name, state)
 
         user_content = f"""
 Design the database architecture for this project. Think step by step:

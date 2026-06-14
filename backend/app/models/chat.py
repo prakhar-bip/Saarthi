@@ -1,6 +1,5 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
 
 class MessageSchema(BaseModel):
     id: str
@@ -13,6 +12,7 @@ class ProjectSuggestionSchema(BaseModel):
     idea: str
     features: List[str]
     tech_stack: str
+    hitl_enabled: Optional[bool] = True
 
 class ChatSessionCreate(BaseModel):
     category: str
@@ -29,6 +29,7 @@ class ChatSessionResponse(BaseModel):
     selected_project: Optional[ProjectSuggestionSchema] = None
     is_confirmed: bool = False
     project_id: Optional[str] = None
+    is_paused: bool = False
 
     class Config:
         from_attributes = True

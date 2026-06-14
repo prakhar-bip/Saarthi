@@ -1,7 +1,6 @@
 import json
 from loguru import logger
-import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from openai import OpenAI
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion

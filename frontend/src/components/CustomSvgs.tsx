@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { motion } from "framer-motion";
 
 // 1. Sarthi Animated Logo (Peacock Script Theme)
@@ -434,7 +434,7 @@ export const WaveBackground: React.FC<{
           "M0,220 C100,160 300,260 520,190 C680,130 760,230 800,180 L800,400 L0,400 Z",
           "M0,200 C150,120 350,280 500,200 C650,120 750,250 800,200 L800,400 L0,400 Z",
         ]}}
-        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
       />
       <motion.path
         d="M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z"
@@ -445,7 +445,7 @@ export const WaveBackground: React.FC<{
           "M0,240 C180,200 380,310 620,240 C740,190 790,270 800,240 L800,400 L0,400 Z",
           "M0,260 C200,180 400,330 600,250 C720,200 780,280 800,260 L800,400 L0,400 Z",
         ]}}
-        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+        transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
       />
     </svg>
   );

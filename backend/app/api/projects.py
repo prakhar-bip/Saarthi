@@ -1,34 +1,18 @@
-import asyncio
-import json
 from loguru import logger
-import logging
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 import io
 import zipfile
-from app.models.project import ProjectResponse, ProjectCreate, CodeFileSchema, BlueprintSchema, ThemePaletteSchema
+from pydantic import BaseModel
+from app.models.project import ProjectResponse, ProjectCreate, BlueprintSchema, ThemePaletteSchema
 from app.db.mongodb import get_database
 from app.api.auth import get_current_user
 from app.core.config import settings
 from app.services.ai import generate_codebase, generate_project_suggestions
 from app.services.mcp_service import mcp_client
 from app.services.ws_manager import manager
-from app.agents.requirement_analyzer import RequirementAnalyzerAgent
-from app.agents.planner import PlannerAgent
-from app.agents.db_architect import DatabaseArchitectureAgent
-from app.agents.backend_architect import BackendArchitectureAgent
-from app.agents.api_agent import APIAgent
-from app.agents.frontend_architect import FrontendArchitectureAgent
-from app.agents.uiux_architect import UIUXArchitectAgent
-from app.agents.auth_architect import AuthArchitectureAgent
-from app.agents.realtime_architect import RealtimeArchitectureAgent
-from app.agents.state_architect import StateManagementAgent
-from app.agents.devops_architect import DevOpsArchitectureAgent
-from app.agents.security_architect import SecurityArchitectureAgent
-from app.agents.testing_architect import TestingArchitectureAgent
-from app.agents.validation_architect import ValidationArchitectureAgent
 from app.agents.optimization_architect import OptimizationArchitectureAgent
 from app.agents.code_generation_planner import CodeGenerationPlannerAgent
 from app.agents.persistence_architect import DatabaseModelGenerationAgent
@@ -704,6 +688,17 @@ async def get_suggestions(category: str, current_user: dict = Depends(get_curren
     suggestions = await generate_project_suggestions(category)
     return suggestions
 
+class SuggestBlueprintRequest(BaseModel):
+    idea: str
+
+@router.post("/suggest-blueprint")
+async def suggest_blueprint(req: SuggestBlueprintRequest, current_user: dict = Depends(get_current_user)):
+    if not req.idea.strip():
+        raise HTTPException(status_code=400, detail="Project idea description is required")
+    from app.services.ai import generate_single_project_suggestion
+    blueprint = await generate_single_project_suggestion(req.idea.strip())
+    return blueprint
+
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(current_user: dict = Depends(get_current_user)):
     db = get_database()
@@ -756,7 +751,11 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
             mcp_evidence=doc.get("mcp_evidence"),
             prd=doc.get("prd"),
             mrd=doc.get("mrd"),
-            trd=doc.get("trd")
+            trd=doc.get("trd"),
+            hitl_enabled=doc.get("hitl_enabled", True),
+            hitl_approved=doc.get("hitl_approved", False),
+            implementation_plan=doc.get("implementation_plan"),
+            validation_logs=doc.get("validation_logs", [])
         ))
     return projects
 
@@ -812,7 +811,11 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         mcp_evidence=doc.get("mcp_evidence"),
         prd=doc.get("prd"),
         mrd=doc.get("mrd"),
-        trd=doc.get("trd")
+        trd=doc.get("trd"),
+        hitl_enabled=doc.get("hitl_enabled", True),
+        hitl_approved=doc.get("hitl_approved", False),
+        implementation_plan=doc.get("implementation_plan"),
+        validation_logs=doc.get("validation_logs", [])
     )
 
 from pydantic import BaseModel as PydanticBaseModel
@@ -890,7 +893,11 @@ async def generate_documents_endpoint(
         mrd=new_project["mrd"],
         trd=new_project["trd"],
         hackathon_metadata=new_project["hackathon_metadata"],
-        mcp_evidence=new_project["mcp_evidence"]
+        mcp_evidence=new_project["mcp_evidence"],
+        hitl_enabled=new_project.get("hitl_enabled", True),
+        hitl_approved=new_project.get("hitl_approved", False),
+        implementation_plan=new_project.get("implementation_plan"),
+        validation_logs=new_project.get("validation_logs", [])
     )
 
 @router.post("", response_model=ProjectResponse)
@@ -938,14 +945,45 @@ async def compile_project(
         logger.error(f"Failed to generate documents during project init: {e}")
         docs = {"prd": f"# PRD\nFailed to generate documents: {str(e)}", "mrd": "", "trd": ""}
         
+    requirements = None
+    planning = None
+    impl_plan = None
+    
+    if payload.hitl_enabled:
+        try:
+            logger.info("HITL is enabled. Generating Implementation Plan immediately during project creation...")
+            from app.agents.requirement_analyzer import RequirementAnalyzerAgent
+            from app.agents.planner import PlannerAgent
+            from app.agents.research_planning_agent import ResearchPlanningAgent
+            
+            # 1. Run RequirementAnalyzerAgent
+            analyzer = RequirementAnalyzerAgent()
+            requirements = await analyzer.analyze(blueprint_payload or {}, payload.theme)
+            
+            # 2. Run PlannerAgent
+            planner = PlannerAgent()
+            planning = await planner.plan(requirements)
+            
+            # 3. Run ResearchPlanningAgent
+            researcher = ResearchPlanningAgent()
+            impl_plan = await researcher.generate_plan(requirements, planning, [])
+            
+            logger.info("Successfully generated Implementation Plan synchronously during project creation.")
+        except Exception as plan_err:
+            logger.error(f"Failed to generate implementation plan during project creation: {plan_err}")
+            impl_plan = {
+                "plan_markdown": f"# Implementation Plan\nFailed to generate plan: {str(plan_err)}",
+                "files": []
+            }
+
     new_project = {
         "_id": project_id,
         "name": payload.name,
         "category": detected_category,
-        "status": "documents_ready",
-        "progress": 100,
-        "step": "Documents Generated",
-        "summary": "Product Requirements Document (PRD), Market Requirements Document (MRD), and Technical Requirements Document (TRD) compiled successfully.",
+        "status": "waiting_approval" if payload.hitl_enabled else "documents_ready",
+        "progress": 15 if payload.hitl_enabled else 100,
+        "step": "Awaiting Implementation Plan Approval" if payload.hitl_enabled else "Documents Generated",
+        "summary": "Specifications and implementation plan compiled successfully. Awaiting your approval to build." if payload.hitl_enabled else "Product Requirements Document (PRD), Market Requirements Document (MRD), and Technical Requirements Document (TRD) compiled successfully.",
         "codebase": [],
         "created": created_str,
         "created_at_dt": datetime.now(timezone.utc),
@@ -959,6 +997,12 @@ async def compile_project(
         "trd": docs.get("trd", ""),
         "hackathon_metadata": hackathon_metadata,
         "mcp_evidence": mcp_evidence,
+        "hitl_enabled": payload.hitl_enabled if payload.hitl_enabled is not None else True,
+        "hitl_approved": False,
+        "requirements": requirements,
+        "planning": planning,
+        "implementation_plan": impl_plan,
+        "validation_logs": [],
     }
     
     await db.projects.insert_one(new_project)
@@ -971,10 +1015,15 @@ async def compile_project(
     
     # Notify chat that documents were generated
     time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
+    if payload.hitl_enabled:
+        text_msg = f"Sarthi has generated the specifications (PRD/MRD/TRD) and a detailed **Implementation Plan** for your hackathon project **{payload.name}**! You can review the implementation details in the right pane, edit them if needed, and approve the plan to compile the codebase."
+    else:
+        text_msg = f"Sarthi has generated the Product, Market, and Technical specifications (PRD/MRD/TRD) for your hackathon project **{payload.name}**! You can review and download them in the right pane, then proceed to build the codebase."
+        
     start_msg = {
         "id": f"m-{uuid.uuid4().hex[:8]}",
         "sender": "ai",
-        "text": f"Sarthi has generated the Product, Market, and Technical specifications (PRD/MRD/TRD) for your hackathon project **{payload.name}**! You can review and download them in the right pane, then proceed to build the codebase.",
+        "text": text_msg,
         "timestamp": time_str
     }
     await db.chats.update_one(
@@ -1001,7 +1050,11 @@ async def compile_project(
         mrd=new_project["mrd"],
         trd=new_project["trd"],
         hackathon_metadata=new_project["hackathon_metadata"],
-        mcp_evidence=new_project["mcp_evidence"]
+        mcp_evidence=new_project["mcp_evidence"],
+        hitl_enabled=new_project["hitl_enabled"],
+        hitl_approved=new_project["hitl_approved"],
+        implementation_plan=new_project["implementation_plan"],
+        validation_logs=new_project["validation_logs"]
     )
 
 @router.post("/{project_id}/compile", response_model=ProjectResponse)
@@ -1088,7 +1141,11 @@ async def compile_project_codebase(
         mrd=updated_project.get("mrd", ""),
         trd=updated_project.get("trd", ""),
         hackathon_metadata=updated_project.get("hackathon_metadata"),
-        mcp_evidence=updated_project.get("mcp_evidence")
+        mcp_evidence=updated_project.get("mcp_evidence"),
+        hitl_enabled=updated_project.get("hitl_enabled", True),
+        hitl_approved=updated_project.get("hitl_approved", False),
+        implementation_plan=updated_project.get("implementation_plan"),
+        validation_logs=updated_project.get("validation_logs", [])
     )
 
 @router.put("/{project_id}")
@@ -1103,11 +1160,80 @@ async def update_project(project_id: str, payload: dict, current_user: dict = De
         updates["name"] = payload["title"]  # Project schema uses 'name' for title
     if "name" in payload:
         updates["name"] = payload["name"]
+    if "hitl_enabled" in payload:
+        updates["hitl_enabled"] = bool(payload["hitl_enabled"])
         
     if updates:
         await db.projects.update_one({"_id": project_id}, {"$set": updates})
         
     return {"status": "success", "updates": updates}
+
+@router.post("/{project_id}/approve", response_model=ProjectResponse)
+async def approve_project_plan(
+    project_id: str,
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    plan_edits = payload.get("implementation_plan")
+    
+    # Update state in db
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {
+            "hitl_approved": True,
+            "status": "generating",
+            "progress": 20,
+            "step": "Resuming codebase compilation..."
+        }}
+    )
+    
+    from app.services.workflow import resume_project_workflow
+    background_tasks.add_task(
+        resume_project_workflow,
+        db,
+        project_id,
+        plan_edits
+    )
+    
+    updated_project = await db.projects.find_one({"_id": project_id})
+    from app.models.project import BlueprintSchema, ThemePaletteSchema
+    blueprint_dict = updated_project.get("blueprint")
+    blueprint = BlueprintSchema(**blueprint_dict) if blueprint_dict else None
+    
+    theme_palette_dict = updated_project.get("theme_palette")
+    theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
+    
+    return ProjectResponse(
+        id=updated_project["_id"],
+        name=updated_project["name"],
+        category=updated_project["category"],
+        status=updated_project["status"],
+        progress=updated_project["progress"],
+        step=updated_project["step"],
+        summary=updated_project["summary"],
+        codebase=[],
+        created=updated_project["created"],
+        user_id=updated_project["user_id"],
+        chat_id=updated_project["chat_id"],
+        theme=updated_project.get("theme"),
+        blueprint=blueprint,
+        theme_palette=theme_palette,
+        prd=updated_project.get("prd", ""),
+        mrd=updated_project.get("mrd", ""),
+        trd=updated_project.get("trd", ""),
+        hackathon_metadata=updated_project.get("hackathon_metadata"),
+        mcp_evidence=updated_project.get("mcp_evidence"),
+        hitl_enabled=updated_project.get("hitl_enabled", True),
+        hitl_approved=updated_project.get("hitl_approved", False),
+        implementation_plan=updated_project.get("implementation_plan"),
+        validation_logs=updated_project.get("validation_logs", [])
+    )
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):

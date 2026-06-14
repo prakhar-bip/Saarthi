@@ -1,5 +1,4 @@
 from loguru import logger
-import logging
 import subprocess
 import os
 import asyncio

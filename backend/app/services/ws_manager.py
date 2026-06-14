@@ -5,7 +5,6 @@ and projects.py (to broadcast compilation progress events).
 """
 import json
 from loguru import logger
-import logging
 from fastapi import WebSocket
 
 

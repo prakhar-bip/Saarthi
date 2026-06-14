@@ -55,7 +55,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   };
 
   return (
-    <aside className="w-full border-r border-stone-200/60 bg-white/30 backdrop-blur-lg flex flex-col h-full select-none transition-colors duration-300">
+    <aside className="w-full border-r border-transparent bg-white/30 backdrop-blur-lg flex flex-col h-full select-none transition-colors duration-300">
       {/* Header / Logo */}
       <div className="p-6 border-b border-stone-200/60 flex items-center justify-between gap-3">
         <div className="flex flex-col gap-0.5">
@@ -108,12 +108,12 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
               />
             )}
             <MessageSquare className="w-3.5 h-3.5 relative z-10" />
-            <span className="relative z-10">Chats</span>
+            <span className="relative z-10 mr-4">Chats</span>
             {chats.length > 0 && (
               <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full"
+                className="absolute top-1 right-2.5 z-10 text-[8px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full min-w-[14px] text-center"
               >
                 {chats.length}
               </motion.span>
@@ -132,12 +132,12 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
               />
             )}
             <FolderGit2 className="w-3.5 h-3.5 relative z-10" />
-            <span className="relative z-10">Projects</span>
+            <span className="relative z-10 mr-4">Projects</span>
             {projects.length > 0 && (
               <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="relative z-10 ml-0.5 text-[9px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full"
+                className="absolute top-1 right-2.5 z-10 text-[8px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full min-w-[14px] text-center"
               >
                 {projects.length}
               </motion.span>

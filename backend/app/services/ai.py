@@ -1,6 +1,5 @@
 import json
 from loguru import logger
-import logging
 import time
 from typing import List, Dict, Any
 from app.core.config import settings
@@ -646,7 +645,7 @@ async def generate_codebase(
     """
     start_time = time.perf_counter()
     context = "\n".join([f"{m['sender'].upper()}: {m['text']}" for m in chat_history])
-    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM API keys or Vertex AI configured. Generating template codebase.")
         return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context, hackathon_metadata, mcp_evidence)
 
@@ -1226,7 +1225,7 @@ async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     or fall back to the structured fallback lists.
     """
     category_lower = category.lower()
-    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM keys configured. Falling back to local structured suggestions.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
     
@@ -1301,6 +1300,102 @@ The JSON must match this structure exactly:
     except Exception as e:
         logger.error(f"Error generating suggestions from LLM: {e}. Falling back.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
+
+async def generate_single_project_suggestion(idea: str) -> Dict[str, Any]:
+    """
+    Generate a single project suggestion/blueprint in JSON format based on user's custom idea.
+    """
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
+        # Local fallback if no LLM key
+        return {
+            "name": "Custom Idea Project",
+            "idea": idea,
+            "features": [
+                "Interactive modular dashboard with charts",
+                "Advanced data tables with filtering",
+                "Setting profiles and settings configuration"
+            ],
+            "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
+        }
+
+    prompt = f"""
+You are Sarthi, an expert AI partner. The user wants to build a project with this core idea: "{idea}".
+Create a detailed project blueprint matching this idea.
+Generate exactly:
+1. name (A catchy, professional Project Name)
+2. idea (A refined, professional description of the application's vision - between 40 to 60 words)
+3. features (List of exactly 3 descriptive system features/modules, e.g., 'Real-time WebSocket dashboard with interactive SVG charts' - under 15 words each)
+4. tech_stack (Suggested Tech Stack, e.g. "React, Tailwind CSS, FastAPI, MongoDB")
+
+CRITICAL: Return your output ONLY as a valid JSON object.
+- NO trailing commas.
+- Escape all quotes inside strings.
+- Do not wrap in markdown code blocks. Just raw JSON.
+The JSON must match this structure exactly:
+{{
+  "name": "Project Name",
+  "idea": "Refined core idea description...",
+  "features": [
+    "Feature 1 description...",
+    "Feature 2 description...",
+    "Feature 3 description..."
+  ],
+  "tech_stack": "React, FastAPI, MongoDB"
+}}
+"""
+    try:
+        content = await get_llm_completion(
+            agent_name="ProjectSuggestions",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are Sarthi's blueprint ideation agent. You must output ONLY strict, valid JSON. No conversational text."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1024
+        )
+        raw_content = content.strip()
+        if raw_content.startswith("```"):
+            lines = raw_content.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines[-1].startswith("```"):
+                lines = lines[:-1]
+            raw_content = "\n".join(lines).strip()
+        
+        try:
+            data = json.loads(raw_content)
+        except json.JSONDecodeError as decode_err:
+            try:
+                repaired = raw_content.rstrip(", \n\t")
+                if not repaired.endswith('"') and not repaired.endswith('}') and not repaired.endswith(']'):
+                    repaired += '"'
+                if not repaired.endswith('}'):
+                    repaired += '}'
+                data = json.loads(repaired)
+            except Exception:
+                raise ValueError(f"Could not parse JSON. Original error: {decode_err}")
+
+        if isinstance(data, dict) and "name" in data and "idea" in data:
+            return data
+        else:
+            raise ValueError("Invalid single suggestion format returned by model")
+    except Exception as e:
+        logger.error(f"Error generating single suggestion from LLM: {e}. Falling back.")
+        # Return fallback with user's idea
+        return {
+            "name": f"Project Idea MVP",
+            "idea": idea,
+            "features": [
+                "Responsive dashboard layouts",
+                "Advanced action tracking modules",
+                "Settings and profile panels"
+            ],
+            "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
+        }
+
 
 def get_fallback_chat_reply(category: str, user_text: str, selected_project: dict = None) -> str:
     category_lower = category.lower()
@@ -1416,7 +1511,7 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
     Generate exactly 3 custom color/style themes for the selected project blueprint using Gemini / fallback LLM,
     or fall back to the structured category-specific lists.
     """
-    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.NVIDIA_API_KEY):
+    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM keys configured. Falling back to local dynamic themes.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt)
 
@@ -1836,11 +1931,10 @@ async def generate_prd_mrd_trd(project_name: str, prompt: str) -> Dict[str, str]
     Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
     """
 
-
     async def run_prd():
         try:
             return await get_llm_completion(
-                agent_name="PlannerAgent",
+                agent_name="PRDGeneratorAgent",
                 messages=[
                     {"role": "system", "content": prd_system},
                     {"role": "user", "content": prd_user}
@@ -1855,7 +1949,7 @@ async def generate_prd_mrd_trd(project_name: str, prompt: str) -> Dict[str, str]
     async def run_mrd():
         try:
             return await get_llm_completion(
-                agent_name="PlannerAgent",
+                agent_name="MRDGeneratorAgent",
                 messages=[
                     {"role": "system", "content": mrd_system},
                     {"role": "user", "content": mrd_user}
@@ -1870,7 +1964,7 @@ async def generate_prd_mrd_trd(project_name: str, prompt: str) -> Dict[str, str]
     async def run_trd():
         try:
             return await get_llm_completion(
-                agent_name="PlannerAgent",
+                agent_name="TRDGeneratorAgent",
                 messages=[
                     {"role": "system", "content": trd_system},
                     {"role": "user", "content": trd_user}

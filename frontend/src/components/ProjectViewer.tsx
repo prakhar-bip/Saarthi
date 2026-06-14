@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
-import { CategoryIcon, CircuitDecor, SarthiLogo } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, Circle, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
+import { CategoryIcon, SarthiLogo } from "./CustomSvgs";
+import { Copy, Check, FileCode, CheckCircle2, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
 
@@ -336,20 +336,23 @@ export const ProjectViewer: React.FC = () => {
     compileProjectCodebase,
     isGeneratingProject, 
     setShowRightPane, 
-    updateProject,
     updateChatSelectedProject,
-    updateChatCategory,
     suggestions,
-    isFetchingSuggestions,
-    fetchSuggestions
+    fetchSuggestions,
+    approveProjectPlan,
+    updateProjectHitl
   } = useWorkspace();
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
-  const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd">("prd");
+  const [activeDocTab, setActiveDocTab] = useState<"prd" | "mrd" | "trd" | "plan">("prd");
+  const [editedPlanMarkdown, setEditedPlanMarkdown] = useState<string>("");
+  const [isEditingPlan, setIsEditingPlan] = useState<boolean>(false);
 
   const [completedTab, setCompletedTab] = useState<"files" | "vyuh">("files");
   const [hoveredVyuhNode, setHoveredVyuhNode] = useState<any | null>(null);
   const [selectedVyuhNode, setSelectedVyuhNode] = useState<any | null>(null);
+
+
 
   // Theme selection states
   const [viewStage, setViewStage] = useState<"blueprint" | "theme">("blueprint");
@@ -358,9 +361,7 @@ export const ProjectViewer: React.FC = () => {
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
   const [activePreviewPage, setActivePreviewPage] = useState<"home" | "dashboard" | "analytics" | "settings" | "login">("home");
   const [customThemeInput, setCustomThemeInput] = useState("");
-
   // Custom project blueprint form and tab states
-  const [sidebarTab] = useState<"custom">("custom");
   const [customName, setCustomName] = useState("");
   const [customIdea, setCustomIdea] = useState("");
   const [customFeatures, setCustomFeatures] = useState<string[]>(["", "", ""]);
@@ -373,7 +374,6 @@ export const ProjectViewer: React.FC = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [showFilesPane, setShowFilesPane] = useState(true);
   const prevStatusRef = useRef<string | undefined>(undefined);
-  const lastParsedMessageIdRef = useRef<string | null>(null);
   const terminalLogsRef = useRef<HTMLDivElement>(null);
 
   const handleSuggestMoreThemes = async () => {
@@ -427,6 +427,25 @@ export const ProjectViewer: React.FC = () => {
     ? hackathonMetadata.sub_agent_pipeline.length
     : 0;
   const partnerTrack = hackathonMetadata?.partner_track || "MongoDB";
+
+  // Sync activeDocTab when status changes to waiting_approval
+  useEffect(() => {
+    if (activeProj?.status === "waiting_approval" && activeProj.hitl_enabled !== false) {
+      setActiveDocTab("plan");
+    } else {
+      setActiveDocTab("prd");
+    }
+  }, [activeProjectId, activeProj?.status, activeProj?.hitl_enabled]);
+
+  // Sync edited plan text from project
+  useEffect(() => {
+    if (activeProj?.implementation_plan?.plan_markdown) {
+      setEditedPlanMarkdown(activeProj.implementation_plan.plan_markdown);
+    } else {
+      setEditedPlanMarkdown("");
+    }
+    setIsEditingPlan(false);
+  }, [activeProjectId, activeProj?.implementation_plan]);
 
   const currentAgentIdx = (() => {
     if (!activeProj) return -1;
@@ -1052,10 +1071,18 @@ export const ProjectViewer: React.FC = () => {
                   </div>
 
                   {/* Confirm & Compile button */}
-                  <div className="pt-4 pb-8">
+                  <div className="pt-2 pb-8">
                     <button
                       type="button"
-                      onClick={() => generateProject(activeChat.id, blueprint.name, activeChat.category || "General", themes[selectedThemeIndex]?.name, blueprint, themes[selectedThemeIndex]?.palette)}
+                      onClick={() => generateProject(
+                        activeChat.id, 
+                        blueprint.name, 
+                        activeChat.category || "General", 
+                        themes[selectedThemeIndex]?.name, 
+                        blueprint, 
+                        themes[selectedThemeIndex]?.palette,
+                        activeChat.selected_project?.hitl_enabled !== false
+                      )}
                       disabled={isGeneratingProject}
                       className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
                     >
@@ -1319,14 +1346,18 @@ export const ProjectViewer: React.FC = () => {
             >
               Compiling ({activeProj.progress}%)
             </motion.span>
-          ) : activeProj.status === "documents_ready" ? (
+          ) : (activeProj.status === "documents_ready" || activeProj.status === "waiting_approval") ? (
             <>
               <motion.span
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50/50 border border-indigo-200/50 text-indigo-950"
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                  activeProj.status === "waiting_approval"
+                    ? "bg-amber-50 border border-amber-200 text-amber-800 animate-pulse"
+                    : "bg-indigo-50/50 border border-indigo-200/50 text-indigo-950"
+                }`}
               >
-                ✓ Requirements Ready
+                {activeProj.status === "waiting_approval" ? "⌚ Awaiting Approval" : "✓ Requirements Ready"}
               </motion.span>
               <motion.button
                 onClick={handleDownloadZip}
@@ -1379,10 +1410,10 @@ export const ProjectViewer: React.FC = () => {
       {/* Main Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* DOCUMENTS REVIEW PANEL (when documents are ready) */}
-        {activeProj.status === "documents_ready" && (
+        {(activeProj.status === "documents_ready" || activeProj.status === "waiting_approval") && (
           <div className="flex-1 flex overflow-hidden bg-transparent">
             {/* Left Content Area */}
-            <div className="flex-1 flex flex-col overflow-hidden border-r border-stone-200/60">
+            <div className="flex-1 flex flex-col overflow-hidden border-r border-transparent">
               {/* Tab Navigation */}
               <div className="px-6 py-4 bg-white/20 backdrop-blur-md border-b border-stone-200/60 flex items-center justify-between">
                 <div className="flex gap-2">
@@ -1399,12 +1430,24 @@ export const ProjectViewer: React.FC = () => {
                       {tab.toUpperCase()} Spec
                     </button>
                   ))}
+                  {activeProj.hitl_enabled !== false && (
+                    <button
+                      onClick={() => setActiveDocTab("plan")}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
+                        activeDocTab === "plan"
+                          ? "bg-indigo-950 text-white shadow-sm"
+                          : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                      }`}
+                    >
+                      Implementation Plan
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Document Text View */}
               <div className="flex-1 overflow-y-auto p-8 bg-transparent">
-                <div className="max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm">
+                <div className="w-full max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm text-left">
                   {activeDocTab === "prd" && (
                     <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
                   )}
@@ -1414,17 +1457,66 @@ export const ProjectViewer: React.FC = () => {
                   {activeDocTab === "trd" && (
                     <MarkdownRenderer text={activeProj.trd || "# Technical Requirements\nNo TRD generated."} />
                   )}
+                  {activeDocTab === "plan" && (
+                    <div className="space-y-4 text-left">
+                      <div className="flex justify-between items-center border-b border-stone-200 pb-3 mb-3">
+                        <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">File Modification Blueprint</h4>
+                        {activeProj.status === "waiting_approval" && (
+                          <button
+                            onClick={() => setIsEditingPlan(!isEditingPlan)}
+                            className="px-3 py-1 rounded-lg text-[10px] font-semibold bg-stone-200 hover:bg-stone-300 text-stone-700 transition-all cursor-pointer"
+                          >
+                            {isEditingPlan ? "Preview Mode" : "Edit Plan"}
+                          </button>
+                        )}
+                      </div>
+                      {activeProj.status === "documents_ready" ? (
+                        <div className="py-6 space-y-4">
+                          <h3 className="text-sm font-bold text-indigo-950">
+                            {activeProj.hitl_enabled !== false 
+                              ? "⏳ Plan Generation Pending" 
+                              : "⏩ Direct Compilation Enabled"
+                            }
+                          </h3>
+                          <p className="text-xs text-stone-500 leading-relaxed">
+                            {activeProj.hitl_enabled !== false 
+                              ? "Since 'Review Planning Blueprint' is enabled, Sarthi will run the Research & Planning agent to construct a detailed file modification plan before generating any code. This plan will appear here for your review and approval after you click 'Proceed to Build Codebase'."
+                              : "You have disabled planning review. Sarthi will compile the codebase directly in the background without pausing for approval or showing a plan."
+                            }
+                          </p>
+                          {activeProj.hitl_enabled !== false && (
+                            <div className="p-4 rounded-xl bg-amber-50 border border-amber-100/80 text-[11px] text-amber-800 leading-relaxed">
+                              <strong>Note:</strong> You can edit the generated implementation plan file-by-file once it is created.
+                            </div>
+                          )}
+                        </div>
+                      ) : isEditingPlan ? (
+                        <textarea
+                          value={editedPlanMarkdown}
+                          onChange={(e) => setEditedPlanMarkdown(e.target.value)}
+                          className="w-full h-[500px] p-4 font-mono text-xs text-stone-850 bg-white border border-stone-300 rounded-2xl focus:outline-none focus:ring-1 focus:ring-indigo-950 resize-y"
+                        />
+                      ) : (
+                        <MarkdownRenderer text={editedPlanMarkdown || activeProj.implementation_plan?.plan_markdown || "# Implementation Plan\n*No plan details available.*"} />
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Right Action Sidebar */}
-            <div className="w-85 bg-white/10 backdrop-blur-md p-6 pb-24 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-stone-200/60">
+            <div className="w-85 bg-white/10 backdrop-blur-md p-6 pb-24 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-transparent">
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">Specifications Review</h3>
+                  <h3 className="text-sm font-bold text-stone-850 uppercase tracking-wider">
+                    {activeProj.status === "waiting_approval" ? "Review & Approve Plan" : "Specifications Review"}
+                  </h3>
                   <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
-                    Sarthi has generated complete Product, Market, and Technical specifications. Please review them before proceeding to the code generation phase.
+                    {activeProj.status === "waiting_approval" 
+                      ? "Review the proposed files alterations on the left. You can modify the plan details, then approve it to compile the codebase."
+                      : "Sarthi has generated complete Product, Market, and Technical specifications. Please review them before proceeding to the code generation phase."
+                    }
                   </p>
                 </div>
 
@@ -1461,18 +1553,44 @@ export const ProjectViewer: React.FC = () => {
 
               {activeProj.category !== "documents" && (
                 <div className="mt-8 border-t border-stone-200/60 pt-6 space-y-4">
-                  <div className="text-[11px] text-stone-500 leading-normal">
-                    Everything looks good? Proceed to generate the codebase and assemble the working application.
-                  </div>
-                  <motion.button
-                    onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4 animate-pulse" />
-                    <span>Proceed to Build Codebase</span>
-                  </motion.button>
+                  {activeProj.status === "waiting_approval" ? (
+                    <>
+                      <div className="text-[11px] text-stone-500 leading-normal">
+                        Ready to start the codebase generation under the approved implementation plan?
+                      </div>
+                      <motion.button
+                        onClick={() => approveProjectPlan(
+                          activeProj.id,
+                          activeProj.chat_id,
+                          {
+                            ...activeProj.implementation_plan,
+                            plan_markdown: editedPlanMarkdown
+                          }
+                        )}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4 animate-pulse" />
+                        <span>Approve Plan & Compile Codebase</span>
+                      </motion.button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[11px] text-stone-500 leading-normal">
+                        Everything looks good? Proceed to generate the codebase and assemble the working application.
+                      </div>
+                      <motion.button
+                        onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4 animate-pulse" />
+                        <span>Proceed to Build Codebase</span>
+                      </motion.button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1784,7 +1902,7 @@ export const ProjectViewer: React.FC = () => {
                   animate={{ width: 256, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ duration: 0.3, ease: "easeInOut" }}
-                  className="border-r border-stone-200/60 bg-white/30 backdrop-blur-md flex flex-col shrink-0 transition-colors duration-300 overflow-hidden"
+                  className="border-r border-transparent bg-white/30 backdrop-blur-md flex flex-col shrink-0 transition-colors duration-300 overflow-hidden"
                 >
                   <div className="p-3.5 border-b border-stone-200/60 shrink-0 w-64 bg-stone-50/40">
                     <div className="flex bg-stone-100 p-0.5 rounded-lg">
@@ -2242,30 +2360,20 @@ export const ProjectViewer: React.FC = () => {
                                 {getAbbr(node.id)}
                               </text>
 
-                              {/* Label text backdrop */}
+                              {/* Legible Label Text */}
                               <text
                                 x={node.x}
                                 y={node.id === "orchestrator" ? node.y - node.r - 8 : node.y + node.r + 14}
                                 textAnchor="middle"
-                                fill="#ffffff"
-                                className="text-[9px] font-extrabold select-none opacity-90"
+                                fill={isHovered || isSelected ? "#ffffff" : "#e7e5e4"}
+                                className="text-[9px] font-extrabold transition-colors duration-200 select-none"
                                 style={{
                                   paintOrder: "stroke",
-                                  stroke: "#0c0a09",
-                                  strokeWidth: "3px",
+                                  stroke: "#09090b",
+                                  strokeWidth: "2.5px",
                                   strokeLinecap: "round",
                                   strokeLinejoin: "round"
                                 }}
-                              >
-                                {getShortName(node.id)}
-                              </text>
-                              {/* Label text */}
-                              <text
-                                x={node.x}
-                                y={node.id === "orchestrator" ? node.y - node.r - 8 : node.y + node.r + 14}
-                                textAnchor="middle"
-                                fill={isHovered || isSelected ? "#ffffff" : node.color}
-                                className="text-[9px] font-extrabold transition-colors duration-200"
                               >
                                 {getShortName(node.id)}
                               </text>

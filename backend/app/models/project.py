@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 class CodeFileSchema(BaseModel):
@@ -29,12 +29,13 @@ class ProjectCreate(BaseModel):
     theme: Optional[str] = None
     blueprint: Optional[BlueprintSchema] = None
     theme_palette: Optional[ThemePaletteSchema] = None
+    hitl_enabled: Optional[bool] = True
 
 class ProjectResponse(BaseModel):
     id: str
     name: str
     category: str
-    status: str  # "idle" | "generating" | "completed" | "failed"
+    status: str  # "idle" | "generating" | "completed" | "failed" | "waiting_approval"
     progress: int
     step: str
     summary: str
@@ -77,6 +78,12 @@ class ProjectResponse(BaseModel):
     prd: Optional[str] = None
     mrd: Optional[str] = None
     trd: Optional[str] = None
+    
+    # Sarthi 2.0 dynamic fields
+    hitl_enabled: Optional[bool] = True
+    hitl_approved: Optional[bool] = False
+    implementation_plan: Optional[Dict[str, Any]] = None
+    validation_logs: Optional[List[Dict[str, Any]]] = []
 
     class Config:
         from_attributes = True

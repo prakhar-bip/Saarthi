@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { AnimatedChariot, SarthiLogo } from "./CustomSvgs";
+import { motion } from "framer-motion";
+import { SarthiLogo } from "./CustomSvgs";
 
 interface ChariotSplashProps {
   onComplete: () => void;

@@ -366,3 +366,132 @@ def build_compilation_context(agent_outputs: Dict[str, Any]) -> Dict[str, Any]:
         if value:
             ordered_context[key] = summarize_contract(value)
     return ordered_context
+
+
+# ──────────────────────────────────────────────────────────────
+# Dynamic Prompt Template System (Sarthi 2.0)
+# ──────────────────────────────────────────────────────────────
+
+TASK_OBJECTIVES: Dict[str, str] = {
+    "RequirementAnalyzerAgent": "Identify project scope, features, core modules, and technical requirements from client idea.",
+    "PlannerAgent": "Plan execution order, module dependency mapping, and assign agent scheduler schema.",
+    "ResearchPlanningAgent": "Examine requirements and code structure to map proposed files alterations list.",
+    "DatabaseArchitectureAgent": "Design persistence entities, primary/foreign key relations, indexes, caching layer, and data contracts.",
+    "BackendArchitectureAgent": "Design internal backend modules, repositories, service patterns, and business logic execution pipelines.",
+    "APIAgent": "Define REST routes, WebSocket channels, payloads, headers, auth guards, and response contracts.",
+    "FrontendArchitectureAgent": "Design layout hierarchies, routing strategies, page flows, and UI component dependencies.",
+    "UIUXArchitectAgent": "Define style sheets, visual typography, HSL Tailwind colors, design system tokens, and theme configurations.",
+    "AuthArchitectureAgent": "Design authorization and authentication layers (sessions, JWT, tokens, cookie strategy, roles access).",
+    "RealtimeArchitectureAgent": "Design realtime WebSocket subscriptions, event payloads, channels mappings, and sync states.",
+    "StateManagementAgent": "Design client global state stores, slice actions, async cache invalidation, and data hydration.",
+    "DevOpsArchitectureAgent": "Design deployment configurations, Dockerfiles, environments, and CI/CD pipelines.",
+    "SecurityArchitectureAgent": "Design application security (CORS, Rate Limiting, sanitization, hashing, secrets management).",
+    "TestingArchitectureAgent": "Design test strategies, fixtures schemas, and quality check specifications.",
+}
+
+JSON_SCHEMAS: Dict[str, str] = {
+    "DatabaseArchitectureAgent": """{
+  "status": "success",
+  "database_strategy": {
+    "primary_database": "string (e.g. 'PostgreSQL', 'MongoDB', 'SQLite')",
+    "secondary_databases": ["string"],
+    "cache_layer": "string (e.g. 'Redis', 'None')",
+    "database_reasoning": ["string"]
+  },
+  "entities": [
+    {
+      "entity_name": "string (PascalCase)",
+      "fields": [{"name": "string (snake_case)", "type": "string", "required": "boolean", "indexed": "boolean"}]
+    }
+  ]
+}""",
+    "ResearchPlanningAgent": """{
+  "status": "success",
+  "plan_markdown": "string (A detailed Markdown document detailing the implementation steps)",
+  "proposed_changes": [
+    {"path": "string", "action": "string", "description": "string"}
+  ]
+}"""
+}
+
+def get_role_definition(agent_role: str) -> str:
+    return AGENT_ROLES.get(agent_role, "Senior software architecture agent for Sarthi pipeline.")
+
+def get_required_state_keys(agent_role: str) -> str:
+    mapping = {
+        "RequirementAnalyzerAgent": "requirements",
+        "PlannerAgent": "planning",
+        "ResearchPlanningAgent": "implementation_plan",
+        "DatabaseArchitectureAgent": "db_architecture",
+        "BackendArchitectureAgent": "backend_architecture",
+        "APIAgent": "api_architecture",
+        "FrontendArchitectureAgent": "frontend_architecture",
+        "UIUXArchitectAgent": "theme_styling",
+        "AuthArchitectureAgent": "auth_architecture",
+        "RealtimeArchitectureAgent": "realtime_architecture",
+        "StateManagementAgent": "state_management",
+        "DevOpsArchitectureAgent": "devops_architecture",
+        "SecurityArchitectureAgent": "security_architecture",
+        "TestingArchitectureAgent": "testing_architecture",
+        "ValidationArchitectureAgent": "validation_architecture",
+        "OptimizationArchitectureAgent": "optimization_strategy",
+        "CodeGenerationPlannerAgent": "code_generation_plan",
+        "DatabaseModelGenerationAgent": "database_model_generation",
+        "BackendCodeGenerationAgent": "backend_code_generation",
+        "APIImplementationAgent": "api_implementation",
+        "FrontendCodeGenerationAgent": "frontend_code_generation",
+        "UIComponentGenerationAgent": "ui_component_generation",
+        "StateImplementationAgent": "state_implementation",
+        "IntegrationGenerationAgent": "integration_generation",
+        "BuildCompilationAgent": "build_compilation",
+        "ErrorCorrectionAgent": "error_correction",
+        "ProjectExportAgent": "project_export",
+    }
+    return mapping.get(agent_role, agent_role.lower())
+
+def get_task_objective(agent_role: str) -> str:
+    return TASK_OBJECTIVES.get(agent_role, f"Implement Sarthi architecture tasks for {agent_role}.")
+
+def get_json_schema(agent_role: str) -> str:
+    default_schema = """{
+  "status": "success",
+  "result": {},
+  "agent_handoff": {
+    "agent": "string",
+    "role": "string",
+    "upstream_agents": ["string"],
+    "downstream_agents": ["string"],
+    "handoff_summary": ["string"]
+  }
+}"""
+    return JSON_SCHEMAS.get(agent_role, default_schema)
+
+def generate_agent_prompt(agent_role: str, state: dict) -> str:
+    base_template = """
+    ROLE: {role_definition}
+    
+    UPSTREAM CONTEXT (BINDING CONTRACTS):
+    - Requirements Context: {requirements_context}
+    - Implementation Plan: {plan_context}
+    - Active Workspace State: {active_state_context}
+    
+    OBJECTIVE & SCOPE:
+    {task_objective}
+    
+    STRICT CONSTRAINTS:
+    - Never write placeholders or mock codes.
+    - Align database schemas with model entities exactly.
+    - All JSON outputs must strictly conform to the schema outlined below.
+    
+    REQUIRED OUTPUT CONTRACT SCHEMA:
+    {json_output_schema}
+    """
+    
+    return base_template.format(
+        role_definition=get_role_definition(agent_role),
+        requirements_context=json.dumps(state.get("requirements") or {}),
+        plan_context=json.dumps(state.get("implementation_plan") or {}),
+        active_state_context=json.dumps(state.get(get_required_state_keys(agent_role)) or {}),
+        task_objective=get_task_objective(agent_role),
+        json_output_schema=get_json_schema(agent_role)
+    )

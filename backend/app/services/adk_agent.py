@@ -1,15 +1,36 @@
 from loguru import logger
-import logging
-import os
 from typing import List, Dict, Any, Optional
-from google.adk.agents.llm_agent import Agent
-from google.adk.runners import Runner
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.agents.run_config import RunConfig
 from google.genai.types import Content, Part
 
 from app.core.config import settings
 from app.services.ai import generate_theme_suggestions, stream_chat_reply
+
+# Check if google-adk is installed
+HAS_ADK = False
+try:
+    from google.adk.agents.llm_agent import Agent
+    from google.adk.runners import Runner
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    from google.adk.agents.run_config import RunConfig
+    HAS_ADK = True
+except (ImportError, ModuleNotFoundError):
+    logger.warning("google-adk package is not installed. Root ADK Agent chat will cascade to LangGraph fallback.")
+    Agent = None
+    Runner = None
+    InMemorySessionService = None
+    RunConfig = None
+
+# If ADK is present, restrict it to production environment and verify credentials.
+if settings.ENVIRONMENT != "production":
+    logger.info("google-adk disabled in development mode.")
+    HAS_ADK = False
+elif HAS_ADK and settings.USE_VERTEX_AI:
+    try:
+        import google.auth
+        google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+    except Exception as e:
+        logger.warning(f"Vertex AI credentials check failed: {e}. Sarthi ADK Agent chat disabled (bypassing deadlock).")
+        HAS_ADK = False
 
 
 # 1. Define custom Python tools first for ADK
@@ -51,48 +72,53 @@ def get_design_theme_suggestions_tool(project_name: str, category: str, features
 platform_info = "Google Cloud Vertex AI (via IAM Service Account)" if settings.USE_VERTEX_AI else "Google AI Studio (via Developer API Key)"
 
 # 2. Initialize the Root ADK Agent
-sarthi_agent = Agent(
-    name="Sarthi",
-    model=settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL,
-    instruction=(
-        "You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering. "
-        f"Currently, you are executing on the {platform_info} platform. If the user asks which platform or API route you are using, answer with this platform name.\n\n"
-        "You are optimized for the Building Agents for Real-World Challenges hackathon using Gemini, Google Cloud Agent Builder style orchestration, and the MongoDB partner MCP server.\n\n"
-        "## Core Capabilities\n"
-        "1. **General Assistant**: Answer ANY question thoroughly — coding doubts, debugging, algorithms, system design, tech concepts, career advice, etc. Respond like a knowledgeable senior developer.\n"
-        "2. **Project Brainstorming**: When the user discusses a project idea, help them refine it — suggest features, architecture patterns, UX workflows, database schemas, and tech stack choices.\n"
-        "3. **Blueprint Generation**: When project details are discussed, output a structured blueprint block that auto-populates the project form.\n\n"
-        "## Response Rules\n"
-        "- **Dynamic Brainstorming**: When the user shares a project idea, DO NOT just passively accept it. Act as a dynamic tech co-founder. Discuss their idea, suggest 2-3 innovative, modern features they might not have thought of, and ask for their feedback. Make it clear that everything is customizable.\n"
-        "- For hackathon project discussions, prefer agentic products that take action through tools, database state, workflows, generated deliverables, and human approval checkpoints.\n"
-        "- Mention that Sarthi will package generated apps with README, MIT license, .env example, PRD/MRD/TRD, MongoDB MCP evidence, and a Devpost-ready submission checklist.\n"
-        "- For **general questions** (coding, debugging, concepts): Provide clear, accurate answers with code examples where relevant. Do NOT mention project compilation or blueprints.\n"
-        "- For **project discussions**: Engage naturally. Ask clarifying questions. Suggest improvements. Append the blueprint block dynamically so the right panel updates, but let them know they can modify it anytime.\n"
-        "- Use **markdown formatting**: headings, bullet lists, code blocks with language tags, bold for emphasis.\n"
-        "- Keep responses conversational, enthusiastic, and direct — not robotic.\n\n"
-        "## Blueprint Block Format\n"
-        "ONLY when the user is discussing their project idea, features, or tech stack, append this block at the END of your response:\n"
-        "<blueprint>\n"
-        "{\n"
-        "  \"name\": \"Project Name\",\n"
-        "  \"idea\": \"Clear one-line description of what the project does\",\n"
-        "  \"features\": [\"Feature 1 with brief detail\", \"Feature 2 with brief detail\", \"Feature 3\"],\n"
-        "  \"tech_stack\": \"Flask, HTML, CSS, JavaScript\",\n"
-        "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
-        "}\n"
-        "</blueprint>\n\n"
-        "Do NOT include blueprint blocks for general questions, greetings, or non-project conversations."
-    ),
-    tools=[get_design_theme_suggestions_tool]
-)
+sarthi_agent = None
+session_service = None
+runner = None
 
-# Instantiate Session service and Runner for ADK
-session_service = InMemorySessionService()
-runner = Runner(
-    app_name="SarthiApp",
-    agent=sarthi_agent,
-    session_service=session_service
-)
+if HAS_ADK:
+    sarthi_agent = Agent(
+        name="Sarthi",
+        model=settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL,
+        instruction=(
+            "You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering. "
+            f"Currently, you are executing on the {platform_info} platform. If the user asks which platform or API route you are using, answer with this platform name.\n\n"
+            "You are optimized for the Building Agents for Real-World Challenges hackathon using Gemini, Google Cloud Agent Builder style orchestration, and the MongoDB partner MCP server.\n\n"
+            "## Core Capabilities\n"
+            "1. **General Assistant**: Answer ANY question thoroughly — coding doubts, debugging, algorithms, system design, tech concepts, career advice, etc. Respond like a knowledgeable senior developer.\n"
+            "2. **Project Brainstorming**: When the user discusses a project idea, help them refine it — suggest features, architecture patterns, UX workflows, database schemas, and tech stack choices.\n"
+            "3. **Blueprint Generation**: When project details are discussed, output a structured blueprint block that auto-populates the project form.\n\n"
+            "## Response Rules\n"
+            "- **Dynamic Brainstorming**: When the user shares a project idea, DO NOT just passively accept it. Act as a dynamic tech co-founder. Discuss their idea, suggest 2-3 innovative, modern features they might not have thought of, and ask for their feedback. Make it clear that everything is customizable.\n"
+            "- For hackathon project discussions, prefer agentic products that take action through tools, database state, workflows, generated deliverables, and human approval checkpoints.\n"
+            "- Mention that Sarthi will package generated apps with README, MIT license, .env example, PRD/MRD/TRD, MongoDB MCP evidence, and a Devpost-ready submission checklist.\n"
+            "- For **general questions** (coding, debugging, concepts): Provide clear, accurate answers with code examples where relevant. Do NOT mention project compilation or blueprints.\n"
+            "- For **project discussions**: Engage naturally. Ask clarifying questions. Suggest improvements. Append the blueprint block dynamically so the right panel updates, but let them know they can modify it anytime.\n"
+            "- Use **markdown formatting**: headings, bullet lists, code blocks with language tags, bold for emphasis.\n"
+            "- Keep responses conversational, enthusiastic, and direct — not robotic.\n\n"
+            "## Blueprint Block Format\n"
+            "ONLY when the user is discussing their project idea, features, or tech stack, append this block at the END of your response:\n"
+            "<blueprint>\n"
+            "{\n"
+            "  \"name\": \"Project Name\",\n"
+            "  \"idea\": \"Clear one-line description of what the project does\",\n"
+            "  \"features\": [\"Feature 1 with brief detail\", \"Feature 2 with brief detail\", \"Feature 3\"],\n"
+            "  \"tech_stack\": \"Flask, HTML, CSS, JavaScript\",\n"
+            "  \"category\": \"web\"  // 'web', 'agent', 'mobile', or 'backend'\n"
+            "}\n"
+            "</blueprint>\n\n"
+            "Do NOT include blueprint blocks for general questions, greetings, or non-project conversations."
+        ),
+        tools=[get_design_theme_suggestions_tool]
+    )
+
+    # Instantiate Session service and Runner for ADK
+    session_service = InMemorySessionService()
+    runner = Runner(
+        app_name="SarthiApp",
+        agent=sarthi_agent,
+        session_service=session_service
+    )
 
 # 3. LangGraph Fallback Orchestration Setup
 try:
@@ -162,7 +188,7 @@ async def run_adk_chat(
     Executes the chat session using the Google Cloud ADK agent platform when Vertex AI is active.
     Falls back to LangGraph workflow if Vertex AI is not used or if it fails.
     """
-    if settings.USE_VERTEX_AI:
+    if settings.ENVIRONMENT == "production" and settings.USE_VERTEX_AI and HAS_ADK:
         try:
             # Find the last user message
             last_user_message = ""
@@ -236,7 +262,7 @@ async def stream_adk_chat(
     Asynchronously streams the chat session response.
     Cascades to stream_chat_reply as fallback.
     """
-    if settings.USE_VERTEX_AI:
+    if settings.ENVIRONMENT == "production" and settings.USE_VERTEX_AI and HAS_ADK:
         try:
             # Find the last user message
             last_user_message = ""

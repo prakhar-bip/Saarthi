@@ -1,5 +1,6 @@
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent
 from app.agents.planner import PlannerAgent
+from app.agents.research_planning_agent import ResearchPlanningAgent
 from app.agents.db_architect import DatabaseArchitectureAgent
 from app.agents.backend_architect import BackendArchitectureAgent
 from app.agents.api_agent import APIAgent
@@ -28,6 +29,7 @@ from app.agents.project_export import ProjectExportAgent
 __all__ = [
     "RequirementAnalyzerAgent",
     "PlannerAgent",
+    "ResearchPlanningAgent",
     "DatabaseArchitectureAgent",
     "BackendArchitectureAgent",
     "APIAgent",

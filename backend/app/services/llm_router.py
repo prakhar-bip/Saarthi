@@ -1,13 +1,12 @@
 import time
 from loguru import logger
-import logging
-import json
 from typing import List, Dict, Any, Tuple
 from openai import OpenAI
 from google import genai
 from google.genai import types
 from app.core.config import settings
 import contextvars
+import os
 
 # Context variable for LangGraph to inject feedback on retries
 current_agent_feedback = contextvars.ContextVar("current_agent_feedback", default=None)
@@ -37,9 +36,9 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
 
     # ---------------------------------------------------------
     # TIER 2: CHAT, PLANNING & ARCHITECTURE TASKS
-    # Now routed to Gemini as primary, with OpenRouter as fallback
+    # Routed to OpenRouter for chatting and document templates
     # ---------------------------------------------------------
-    "ChatReply": ("gemini", FAST_MODEL),
+    "ChatReply": ("openrouter", settings.OPENROUTER_MODEL),
     "CategoryClassifier": ("gemini", FAST_MODEL),
     "ProjectSuggestions": ("gemini", FAST_MODEL),
     "PlannerAgent": ("gemini", FAST_MODEL),
@@ -63,10 +62,13 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     "TestingArchitectureAgent": ("gemini", FAST_MODEL),
     "ThemeGeneratorAgent": ("gemini", FAST_MODEL),
     "DocumentGeneratorAgent": ("gemini", FAST_MODEL),
+    "PRDGeneratorAgent": ("gemini", FAST_MODEL),
+    "MRDGeneratorAgent": ("gemini", FAST_MODEL),
+    "TRDGeneratorAgent": ("gemini", REASONING_MODEL),
 }
 
 # Base global fallback (will be dynamically adjusted based on pref_provider)
-FALLBACK_PROVIDERS = ["gemini", "groq", "openrouter", "nvidia"]
+FALLBACK_PROVIDERS = ["gemini", "openrouter", "nvidia"]
 
 
 def get_provider_client(provider: str) -> Any:
@@ -79,15 +81,10 @@ def get_provider_client(provider: str) -> Any:
         return OpenAI(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=settings.OPENROUTER_API_KEY,
-            timeout=30.0
-        )
-    
-    elif provider == "groq":
-        if not settings.GROQ_API_KEY:
-            return None
-        return OpenAI(
-            base_url=settings.GROQ_BASE_URL,
-            api_key=settings.GROQ_API_KEY,
+            default_headers={
+                "HTTP-Referer": "https://github.com/prakhar-bip/Saarthi",
+                "X-Title": "Sarthi",
+            },
             timeout=30.0
         )
     
@@ -119,8 +116,6 @@ def get_default_model(provider: str) -> str:
     provider = provider.lower()
     if provider == "openrouter":
         return settings.OPENROUTER_MODEL
-    elif provider == "groq":
-        return settings.GROQ_MODEL
     elif provider in ("google", "gemini"):
         return settings.GOOGLE_MODEL
     elif provider == "nvidia":
@@ -191,23 +186,23 @@ async def get_raw_llm_completion(
         last_msg["content"] += f"\n\n--- IMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT ---\n{feedback}\nPlease ensure your JSON output is complete and not truncated."
         logger.info(f"[{agent_name}] Injecting retry feedback into prompt.")
     # Determine preferred provider and model
-    pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
-        agent_name, ("gemini", settings.GOOGLE_MODEL)
-    )
+    if settings.ENVIRONMENT == "production":
+        pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
+            agent_name, ("gemini", settings.GOOGLE_MODEL)
+        )
+        if agent_name == "ChatReply":
+            fallback_sequence = []
+        else:
+            fallback_sequence = ["openrouter"]
+    else:  # development
+        pref_provider = "openrouter"
+        pref_model = settings.OPENROUTER_MODEL
+        fallback_sequence = ["nvidia"]
     
     # Sequence of providers to try (preferred first, then cascade through fallbacks)
     seen = set()
     providers_to_try = []
     
-    # Dynamically build fallback list so we don't fallback to Gemini immediately if we wanted OpenRouter
-    fallback_sequence = []
-    if pref_provider == "openrouter":
-        fallback_sequence = ["groq", "gemini", "nvidia"]
-    elif pref_provider in ("google", "gemini"):
-        fallback_sequence = ["openrouter", "groq", "nvidia"]
-    else:
-        fallback_sequence = FALLBACK_PROVIDERS
-
     for p in [pref_provider] + fallback_sequence:
         norm_p = "google" if p in ("google", "gemini") else p
         if norm_p not in seen:
@@ -325,29 +320,28 @@ async def stream_raw_llm_completion(
     Yields chunks of generated text.
     """
     _inject_platform_instruction(messages)
-    pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
-        agent_name, ("gemini", settings.GOOGLE_MODEL)
-    )
+    # Determine preferred provider and model
+    if settings.ENVIRONMENT == "production":
+        pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
+            agent_name, ("gemini", settings.GOOGLE_MODEL)
+        )
+        if agent_name == "ChatReply":
+            fallback_sequence = []
+        else:
+            fallback_sequence = ["openrouter"]
+    else:  # development
+        pref_provider = "openrouter"
+        pref_model = settings.OPENROUTER_MODEL
+        fallback_sequence = ["nvidia"]
     
     seen = set()
     providers_to_try = []
-    
-    fallback_sequence = []
-    if pref_provider == "openrouter":
-        fallback_sequence = ["groq", "gemini", "nvidia"]
-    elif pref_provider in ("google", "gemini"):
-        fallback_sequence = ["openrouter", "groq", "nvidia"]
-    else:
-        fallback_sequence = FALLBACK_PROVIDERS
 
     for p in [pref_provider] + fallback_sequence:
         norm_p = "google" if p in ("google", "gemini") else p
         if norm_p not in seen:
             seen.add(norm_p)
             providers_to_try.append(p)
-            
-    if agent_name == "ChatReply":
-        providers_to_try = [pref_provider]
     
     last_error = None
     
@@ -441,13 +435,15 @@ async def get_llm_completion(
     max_tokens: int = 3000
 ) -> str:
     """
-    Primary wrapper for all agents. 
-    Attempts ADK Agent runner first, falls back to LangGraph workflow, 
-    and finally cascades to the standard direct LLM completion client.
+    Primary wrapper for all agents.
     """
-    pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
-        agent_name, ("gemini", settings.GOOGLE_MODEL)
-    )
+    if settings.ENVIRONMENT == "production":
+        pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
+            agent_name, ("gemini", settings.GOOGLE_MODEL)
+        )
+    else:  # development
+        pref_provider = "openrouter"
+        pref_model = settings.OPENROUTER_MODEL
     
     # Extract system and user contents
     system_instruction = ""
@@ -467,11 +463,18 @@ async def get_llm_completion(
     # 1. Primary path: Google Cloud ADK Agent Runner (Only for Gemini)
     if pref_provider in ("google", "gemini"):
         try:
-            import os
             # Cleanly skip ADK if credentials are missing to avoid noisy thread stack traces
             if not settings.USE_VERTEX_AI and not settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get("GEMINI_API_KEY"):
                 logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (No Google Credentials found). Deferring to Fallback.")
                 raise ValueError("Google Credentials missing for local dev.")
+
+            if settings.USE_VERTEX_AI:
+                try:
+                    import google.auth
+                    google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+                except Exception as credentials_err:
+                    logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (Vertex AI default credentials not found: {credentials_err}). Deferring to Fallback.")
+                    raise ValueError("Vertex AI credentials not configured.")
 
             from google.adk.agents.llm_agent import Agent as ADKAgent
             from google.adk.runners import Runner as ADKRunner

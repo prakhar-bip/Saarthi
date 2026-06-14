@@ -1,6 +1,5 @@
 import json
 from loguru import logger
-import logging
 from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion

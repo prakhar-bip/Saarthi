@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useWorkspace, API_BASE } from "@/context/WorkspaceContext";
+import { useWorkspace } from "@/context/WorkspaceContext";
 import { 
   Search, Terminal, User, HelpCircle, Settings, X, Play, 
-  ChevronRight, ArrowRight, FolderGit2, Sidebar as SidebarIcon,
-  PanelRight, Keyboard, Database, Sparkles
+  ArrowRight, FolderGit2, Sidebar as SidebarIcon,
+  PanelRight, Keyboard, Sparkles
 } from "lucide-react";
 
 export const CommandMenu: React.FC = () => {
@@ -27,7 +27,6 @@ export const CommandMenu: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Compute active project

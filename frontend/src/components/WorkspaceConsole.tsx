@@ -2,9 +2,9 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence, useDragControls } from "framer-motion";
-import { useWorkspace, Message } from "@/context/WorkspaceContext";
+import { useWorkspace, Message, API_BASE } from "@/context/WorkspaceContext";
 import { CategoryIcon, LockIllustration, SarthiLogo, WaveBackground, AiTypingWave, CircuitDecor, EmptyStateIllustration, FloatingBot, MorpankhBg } from "./CustomSvgs";
-import { Send, Sparkles, BookOpen, AlertCircle, ChevronDown, Cpu, ShieldAlert, PanelRight, ChevronLeft, ChevronRight, PanelLeft, RefreshCw } from "lucide-react";
+import { Send, Sparkles, BookOpen, AlertCircle, ChevronDown, Cpu, ShieldAlert, PanelRight, ChevronLeft, ChevronRight, PanelLeft, RefreshCw, Pause, Play, Square, FolderPlus } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const slideVariants = {
@@ -44,6 +44,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   const {
     user,
     chats,
+    setChats,
     activeChatId,
     setActiveChatId,
     activeProjectId,
@@ -52,6 +53,8 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     addMessageToChat,
     editMessageText,
     updateChatSelectedProject,
+    togglePauseChat,
+    stopChatGeneration,
     generateProject,
     generateDocuments,
     setShowAuthModal,
@@ -85,6 +88,16 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   const [projectNameInput, setProjectNameInput] = useState("");
   const [isFloatingExpanded, setIsFloatingExpanded] = useState(false);
   const dragControls = useDragControls();
+
+  // Floating Create Project Modal states
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [modalPrompt, setModalPrompt] = useState("");
+  const [modalName, setModalName] = useState("");
+  const [modalIdea, setModalIdea] = useState("");
+  const [modalFeatures, setModalFeatures] = useState<string[]>(["", "", ""]);
+  const [modalTechStack, setModalTechStack] = useState("React, Tailwind CSS, FastAPI, MongoDB");
+  const [modalHitlEnabled, setModalHitlEnabled] = useState(true);
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
   // Document Architect states
   const [workspaceMode, setWorkspaceMode] = useState<"compiler" | "docs">("compiler");
@@ -234,27 +247,89 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     if (e) e.preventDefault();
     if (!user) return;
     if (!currentInput.trim()) return;
+    if (aiTyping) return;
+
+    const textSent = currentInput;
+    setCurrentInput(""); // Clear the input immediately!
+    const textarea = document.getElementById("chat-input-bar");
+    if (textarea) textarea.style.height = "auto";
+    setAiTyping(true);
 
     let targetCategory = currentCategory;
     if (!targetCategory) {
-      targetCategory = detectCategory(currentInput);
+      targetCategory = detectCategory(textSent);
       setCurrentCategory(targetCategory);
     }
 
     let targetChatId = activeChatId;
     if (!activeChat) {
-      const chatTitle = currentInput.length > 25 ? `${currentInput.slice(0, 25)}...` : currentInput;
-      targetChatId = await createNewChat(targetCategory, chatTitle);
-    }
+      // Optimistically create temporary chat session so the user message appears instantly
+      const tempChatId = `chat-temp-${Date.now()}`;
+      const chatTitle = textSent.length > 25 ? `${textSent.slice(0, 25)}...` : textSent;
+      const time = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const tempMsg = { id: `m-temp-${Date.now()}`, sender: "user" as const, text: textSent, timestamp: time };
+      
+      const tempChat: any = {
+        id: tempChatId,
+        title: chatTitle,
+        category: targetCategory,
+        messages: [tempMsg],
+        created: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        selected_project: null,
+        is_confirmed: false,
+        project_id: null
+      };
 
-    if (targetChatId) {
-      const textSent = currentInput;
-      setCurrentInput("");
-      const textarea = document.getElementById("chat-input-bar");
-      if (textarea) textarea.style.height = 'auto';
-      setAiTyping(true);
+      setChats((prev) => [tempChat, ...prev]);
+      setActiveChatId(tempChatId);
+      setActiveProjectId(null);
+      setShowRightPane(false);
+
+      // Now create on backend
       try {
-        await addMessageToChat(targetChatId, "user", textSent);
+        const token = localStorage.getItem("token");
+        if (!token) {
+          setAiTyping(false);
+          return;
+        }
+        
+        const res = await fetch(`${API_BASE}/api/chats`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ 
+            category: targetCategory, 
+            title: chatTitle, 
+            selected_project: null 
+          })
+        });
+        if (res.ok) {
+          const newChat = await res.json();
+          // Swap temp ID with real ID, clearing messages so addMessageToChat doesn't duplicate them
+          setChats((prev) => 
+            prev.map((c) => c.id === tempChatId ? { ...newChat, messages: [] } : c)
+          );
+          setActiveChatId(newChat.id);
+          // Send to trigger AI response
+          await addMessageToChat(newChat.id, "user", textSent);
+        } else {
+          throw new Error("Failed to create chat");
+        }
+      } catch (err) {
+        console.error("Optimistic chat creation failed:", err);
+        // Rollback
+        setChats((prev) => prev.filter((c) => c.id !== tempChatId));
+        setActiveChatId(null);
+        setCurrentInput(textSent);
+      } finally {
+        setAiTyping(false);
+      }
+    } else {
+      // Regular message sending
+      try {
+        await addMessageToChat(targetChatId!, "user", textSent);
       } catch (e) {
         console.error("Send message failed:", e);
       } finally {
@@ -268,6 +343,69 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     const name = projectNameInput.trim() || `${category.charAt(0).toUpperCase() + category.slice(1)} Workspace`;
     await generateProject(activeChatId, name, category);
     setProjectNameInput("");
+  };
+
+  const handleSuggestProject = async () => {
+    if (!modalPrompt.trim()) return;
+    setIsSuggesting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE}/api/projects/suggest-blueprint`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ idea: modalPrompt.trim() })
+      });
+      if (res.ok) {
+        const blueprint = await res.json();
+        setModalName(blueprint.name || "");
+        setModalIdea(blueprint.idea || "");
+        if (blueprint.features && Array.isArray(blueprint.features)) {
+          const feats = [...blueprint.features];
+          while (feats.length < 3) feats.push("");
+          setModalFeatures(feats.slice(0, 3));
+        }
+        setModalTechStack(blueprint.tech_stack || "React, Tailwind CSS, FastAPI, MongoDB");
+      } else {
+        console.error("Failed to suggest project details");
+      }
+    } catch (err) {
+      console.error("Error suggesting project details:", err);
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  const handleModalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalName.trim() || !modalIdea.trim()) return;
+    if (!activeChatId) return;
+
+    const blueprintData = {
+      name: modalName.trim(),
+      idea: modalIdea.trim(),
+      features: modalFeatures.map(f => f.trim()).filter(Boolean),
+      tech_stack: modalTechStack.trim(),
+      hitl_enabled: modalHitlEnabled
+    };
+
+    try {
+      await updateChatSelectedProject(activeChatId, blueprintData);
+      setActiveProjectId(null);
+      setShowRightPane(true);
+      setShowCreateModal(false);
+      // Reset modal fields for next time
+      setModalPrompt("");
+      setModalName("");
+      setModalIdea("");
+      setModalFeatures(["", "", ""]);
+      setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
+      setModalHitlEnabled(true);
+    } catch (err) {
+      console.error("Failed to submit modal blueprint:", err);
+    }
   };
 
   if (isMinimized) {
@@ -707,11 +845,12 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                                     if (blueprintData && activeChatId) {
                                       updateChatSelectedProject(activeChatId, blueprintData);
                                     }
+                                    setActiveProjectId(null);
                                     setShowRightPane(true);
                                   }}
                                   className="text-[9px] bg-indigo-950 text-white px-2.5 py-1 rounded-md shadow-sm font-bold hover:bg-indigo-900 transition-colors flex items-center gap-1"
                                 >
-                                  Sync
+                                  Confirm Blueprint
                                 </button>
                               </div>
                               <p className="text-xs font-bold text-stone-850 leading-tight">{blueprintData.name}</p>
@@ -784,102 +923,298 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
 
       {/* Input Area Console */}
       <footer className="p-4 border-t border-stone-200/60 bg-stone-50/40 backdrop-blur-md shrink-0 relative select-none transition-colors duration-300">
-        <form 
-          onSubmit={user ? handleSendMessage : (e) => { e.preventDefault(); handleLockClick(); }}
-          onClick={!user ? handleLockClick : undefined}
-          className={`max-w-3xl mx-auto flex items-center gap-3 ${!user ? 'cursor-pointer' : ''}`}
-        >
-          {/* Text Input with focus glow */}
-          <div className="flex-1 relative">
-            <textarea
-              id="chat-input-bar"
-              rows={1}
-              placeholder={!user ? "Please sign in or sign up to start chatting with Sarthi..." : "Share your project idea here (features, tech stack, or vision)..."}
-              value={currentInput}
-              readOnly={!user}
-              onChange={(e) => {
-                if (!user) return;
-                setCurrentInput(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-              }}
-              onKeyDown={user ? handleKeyDown : undefined}
-              disabled={aiTyping}
-              onFocus={() => {
-                if (!user) {
-                  handleLockClick();
-                  return;
-                }
-                setInputFocused(true);
-              }}
-              onBlur={() => setInputFocused(false)}
-              className={`w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle ${!user ? 'cursor-pointer' : ''}`}
-            />
-            {/* Focus glow ring */}
-            <AnimatePresence>
-              {inputFocused && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  className="absolute inset-0 rounded-xl ring-2 ring-indigo-400/20 pointer-events-none"
-                />
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Sync Blueprint button */}
-          {user && activeChatId && !activeProjectId && (
-            <button
-              type="button"
-              onClick={() => {
-                if (activeChat) {
-                  const latestAiMessage = [...activeChat.messages]
-                    .reverse()
-                    .find((m) => m.sender === "ai" && m.text.includes("<blueprint>"));
-                    
-                  if (latestAiMessage) {
-                    const match = latestAiMessage.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
-                    if (match && match[1]) {
-                      try {
-                        let jsonString = match[1].trim();
-                        // Remove markdown backticks if AI added them
-                        if (jsonString.startsWith("```json")) {
-                          jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-                        } else if (jsonString.startsWith("```")) {
-                          jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
-                        }
-                        const blueprintData = JSON.parse(jsonString);
-                        updateChatSelectedProject(activeChat.id, blueprintData);
-                      } catch (e) {
-                        console.error("Failed to parse blueprint JSON in Sync:", e);
-                      }
-                    }
-                  }
-                }
-                setShowRightPane(true);
-              }}
-              className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
-              title="Sync Blueprint to Panel"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span className="text-xs">Sync</span>
-            </button>
+        <div className="max-w-3xl mx-auto flex flex-col gap-2">
+          {/* Create Project Helper / Tip Bar */}
+          {user && activeChatId && (
+            <div className="text-[10px] text-stone-500 font-medium flex items-center gap-1.5 px-1 pb-1">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+              <span>Click <strong className="text-indigo-950 font-bold">Create Project</strong> to open the wizard, suggest details using AI, and configure your blueprint to build.</span>
+            </div>
           )}
-
-          {/* Send button */}
-          <motion.button
-            type="submit"
-            disabled={!!user && (!currentInput.trim() || aiTyping)}
-            whileHover={!user || (currentInput.trim() && !aiTyping) ? { scale: 1.08, rotate: -8 } : {}}
-            whileTap={!user || (currentInput.trim() && !aiTyping) ? { scale: 0.92 } : {}}
-            transition={{ type: "spring", stiffness: 400, damping: 22 }}
-            className="p-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold tracking-wide border border-indigo-900/50 shadow-inner transition-colors disabled:opacity-50"
+          
+          <form 
+            onSubmit={user ? handleSendMessage : (e) => { e.preventDefault(); handleLockClick(); }}
+            onClick={!user ? handleLockClick : undefined}
+            className={`flex items-center gap-3 w-full ${!user ? 'cursor-pointer' : ''}`}
           >
-            <Send className="w-4 h-4" />
-          </motion.button>
-        </form>
+            {/* Text Input with focus glow */}
+            <div className="flex-1 relative">
+              <textarea
+                id="chat-input-bar"
+                rows={1}
+                placeholder={!user ? "Please sign in or sign up to start chatting with Sarthi..." : activeChat?.is_paused ? "Chat is paused. Click 'Resume' to send messages..." : "Share your project idea here (features, tech stack, or vision)..."}
+                value={currentInput}
+                readOnly={!user}
+                onChange={(e) => {
+                  if (!user) return;
+                  setCurrentInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                }}
+                onKeyDown={user ? handleKeyDown : undefined}
+                disabled={activeChat?.is_paused}
+                onFocus={() => {
+                  if (!user) {
+                    handleLockClick();
+                    return;
+                  }
+                  setInputFocused(true);
+                }}
+                onBlur={() => setInputFocused(false)}
+                className={`w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle ${!user ? 'cursor-pointer' : ''}`}
+              />
+              {/* Focus glow ring */}
+              <AnimatePresence>
+                {inputFocused && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    className="absolute inset-0 rounded-xl ring-2 ring-indigo-400/20 pointer-events-none"
+                  />
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Create Project button */}
+            {user && activeChatId && (
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
+                title="Create Project: Open the project creator wizard and describe your idea."
+              >
+                <FolderPlus className="w-4 h-4 text-indigo-950" />
+                <span className="text-xs">Create Project</span>
+              </button>
+            )}
+
+            {/* Pause/Resume button */}
+            {user && activeChatId && !aiTyping && (
+              <button
+                type="button"
+                onClick={() => activeChat && togglePauseChat(activeChat.id)}
+                className="p-2.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-700 transition-colors shadow-sm flex items-center justify-center cursor-pointer shrink-0"
+                title={activeChat?.is_paused ? "Resume Chat" : "Pause Chat"}
+              >
+                {activeChat?.is_paused ? <Play className="w-4 h-4 text-emerald-600" /> : <Pause className="w-4 h-4 text-amber-600" />}
+              </button>
+            )}
+
+            {/* Stop button */}
+            {user && activeChatId && aiTyping && (
+              <button
+                type="button"
+                onClick={() => stopChatGeneration(activeChatId)}
+                className="p-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors shadow-sm flex items-center justify-center cursor-pointer shrink-0"
+                title="Stop Generation"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Send button */}
+            <motion.button
+              type="submit"
+              disabled={!!user && (!currentInput.trim() || aiTyping || activeChat?.is_paused)}
+              whileHover={!user || (currentInput.trim() && !aiTyping && !activeChat?.is_paused) ? { scale: 1.08, rotate: -8 } : {}}
+              whileTap={!user || (currentInput.trim() && !aiTyping && !activeChat?.is_paused) ? { scale: 0.92 } : {}}
+              transition={{ type: "spring", stiffness: 400, damping: 22 }}
+              className="p-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold tracking-wide border border-indigo-900/50 shadow-inner transition-colors disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+            </motion.button>
+          </form>
+        </div>
       </footer>
+
+      {/* Floating Create Project Modal */}
+      <AnimatePresence>
+        {showCreateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCreateModal(false)}
+              className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
+            />
+
+            {/* Modal Body */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 350, damping: 30 }}
+              className="relative w-full max-w-xl bg-white border border-stone-200/80 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-5 border-b border-stone-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
+                    <FolderPlus className="w-4 h-4 text-indigo-950" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-stone-850">Create New Project</h3>
+                    <p className="text-[10px] text-stone-500">Configure your project blueprint manually or use AI suggestions.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="p-1.5 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition-colors"
+                >
+                  <ChevronDown className="w-4 h-4 rotate-90" />
+                </button>
+              </div>
+
+              {/* Form Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                {/* AI Suggestion Section */}
+                <div className="p-4 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" />
+                      End-to-End AI Suggestion
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <textarea
+                      placeholder="Describe your project idea in a sentence or two... (e.g. 'A simple habit tracker app')"
+                      value={modalPrompt}
+                      onChange={(e) => setModalPrompt(e.target.value)}
+                      rows={2}
+                      className="flex-1 bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium resize-none leading-relaxed"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSuggestProject}
+                      disabled={isSuggesting || !modalPrompt.trim()}
+                      className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shrink-0 cursor-pointer self-stretch animate-pulse-subtle"
+                    >
+                      {isSuggesting ? (
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5" />
+                      )}
+                      <span>Suggest</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-stone-100 my-2" />
+
+                {/* Editable Fields */}
+                <form onSubmit={handleModalSubmit} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 'Habit Tracker Pro'"
+                      value={modalName}
+                      onChange={(e) => setModalName(e.target.value)}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-semibold"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Refined vision and description of the app..."
+                      value={modalIdea}
+                      onChange={(e) => setModalIdea(e.target.value)}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Key Features</label>
+                    <div className="space-y-2">
+                      {modalFeatures.map((f, idx) => (
+                        <input
+                          key={idx}
+                          type="text"
+                          placeholder={`Feature ${idx + 1} (e.g. 'Daily streak charts')`}
+                          value={f}
+                          onChange={(e) => {
+                            const updated = [...modalFeatures];
+                            updated[idx] = e.target.value;
+                            setModalFeatures(updated);
+                          }}
+                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Tech Stack</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="React, FastAPI, MongoDB"
+                      value={modalTechStack}
+                      onChange={(e) => setModalTechStack(e.target.value)}
+                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-semibold"
+                    />
+                  </div>
+
+                  {/* HITL Toggle Button */}
+                  <div className="flex items-center justify-between p-3.5 bg-indigo-50/40 border border-indigo-100/60 rounded-xl">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">Review Planning Blueprint</span>
+                      <span className="text-[8px] text-stone-500 mt-0.5 leading-tight">Review file modification blueprint before building codebase</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setModalHitlEnabled(!modalHitlEnabled)}
+                      className="focus:outline-none cursor-pointer"
+                    >
+                      <svg width="36" height="20" viewBox="0 0 36 20" fill="none" className="transition-all duration-300">
+                        <rect
+                          width="36"
+                          height="20"
+                          rx="10"
+                          fill={modalHitlEnabled ? "#312e81" : "#e7e5e4"}
+                          className="transition-colors duration-300"
+                        />
+                        <circle
+                          cx={modalHitlEnabled ? "26" : "10"}
+                          cy="10"
+                          r="7"
+                          fill="white"
+                          className="transition-all duration-300"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Submit Actions */}
+                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateModal(false)}
+                      className="px-4 py-2 border border-stone-200 rounded-xl text-stone-600 hover:bg-stone-55 hover:text-stone-800 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!modalName.trim() || !modalIdea.trim()}
+                      className="px-5 py-2 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
+                    >
+                      Confirm & Create Project
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

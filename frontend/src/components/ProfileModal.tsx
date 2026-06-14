@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { 
-  X, User, Briefcase, FileText, Code, Terminal, Users, Globe, 
+  X, User, Briefcase, FileText, Code, Terminal, Users, 
   AlertCircle, Save, HelpCircle, Sparkles, Check, Info
 } from "lucide-react";
 
@@ -103,7 +103,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, ini
       setTimeout(() => {
         setSuccess(false);
       }, 1500);
-    } catch (err) {
+    } catch {
       setError("Failed to save settings.");
     } finally {
       setLoading(false);

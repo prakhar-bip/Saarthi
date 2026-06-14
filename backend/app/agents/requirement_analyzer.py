@@ -1,6 +1,5 @@
 import json
 from loguru import logger
-import logging
 from typing import Dict, Any, Optional
 from openai import OpenAI
 from app.core.config import settings
