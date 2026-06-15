@@ -544,6 +544,8 @@ async def run_project_compilation(
     theme_palette: ThemePaletteSchema = None
 ):
     """Background task to simulate stages, call Nvidia NIM to write code, and update DB."""
+    from app.core.logger import current_project_id
+    current_project_id.set(project_id)
     db = get_database()
     
     try:
@@ -908,6 +910,8 @@ async def compile_project(
 ):
     db = get_database()
     project_id = f"proj-{uuid.uuid4().hex[:8]}"
+    from app.core.logger import current_project_id
+    current_project_id.set(project_id)
     created_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
     
     # Check if chat exists

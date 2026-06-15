@@ -1,8 +1,11 @@
 import inspect
 from typing import Dict, Any, TypedDict, Optional, List
+from datetime import datetime, timezone
+import uuid
 from loguru import logger
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.runnables import RunnableConfig
 
 from app.agents.context import IncompleteJSONError
 from app.services.llm_router import current_agent_feedback
@@ -36,6 +39,7 @@ from app.agents.build_compiler import BuildCompilationAgent
 from app.agents.error_correction import ErrorCorrectionAgent
 from app.agents.project_export import ProjectExportAgent
 from app.agents.verifier_agent import VerifierAgent
+from app.services.project_assembler import assemble_project_codebase
 
 async def broadcast_agent_progress(db: Any, project_id: str, progress: int, step: str) -> None:
     await db.projects.update_one(
@@ -64,6 +68,7 @@ class AppState(TypedDict):
     hitl_enabled: bool
     active_dynamic_agents: List[str]
     validation_logs: List[Dict[str, Any]]
+    quality_report: Optional[Dict[str, Any]]
 
 def get_agent_instance(agent_name: str):
     mapping = {
@@ -257,7 +262,7 @@ def get_db(state: AppState, config: Any = None) -> Any:
 # Graph Nodes
 # ──────────────────────────────────────────────────────────────
 
-async def requirement_analyzer_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def requirement_analyzer_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -271,7 +276,7 @@ async def requirement_analyzer_node(state: AppState, config: Any = None) -> Dict
     res = await run_single_agent(db, project_id, project_doc, "RequirementAnalyzerAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def planner_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def planner_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -285,7 +290,7 @@ async def planner_node(state: AppState, config: Any = None) -> Dict[str, Any]:
     res = await run_single_agent(db, project_id, project_doc, "PlannerAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def research_planning_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def research_planning_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -299,11 +304,11 @@ async def research_planning_node(state: AppState, config: Any = None) -> Dict[st
     res = await run_single_agent(db, project_id, project_doc, "ResearchPlanningAgent")
     return {"project_doc": project_doc, "implementation_plan": res, "latest_output": res}
 
-async def agent_dispatcher_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def agent_dispatcher_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     logger.info(f"Agent dispatcher running. Spawning parallel workspaces...")
     return {}
 
-async def db_workspace_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def db_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -313,7 +318,7 @@ async def db_workspace_node(state: AppState, config: Any = None) -> Dict[str, An
     await run_single_agent(db, project_id, project_doc, "DatabaseModelGenerationAgent")
     return {}
 
-async def backend_workspace_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def backend_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -324,7 +329,7 @@ async def backend_workspace_node(state: AppState, config: Any = None) -> Dict[st
     await run_single_agent(db, project_id, project_doc, "APIImplementationAgent")
     return {}
 
-async def frontend_workspace_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def frontend_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -337,7 +342,7 @@ async def frontend_workspace_node(state: AppState, config: Any = None) -> Dict[s
     await run_single_agent(db, project_id, project_doc, "StateImplementationAgent")
     return {}
 
-async def ops_security_workspace_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def ops_security_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -352,7 +357,7 @@ async def ops_security_workspace_node(state: AppState, config: Any = None) -> Di
     await run_single_agent(db, project_id, project_doc, "OptimizationArchitectureAgent")
     return {}
 
-async def join_workspaces_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def join_workspaces_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -360,7 +365,7 @@ async def join_workspaces_node(state: AppState, config: Any = None) -> Dict[str,
     logger.info("Merging parallel workspace branches...")
     return {"project_doc": project_doc}
 
-async def verifier_guardrail_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -387,7 +392,7 @@ async def verifier_guardrail_node(state: AppState, config: Any = None) -> Dict[s
         
     return {"validation_logs": [], "hitl_approved": True}
 
-async def code_gen_planner_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def code_gen_planner_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -396,7 +401,7 @@ async def code_gen_planner_node(state: AppState, config: Any = None) -> Dict[str
     res = await run_single_agent(db, project_id, project_doc, "CodeGenerationPlannerAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def integration_generator_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def integration_generator_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -405,7 +410,7 @@ async def integration_generator_node(state: AppState, config: Any = None) -> Dic
     res = await run_single_agent(db, project_id, project_doc, "IntegrationGenerationAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def build_compiler_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def build_compiler_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -414,7 +419,7 @@ async def build_compiler_node(state: AppState, config: Any = None) -> Dict[str, 
     res = await run_single_agent(db, project_id, project_doc, "BuildCompilationAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def error_correction_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def error_correction_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
@@ -423,14 +428,81 @@ async def error_correction_node(state: AppState, config: Any = None) -> Dict[str
     res = await run_single_agent(db, project_id, project_doc, "ErrorCorrectionAgent")
     return {"project_doc": project_doc, "latest_output": res}
 
-async def project_export_node(state: AppState, config: Any = None) -> Dict[str, Any]:
+async def finalize_project_delivery(
+    db: Any,
+    project_id: str,
+    project_doc: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Assemble the final connected file tree and persist completion state."""
+    latest_project_doc = project_doc or await db.projects.find_one({"_id": project_id}) or {}
+    if latest_project_doc.get("status") == "completed" and latest_project_doc.get("codebase"):
+        return latest_project_doc
+
+    assembly = assemble_project_codebase(latest_project_doc)
+    await db.projects.update_one(
+        {"_id": project_id},
+        {
+            "$set": {
+                "progress": 100,
+                "status": "completed",
+                "step": "Project Ready",
+                "summary": assembly["summary"],
+                "codebase": assembly["codebase"],
+                "quality_report": assembly["quality_report"],
+                "generated_project_contract": assembly["generated_project_contract"],
+                "completion_notified": True,
+            }
+        },
+    )
+
+    chat_id = latest_project_doc.get("chat_id")
+    if chat_id and not latest_project_doc.get("completion_notified"):
+        time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
+        await db.chats.update_one(
+            {"_id": chat_id},
+            {
+                "$push": {
+                    "messages": {
+                        "id": f"m-{uuid.uuid4().hex[:8]}",
+                        "sender": "ai",
+                        "text": (
+                            f"Your project **{latest_project_doc.get('name', 'Sarthi Project')}** is ready. "
+                            "Sarthi assembled the connected codebase, ran quality gates, and packaged it for download."
+                        ),
+                        "timestamp": time_str,
+                    }
+                },
+                "$set": {"completion_notified": True},
+            },
+        )
+
+    from app.services.ws_manager import manager
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=100,
+        step="Project Ready",
+        status="completed",
+    )
+    return await db.projects.find_one({"_id": project_id}) or latest_project_doc
+
+async def project_export_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
     await broadcast_agent_progress(db, project_id, 95, "Packaging Workspace Artifacts...")
     res = await run_single_agent(db, project_id, project_doc, "ProjectExportAgent")
-    return {"project_doc": project_doc, "latest_output": res}
+    project_doc["project_export"] = res
+
+    await broadcast_agent_progress(db, project_id, 97, "Assembling Connected Codebase...")
+    latest_project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+    latest_project_doc["project_export"] = latest_project_doc.get("project_export") or res
+    updated_doc = await finalize_project_delivery(db, project_id, latest_project_doc)
+    return {
+        "project_doc": updated_doc,
+        "latest_output": res,
+        "quality_report": updated_doc.get("quality_report"),
+    }
 
 # ──────────────────────────────────────────────────────────────
 # Routing Logic
@@ -561,6 +633,8 @@ def build_graph() -> StateGraph:
     )
 
 async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[str, Any]):
+    from app.core.logger import current_project_id
+    current_project_id.set(project_id)
     app = build_graph()
     config = {"configurable": {"thread_id": project_id, "db": db}}
     
@@ -575,7 +649,8 @@ async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[s
         "hitl_approved": project_doc.get("hitl_approved", False),
         "hitl_enabled": project_doc.get("hitl_enabled", True),
         "active_dynamic_agents": project_doc.get("active_dynamic_agents", []),
-        "validation_logs": project_doc.get("validation_logs", [])
+        "validation_logs": project_doc.get("validation_logs", []),
+        "quality_report": project_doc.get("quality_report")
     }
     
     # Run the graph
@@ -621,7 +696,14 @@ async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[s
         else:
             await app.ainvoke(None, config)
 
+    latest_proj = await db.projects.find_one({"_id": project_id})
+    if latest_proj and latest_proj.get("project_export") and latest_proj.get("status") != "completed":
+        await broadcast_agent_progress(db, project_id, 98, "Finalizing Project Delivery...")
+        await finalize_project_delivery(db, project_id, latest_proj)
+
 async def resume_project_workflow(db: Any, project_id: str, plan_edits: Optional[Dict[str, Any]] = None):
+    from app.core.logger import current_project_id
+    current_project_id.set(project_id)
     app = build_graph()
     config = {"configurable": {"thread_id": project_id, "db": db}}
     

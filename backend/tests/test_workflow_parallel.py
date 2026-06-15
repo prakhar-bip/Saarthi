@@ -1,5 +1,9 @@
 import asyncio
+import os
+import sys
 from unittest.mock import MagicMock, AsyncMock
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Override settings to empty values BEFORE loading workflow to force immediate fallbacks
 from app.core.config import settings
@@ -114,7 +118,11 @@ async def run_parallel_workflow_test():
     print("Project step after resume:", final_doc["step"])
     print("Project final progress:", final_doc["progress"])
     
-    assert final_doc["status"] == "completed" or final_doc["status"] == "generating", "Should resume past the dispatcher!"
+    assert final_doc["status"] == "completed", "Should finish the connected project build!"
+    assert final_doc["codebase"], "Workflow should produce a downloadable codebase."
+    assert final_doc["quality_report"]["status"] == "passed", "Generated codebase should pass Sarthi quality gates."
+    assert any(file["path"] == "backend/app/main.py" for file in final_doc["codebase"])
+    assert any(file["path"] == "frontend/src/app/page.tsx" for file in final_doc["codebase"])
     print("\nSUCCESS: Sarthi 2.0 Map-Reduce parallel workflow verified successfully!")
 
 if __name__ == "__main__":

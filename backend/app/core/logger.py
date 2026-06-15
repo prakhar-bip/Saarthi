@@ -1,6 +1,13 @@
 import logging
 import sys
+import contextvars
+import asyncio
+import re
 from loguru import logger
+
+# ContextVar to capture the active project_id for log-broadcasting
+current_project_id = contextvars.ContextVar("current_project_id", default=None)
+
 
 class InterceptHandler(logging.Handler):
     """
@@ -26,9 +33,50 @@ class InterceptHandler(logging.Handler):
         )
 
 
+def ws_log_sink(message):
+    """
+    Loguru sink that intercept logs and broadcasts them dynamically to the connected 
+    project websocket client.
+    """
+    record = message.record
+    proj_id = current_project_id.get()
+    if not proj_id:
+        return
+
+    try:
+        # Get the running event loop
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            msg_text = record["message"]
+            
+            # Clean up message: strip ANSI escape color codes
+            msg_text = re.sub(r'\x1b\[[0-9;]*m', '', msg_text)
+            
+            level = record["level"].name
+            time_str = record["time"].strftime("%H:%M:%S")
+            sender = record["name"]
+
+            # Construct clean logs payload
+            payload = {
+                "type": "log",
+                "project_id": proj_id,
+                "message": msg_text,
+                "level": level,
+                "timestamp": time_str,
+                "sender": sender
+            }
+            
+            # Import connection manager dynamically to avoid circular import issues
+            from app.services.ws_manager import manager
+            loop.create_task(manager.broadcast_to_project(proj_id, payload))
+    except RuntimeError:
+        # No running event loop in this thread
+        pass
+
+
 def setup_logging():
     """
-    Configures loguru to intercept standard logging and sets up console and file sinks.
+    Configures loguru to intercept standard logging and sets up console, file, and websocket sinks.
     """
     # Remove default loguru handler
     logger.remove()
@@ -42,7 +90,7 @@ def setup_logging():
         logging_logger.handlers = [InterceptHandler()]
         logging_logger.propagate = False
 
-    # Add console sink
+    # 1. Add console sink
     logger.add(
         sys.stderr,
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
@@ -50,7 +98,7 @@ def setup_logging():
         colorize=True,
     )
 
-    # Add file sink
+    # 2. Add file sink
     logger.add(
         "logs/sarthi.log",
         rotation="10 MB",
@@ -58,5 +106,11 @@ def setup_logging():
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level="INFO",
     )
+
+    # 3. Add dynamic WebSocket sink
+    logger.add(
+        ws_log_sink,
+        level="INFO",
+    )
     
-    logger.info("Logging configured with loguru.")
+    logger.info("Logging configured with loguru. WebSocket live sink enabled.")

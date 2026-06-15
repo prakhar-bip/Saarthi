@@ -158,10 +158,18 @@ interface WorkspaceContextType {
   showLeftPane: boolean;
   setShowLeftPane: (show: boolean) => void;
 
+  showSpecsDocs: boolean;
+  setShowSpecsDocs: (show: boolean) => void;
+
   suggestions: ProjectSuggestion[];
   isFetchingSuggestions: boolean;
   fetchSuggestions: (category: string) => Promise<void>;
   clearSuggestions: () => void;
+
+  showFeedbackModal: boolean;
+  setShowFeedbackModal: (show: boolean) => void;
+  compilationLogs: Record<string, any[]>;
+  setCompilationLogs: React.Dispatch<React.SetStateAction<Record<string, any[]>>>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -184,13 +192,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [showAbout, setShowAbout] = useState<boolean>(false);
   const [showContact, setShowContact] = useState<boolean>(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
   
   const [isGeneratingProject, setIsGeneratingProject] = useState<boolean>(false);
   const [showRightPane, setShowRightPane] = useState<boolean>(true);
   const [showLeftPane, setShowLeftPane] = useState<boolean>(true);
+  const [showSpecsDocs, setShowSpecsDocs] = useState<boolean>(true);
 
   const [suggestions, setSuggestions] = useState<ProjectSuggestion[]>([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState<boolean>(false);
+  const [compilationLogs, setCompilationLogs] = useState<Record<string, any[]>>({});
 
   const fetchSuggestions = useCallback(async (category: string) => {
     setIsFetchingSuggestions(true);
@@ -993,6 +1004,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               cleanupWatchers();
               setIsGeneratingProject(false);
             }
+          } else if (msg.type === "log" && msg.project_id === projectId) {
+            setCompilationLogs((prev) => ({
+              ...prev,
+              [projectId]: [...(prev[projectId] || []), msg]
+            }));
           }
         } catch (e) {
           console.error("Failed to parse WS message:", e);
@@ -1258,10 +1274,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setShowRightPane,
     showLeftPane,
     setShowLeftPane,
+    showSpecsDocs,
+    setShowSpecsDocs,
     suggestions,
     isFetchingSuggestions,
     fetchSuggestions,
     clearSuggestions,
+    showFeedbackModal,
+    setShowFeedbackModal,
+    compilationLogs,
+    setCompilationLogs,
   }), [
     user,
     login,
@@ -1296,10 +1318,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isGeneratingProject,
     showRightPane,
     showLeftPane,
+    showSpecsDocs,
     suggestions,
     isFetchingSuggestions,
     fetchSuggestions,
     clearSuggestions,
+    showFeedbackModal,
+    compilationLogs,
   ]);
 
   return (

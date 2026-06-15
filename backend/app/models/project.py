@@ -72,6 +72,8 @@ class ProjectResponse(BaseModel):
     build_compilation: Optional[Dict[str, Any]] = None
     error_correction: Optional[Dict[str, Any]] = None
     project_export: Optional[Dict[str, Any]] = None
+    quality_report: Optional[Dict[str, Any]] = None
+    generated_project_contract: Optional[Dict[str, Any]] = None
     agent_context: Optional[Dict[str, Any]] = None
     hackathon_metadata: Optional[Dict[str, Any]] = None
     mcp_evidence: Optional[Dict[str, Any]] = None

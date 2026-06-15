@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
 import { CategoryIcon, SarthiLogo } from "./CustomSvgs";
-import { Copy, Check, FileCode, CheckCircle2, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw } from "lucide-react";
+import { Copy, Check, FileCode, CheckCircle2, AlertCircle, X, ArrowLeft, Sparkles, Download, GitBranch, ExternalLink, Loader2, Plus, Database, ClipboardCheck, PanelLeft, AlertTriangle, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { DivineCelebration } from "./DivineCelebration";
 
@@ -340,7 +340,10 @@ export const ProjectViewer: React.FC = () => {
     suggestions,
     fetchSuggestions,
     approveProjectPlan,
-    updateProjectHitl
+    updateProjectHitl,
+    compilationLogs,
+    showSpecsDocs,
+    setShowSpecsDocs
   } = useWorkspace();
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
@@ -523,6 +526,10 @@ export const ProjectViewer: React.FC = () => {
     }
     prevStatusRef.current = activeProj?.status;
 
+    if (activeProj && (activeProj.status === "documents_ready" || activeProj.status === "waiting_approval")) {
+      setShowSpecsDocs(true);
+    }
+
     if (activeProj && activeProj.status === "completed") {
       if (activeProj.category === "documents" || activeProj.prd) {
         setSelectedFile({
@@ -546,7 +553,7 @@ export const ProjectViewer: React.FC = () => {
     } else {
       setSelectedFile(null);
     }
-  }, [activeProjectId, activeProj?.status, activeProj?.prd]);
+  }, [activeProjectId, activeProj?.status, activeProj?.prd, setShowSpecsDocs]);
 
   useEffect(() => {
     const handleSelectFile = (e: Event) => {
@@ -1360,6 +1367,20 @@ export const ProjectViewer: React.FC = () => {
                 {activeProj.status === "waiting_approval" ? "⌚ Awaiting Approval" : "✓ Requirements Ready"}
               </motion.span>
               <motion.button
+                onClick={() => setShowSpecsDocs(!showSpecsDocs)}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                title={showSpecsDocs ? "Hide Documents Panel" : "Show Documents Panel"}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer border ${
+                  showSpecsDocs
+                    ? "bg-indigo-950 text-white border-transparent hover:bg-indigo-900"
+                    : "bg-white hover:bg-stone-50 border-stone-200 text-indigo-950"
+                }`}
+              >
+                {showSpecsDocs ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                <span>{showSpecsDocs ? "Hide Docs" : "See Docs"}</span>
+              </motion.button>
+              <motion.button
                 onClick={handleDownloadZip}
                 disabled={isDownloading}
                 whileHover={{ scale: 1.04 }}
@@ -1412,98 +1433,117 @@ export const ProjectViewer: React.FC = () => {
         {/* DOCUMENTS REVIEW PANEL (when documents are ready) */}
         {(activeProj.status === "documents_ready" || activeProj.status === "waiting_approval") && (
           <div className="flex-1 flex overflow-hidden bg-transparent">
-            {/* Left Content Area */}
-            <div className="flex-1 flex flex-col overflow-hidden border-r border-transparent">
-              {/* Tab Navigation */}
-              <div className="px-6 py-4 bg-white/20 backdrop-blur-md border-b border-stone-200/60 flex items-center justify-between">
-                <div className="flex gap-2">
-                  {(["prd", "mrd", "trd"] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveDocTab(tab)}
-                      className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
-                        activeDocTab === tab
-                          ? "bg-indigo-950 text-white shadow-sm"
-                          : "bg-stone-100 hover:bg-stone-200 text-stone-600"
-                      }`}
-                    >
-                      {tab.toUpperCase()} Spec
-                    </button>
-                  ))}
-                  {activeProj.hitl_enabled !== false && (
-                    <button
-                      onClick={() => setActiveDocTab("plan")}
-                      className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
-                        activeDocTab === "plan"
-                          ? "bg-indigo-950 text-white shadow-sm"
-                          : "bg-stone-100 hover:bg-stone-200 text-stone-600"
-                      }`}
-                    >
-                      Implementation Plan
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Document Text View */}
-              <div className="flex-1 overflow-y-auto p-8 bg-transparent">
-                <div className="w-full max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm text-left">
-                  {activeDocTab === "prd" && (
-                    <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
-                  )}
-                  {activeDocTab === "mrd" && (
-                    <MarkdownRenderer text={activeProj.mrd || "# Market Requirements\nNo MRD generated."} />
-                  )}
-                  {activeDocTab === "trd" && (
-                    <MarkdownRenderer text={activeProj.trd || "# Technical Requirements\nNo TRD generated."} />
-                  )}
-                  {activeDocTab === "plan" && (
-                    <div className="space-y-4 text-left">
-                      <div className="flex justify-between items-center border-b border-stone-200 pb-3 mb-3">
-                        <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">File Modification Blueprint</h4>
-                        {activeProj.status === "waiting_approval" && (
-                          <button
-                            onClick={() => setIsEditingPlan(!isEditingPlan)}
-                            className="px-3 py-1 rounded-lg text-[10px] font-semibold bg-stone-200 hover:bg-stone-300 text-stone-700 transition-all cursor-pointer"
-                          >
-                            {isEditingPlan ? "Preview Mode" : "Edit Plan"}
-                          </button>
-                        )}
-                      </div>
-                      {activeProj.status === "documents_ready" ? (
-                        <div className="py-6 space-y-4">
-                          <h3 className="text-sm font-bold text-indigo-950">
-                            {activeProj.hitl_enabled !== false 
-                              ? "⏳ Plan Generation Pending" 
-                              : "⏩ Direct Compilation Enabled"
-                            }
-                          </h3>
-                          <p className="text-xs text-stone-500 leading-relaxed">
-                            {activeProj.hitl_enabled !== false 
-                              ? "Since 'Review Planning Blueprint' is enabled, Sarthi will run the Research & Planning agent to construct a detailed file modification plan before generating any code. This plan will appear here for your review and approval after you click 'Proceed to Build Codebase'."
-                              : "You have disabled planning review. Sarthi will compile the codebase directly in the background without pausing for approval or showing a plan."
-                            }
-                          </p>
-                          {activeProj.hitl_enabled !== false && (
-                            <div className="p-4 rounded-xl bg-amber-50 border border-amber-100/80 text-[11px] text-amber-800 leading-relaxed">
-                              <strong>Note:</strong> You can edit the generated implementation plan file-by-file once it is created.
-                            </div>
-                          )}
-                        </div>
-                      ) : isEditingPlan ? (
-                        <textarea
-                          value={editedPlanMarkdown}
-                          onChange={(e) => setEditedPlanMarkdown(e.target.value)}
-                          className="w-full h-[500px] p-4 font-mono text-xs text-stone-850 bg-white border border-stone-300 rounded-2xl focus:outline-none focus:ring-1 focus:ring-indigo-950 resize-y"
-                        />
-                      ) : (
-                        <MarkdownRenderer text={editedPlanMarkdown || activeProj.implementation_plan?.plan_markdown || "# Implementation Plan\n*No plan details available.*"} />
+            {/* Left Content Area (Specs & Plan Docs) */}
+            <AnimatePresence initial={false}>
+              {showSpecsDocs && (
+                <motion.div
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: "calc(100% - 340px)", opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  className="flex-1 flex flex-col overflow-hidden border-r border-stone-200/60"
+                >
+                  {/* Tab Navigation */}
+                  <div className="px-6 py-4 bg-white/20 backdrop-blur-md border-b border-stone-200/60 flex items-center justify-between">
+                    <div className="flex gap-2">
+                      {(["prd", "mrd", "trd"] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setActiveDocTab(tab)}
+                          className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
+                            activeDocTab === tab
+                              ? "bg-indigo-950 text-white shadow-sm"
+                              : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                          }`}
+                        >
+                          {tab.toUpperCase()} Spec
+                        </button>
+                      ))}
+                      {activeProj.hitl_enabled !== false && (
+                        <button
+                          onClick={() => setActiveDocTab("plan")}
+                          className={`px-4 py-2 rounded-xl text-xs font-semibold tracking-wide uppercase transition-all cursor-pointer ${
+                            activeDocTab === "plan"
+                              ? "bg-indigo-950 text-white shadow-sm"
+                              : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                          }`}
+                        >
+                          Implementation Plan
+                        </button>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                    
+                    {/* Hide Button in the tab bar */}
+                    <button
+                      onClick={() => setShowSpecsDocs(false)}
+                      className="p-1.5 rounded-lg hover:bg-stone-200/50 text-stone-500 transition-colors cursor-pointer"
+                      title="Hide Documents"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Document Text View */}
+                  <div className="flex-1 overflow-y-auto p-8 bg-transparent">
+                    <div className="w-full max-w-3xl mx-auto bg-stone-50 p-10 rounded-3xl border border-stone-200/60 shadow-sm text-left">
+                      {activeDocTab === "prd" && (
+                        <MarkdownRenderer text={activeProj.prd || "# Product Requirements\nNo PRD generated."} />
+                      )}
+                      {activeDocTab === "mrd" && (
+                        <MarkdownRenderer text={activeProj.mrd || "# Market Requirements\nNo MRD generated."} />
+                      )}
+                      {activeDocTab === "trd" && (
+                        <MarkdownRenderer text={activeProj.trd || "# Technical Requirements\nNo TRD generated."} />
+                      )}
+                      {activeDocTab === "plan" && (
+                        <div className="space-y-4 text-left">
+                          <div className="flex justify-between items-center border-b border-stone-200 pb-3 mb-3">
+                            <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">File Modification Blueprint</h4>
+                            {activeProj.status === "waiting_approval" && (
+                              <button
+                                onClick={() => setIsEditingPlan(!isEditingPlan)}
+                                className="px-3 py-1 rounded-lg text-[10px] font-semibold bg-stone-200 hover:bg-stone-300 text-stone-700 transition-all cursor-pointer"
+                              >
+                                {isEditingPlan ? "Preview Mode" : "Edit Plan"}
+                              </button>
+                            )}
+                          </div>
+                          {activeProj.status === "documents_ready" ? (
+                            <div className="py-6 space-y-4">
+                              <h3 className="text-sm font-bold text-indigo-950">
+                                {activeProj.hitl_enabled !== false 
+                                  ? "⏳ Plan Generation Pending" 
+                                  : "⏩ Direct Compilation Enabled"
+                                }
+                              </h3>
+                              <p className="text-xs text-stone-500 leading-relaxed">
+                                {activeProj.hitl_enabled !== false 
+                                  ? "Since 'Review Planning Blueprint' is enabled, Sarthi will run the Research & Planning agent to construct a detailed file modification plan before generating any code. This plan will appear here for your review and approval after you click 'Proceed to Build Codebase'."
+                                  : "You have disabled planning review. Sarthi will compile the codebase directly in the background without pausing for approval or showing a plan."
+                                }
+                              </p>
+                              {activeProj.hitl_enabled !== false && (
+                                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100/80 text-[11px] text-amber-800 leading-relaxed">
+                                  <strong>Note:</strong> You can edit the generated implementation plan file-by-file once it is created.
+                                </div>
+                              )}
+                            </div>
+                          ) : isEditingPlan ? (
+                            <textarea
+                              value={editedPlanMarkdown}
+                              onChange={(e) => setEditedPlanMarkdown(e.target.value)}
+                              className="w-full h-[500px] p-4 font-mono text-xs text-stone-850 bg-white border border-stone-300 rounded-2xl focus:outline-none focus:ring-1 focus:ring-indigo-950 resize-y"
+                            />
+                          ) : (
+                            <MarkdownRenderer text={editedPlanMarkdown || activeProj.implementation_plan?.plan_markdown || "# Implementation Plan\n*No plan details available.*"} />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Right Action Sidebar */}
             <div className="w-85 bg-white/10 backdrop-blur-md p-6 pb-24 flex flex-col justify-between shrink-0 overflow-y-auto border-l border-transparent">
@@ -1790,33 +1830,59 @@ export const ProjectViewer: React.FC = () => {
                   >
                     <div className="text-stone-500">Initialized Sarthi Multi-Agent Compilation Engine [v1.0]</div>
                     <div className="text-stone-500">Connected to local MongoDB workspace broker...</div>
-                    {agentPipeline.slice(0, currentAgentIdx + 1).map((agentName, idx) => {
-                      const isLast = idx === currentAgentIdx;
-                      const timeStr = new Date(Date.now() - (currentAgentIdx - idx) * 3500).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-                      
-                      return (
-                        <motion.div 
-                          key={agentName}
-                          initial={{ opacity: 0, x: -4 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`flex items-start gap-2 leading-relaxed ${isLast ? "text-amber-400" : "text-emerald-400/90"}`}
-                        >
-                          <span className="text-stone-600 shrink-0">[{timeStr}]</span>
-                          <span className="font-bold shrink-0">{agentName}:</span>
-                          <span className="text-stone-200">
-                            {isLast ? (
-                              <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-ping" />
-                                <span>{agentDescriptions[agentName] || "Orchestrating agent tasks..."}</span>
-                              </span>
-                            ) : (
-                              <span>[COMPLETE] Task contract generated successfully.</span>
+                    {/* Render actual logs if they exist, otherwise render derived ones */}
+                    {(compilationLogs[activeProj.id] && compilationLogs[activeProj.id].length > 0) ? (
+                      compilationLogs[activeProj.id].map((log, idx) => {
+                        let colorClass = "text-stone-300";
+                        if (log.level === "WARNING" || log.level === "WARN") colorClass = "text-amber-400";
+                        else if (log.level === "ERROR") colorClass = "text-rose-400";
+                        else if (log.level === "SUCCESS" || log.message.startsWith("✅") || log.message.startsWith("🎉") || log.message.includes("verified successfully")) colorClass = "text-emerald-400";
+                        
+                        return (
+                          <motion.div 
+                            key={idx}
+                            initial={{ opacity: 0, x: -4 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className={`flex items-start gap-2 leading-relaxed ${colorClass}`}
+                          >
+                            <span className="text-stone-600 shrink-0">[{log.timestamp}]</span>
+                            {log.sender && (
+                              <span className="font-bold shrink-0 text-cyan-400/90">{log.sender.replace("app.agents.", "").replace("app.services.", "")}:</span>
                             )}
-                          </span>
-                        </motion.div>
-                      );
-                    })}
+                            <span className="text-stone-200">{log.message}</span>
+                          </motion.div>
+                        );
+                      })
+                    ) : (
+                      agentPipeline.slice(0, currentAgentIdx + 1).map((agentName, idx) => {
+                        const isLast = idx === currentAgentIdx;
+                        const timeStr = new Date(Date.now() - (currentAgentIdx - idx) * 3500).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                        
+                        return (
+                          <motion.div 
+                            key={agentName}
+                            initial={{ opacity: 0, x: -4 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.3 }}
+                            className={`flex items-start gap-2 leading-relaxed ${isLast ? "text-amber-400" : "text-emerald-400/90"}`}
+                          >
+                            <span className="text-stone-600 shrink-0">[{timeStr}]</span>
+                            <span className="font-bold shrink-0">{agentName}:</span>
+                            <span className="text-stone-200">
+                              {isLast ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-ping" />
+                                  <span>{agentDescriptions[agentName] || "Orchestrating agent tasks..."}</span>
+                                </span>
+                              ) : (
+                                <span>[COMPLETE] Task contract generated successfully.</span>
+                              )}
+                            </span>
+                          </motion.div>
+                        );
+                      })
+                    )}
                     
                     {/* Blinking Cursor */}
                     <div className="flex items-center gap-1 text-stone-500 pt-1">

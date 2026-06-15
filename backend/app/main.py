@@ -29,7 +29,7 @@ from app.core.security import decode_access_token
 from app.core.config import settings
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.redis_client import connect_to_redis, close_redis_connection
-from app.api import auth, chats, projects, mcp
+from app.api import auth, chats, projects, mcp, feedback
 from app.services.ws_manager import manager
 from app.services.mcp_service import mcp_client
 
@@ -96,6 +96,7 @@ app.include_router(auth.router)
 app.include_router(chats.router)
 app.include_router(projects.router)
 app.include_router(mcp.router)
+app.include_router(feedback.router)
 
 
 # ──────────────────────────────────────────────────────────────

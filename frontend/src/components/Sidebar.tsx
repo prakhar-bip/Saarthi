@@ -27,7 +27,8 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
     setShowLeftPane,
     renameChat,
     renameProject,
-    setShowRightPane
+    setShowRightPane,
+    setShowFeedbackModal
   } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<"chats" | "projects">("chats");
@@ -456,7 +457,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                   My Profile
                 </button>
 
-                <button 
+                 <button 
                   onClick={() => {
                     setShowProfileMenu(false);
                     setProfileModalTab("settings");
@@ -465,7 +466,18 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                   className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
                 >
                   <Settings className="w-3.5 h-3.5" />
-                  Settings & Audio
+                  Settings
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setShowFeedbackModal(true);
+                  }}
+                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-indigo-650" />
+                  Share Feedback
                 </button>
 
                 <button 

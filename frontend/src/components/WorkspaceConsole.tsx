@@ -72,7 +72,8 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     clearSuggestions,
     showLeftPane,
     setShowLeftPane,
-    projects
+    projects,
+    setShowFeedbackModal
   } = useWorkspace();
 
   const activeChat = chats.find((c) => c.id === activeChatId);
@@ -81,6 +82,14 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
 
   const [currentCategory, setCurrentCategory] = useState<string>("");
   const [currentInput, setCurrentInput] = useState<string>("");
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [validationError, setValidationError] = useState(false);
   const [aiTyping, setAiTyping] = useState(false);
@@ -408,7 +417,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     }
   };
 
-  if (isMinimized) {
+  if (isMinimized && !isMobile) {
     return (
       <motion.div 
         drag 
@@ -524,7 +533,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       {/* Top Header */}
       <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-xl flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
         <div className="flex items-center gap-2">
-          {!showLeftPane && (
+          {!showLeftPane && !isMobile && (
             <motion.button
               type="button"
               onClick={() => setShowLeftPane(true)}
@@ -556,10 +565,18 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           >
             Contact
           </motion.button>
+          <span className="text-stone-300">/</span>
+          <motion.button
+            onClick={() => setShowFeedbackModal(true)}
+            whileHover={{ color: "#1c1917" }}
+            className="hover:text-indigo-900 text-indigo-650 font-bold transition-colors"
+          >
+            Feedback
+          </motion.button>
 
 
           <div className="flex items-center gap-2 border-l border-stone-200/60 pl-4 ml-1">
-            {(activeProjectId || (activeChatId && activeChat?.selected_project)) && (
+            {(activeProjectId || (activeChatId && activeChat?.selected_project)) && !isMobile && (
               <motion.button
                 type="button"
                 onClick={() => setShowRightPane(!showRightPane)}
@@ -758,7 +775,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   }
                   blueprintData = JSON.parse(jsonString);
                 } catch (e) {
-                  console.error("Failed to parse blueprint in chat bubble", e);
+                  // Ignore parsing errors silently (expected during streaming/typing)
                 }
               }
               const cleanedText = m.text.replace(/<blueprint>[\s\S]*?<\/blueprint>/g, "").trim();
