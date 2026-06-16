@@ -1,4 +1,5 @@
 import time
+import asyncio
 from loguru import logger
 from typing import List, Dict, Any, Tuple
 from openai import OpenAI
@@ -10,6 +11,42 @@ import os
 
 # Context variable for LangGraph to inject feedback on retries
 current_agent_feedback = contextvars.ContextVar("current_agent_feedback", default=None)
+
+
+def map_google_model(model_name: str) -> str:
+    """
+    Map fictitious and placeholder Gemini model names to valid, existing Google Cloud Vertex AI / AI Studio model IDs.
+    Returns comma-separated models for fallbacks where appropriate, keeping the original model as the first choice.
+    """
+    if not model_name:
+        return ""
+    
+    model_name_lower = model_name.lower()
+    
+    # Map retired 2.0-flash to stable 2.5-flash or 3.5-flash
+    if "gemini-2.0-flash" in model_name_lower:
+        return "gemini-2.5-flash,gemini-3.5-flash,gemini-1.5-flash"
+    
+    # Map fictitious 3.1-pro/3-pro/2.5-pro to stable 2.5-pro or 1.5-pro fallback, preserving original first
+    if any(m in model_name_lower for m in ["3.1-pro", "3-pro", "2.5-pro"]):
+        fallback_list = [model_name, "gemini-2.5-pro", "gemini-1.5-pro"]
+        unique_fallbacks = []
+        for f in fallback_list:
+            if f not in unique_fallbacks:
+                unique_fallbacks.append(f)
+        return ",".join(unique_fallbacks)
+        
+    # Map fictitious 3.5-flash/3-flash/2.5-flash to stable 3.5-flash, 2.5-flash or 1.5-flash fallback, preserving original first
+    if any(m in model_name_lower for m in ["3.5-flash", "3-flash", "2.5-flash"]):
+        fallback_list = [model_name, "gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+        unique_fallbacks = []
+        for f in fallback_list:
+            if f not in unique_fallbacks:
+                unique_fallbacks.append(f)
+        return ",".join(unique_fallbacks)
+        
+    return model_name
+
 
 
 # Core agent mapping to preferred (provider, model). Hackathon builds default to Gemini 3.
@@ -64,6 +101,11 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     "DocumentGeneratorAgent": ("gemini", FAST_MODEL),
     "PRDGeneratorAgent": ("gemini", FAST_MODEL),
     "MRDGeneratorAgent": ("gemini", FAST_MODEL),
+    "ResearchPlanningAgent": ("gemini", REASONING_MODEL),
+    "CodeSynthesizer_Backend": ("gemini", REASONING_MODEL),
+    "CodeSynthesizer_Frontend": ("gemini", REASONING_MODEL),
+    "CodeSynthesizer_Infrastructure": ("gemini", FAST_MODEL),
+    "CodeSynthesizer_ReviewFix": ("gemini", REASONING_MODEL),
     "TRDGeneratorAgent": ("gemini", REASONING_MODEL),
 }
 
@@ -85,7 +127,7 @@ def get_provider_client(provider: str) -> Any:
                 "HTTP-Referer": "https://github.com/prakhar-bip/Saarthi",
                 "X-Title": "Sarthi",
             },
-            timeout=30.0
+            timeout=120.0
         )
     
     elif provider in ("google", "gemini"):
@@ -105,7 +147,7 @@ def get_provider_client(provider: str) -> Any:
         return OpenAI(
             base_url=settings.NVIDIA_BASE_URL,
             api_key=settings.NVIDIA_API_KEY,
-            timeout=30.0
+            timeout=120.0
         )
     
     return None
@@ -173,7 +215,7 @@ async def get_raw_llm_completion(
     agent_name: str, 
     messages: List[Dict[str, str]], 
     temperature: float = 0.7, 
-    max_tokens: int = 4000
+    max_tokens: int = 8000
 ) -> str:
     """
     Standard direct API client completion call without ADK or LangGraph wrapping.
@@ -191,13 +233,15 @@ async def get_raw_llm_completion(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
         if agent_name == "ChatReply":
-            fallback_sequence = []
+            # ChatReply uses OpenRouter as primary, fallback to Gemini
+            fallback_sequence = ["gemini"]
         else:
-            fallback_sequence = ["openrouter"]
+            # All other tasks in production MUST strictly use Vertex AI and NOT openrouter
+            fallback_sequence = []
     else:  # development
         pref_provider = "openrouter"
         pref_model = settings.OPENROUTER_MODEL
-        fallback_sequence = ["nvidia"]
+        fallback_sequence = []
     
     # Sequence of providers to try (preferred first, then cascade through fallbacks)
     seen = set()
@@ -218,6 +262,8 @@ async def get_raw_llm_completion(
             continue
             
         model = pref_model if provider == pref_provider else get_default_model(provider)
+        if provider in ("google", "gemini"):
+            model = map_google_model(model)
         models = [m.strip() for m in model.split(",") if m.strip()] if model else []
         if not models:
             continue
@@ -226,69 +272,80 @@ async def get_raw_llm_completion(
         last_model_error = None
         
         for model_item in models:
-            try:
-                logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model_item}...")
-                
-                if provider in ("google", "gemini"):
-                    system_instruction = None
-                    contents = []
+            max_retries = 3
+            for retry_attempt in range(max_retries):
+                try:
+                    logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model_item}...")
                     
-                    for msg in messages:
-                        role = msg.get("role", "user")
-                        content = msg.get("content", "")
+                    if provider in ("google", "gemini"):
+                        system_instruction = None
+                        contents = []
                         
-                        if role == "system":
-                            system_instruction = content
-                        else:
-                            role_mapped = "model" if role == "assistant" else "user"
-                            contents.append(
-                                types.Content(
-                                    role=role_mapped,
-                                    parts=[types.Part.from_text(text=content)]
+                        for msg in messages:
+                            role = msg.get("role", "user")
+                            content = msg.get("content", "")
+                            
+                            if role == "system":
+                                system_instruction = content
+                            else:
+                                role_mapped = "model" if role == "assistant" else "user"
+                                contents.append(
+                                    types.Content(
+                                        role=role_mapped,
+                                        parts=[types.Part.from_text(text=content)]
+                                    )
                                 )
-                            )
-                    
-                    config = types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=temperature,
-                        max_output_tokens=max_tokens
-                    )
-                    
-                    response = client.models.generate_content(
+                        
+                        config = types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            temperature=temperature,
+                            max_output_tokens=max_tokens
+                        )
+                        
+                        response = await client.aio.models.generate_content(
+                            model=model_item,
+                            contents=contents,
+                            config=config
+                        )
+                        reply = response.text
+                        
+                    else:
+                        completion = client.chat.completions.create(
+                            model=model_item,
+                            messages=messages,
+                            temperature=temperature,
+                            max_tokens=max_tokens
+                        )
+                        reply = completion.choices[0].message.content
+                        
+                    if not reply:
+                        raise ValueError("Received empty or null response content")
+                        
+                    latency = time.perf_counter() - start_time
+                    log_llm_call(
+                        agent_name=agent_name,
+                        provider=provider,
                         model=model_item,
-                        contents=contents,
-                        config=config
+                        latency=latency,
+                        input_len=input_str_len,
+                        output_len=len(reply),
+                        status="SUCCESS"
                     )
-                    reply = response.text
+                    return reply
                     
-                else:
-                    completion = client.chat.completions.create(
-                        model=model_item,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens
-                    )
-                    reply = completion.choices[0].message.content
-                    
-                if not reply:
-                    raise ValueError("Received empty or null response content")
-                    
-                latency = time.perf_counter() - start_time
-                log_llm_call(
-                    agent_name=agent_name,
-                    provider=provider,
-                    model=model_item,
-                    latency=latency,
-                    input_len=input_str_len,
-                    output_len=len(reply),
-                    status="SUCCESS"
-                )
-                return reply
-                
-            except Exception as e:
-                last_model_error = e
-                logger.warning(f"⚠️ Model {model_item} failed on {provider.upper()}: {e}")
-                continue
+                except Exception as e:
+                    is_retryable = any(keyword in str(e).lower() for keyword in [
+                        'rate_limit', 'resource_exhausted', '429', '503', 'timeout',
+                        'deadline', 'unavailable', 'overloaded', 'quota'
+                    ])
+                    if is_retryable and retry_attempt < max_retries - 1:
+                        wait_time = (2 ** retry_attempt) * 1.5  # 1.5s, 3s, 6s
+                        logger.warning(f"⏳ Retryable error for {agent_name} on {model_item} (attempt {retry_attempt+1}/{max_retries}). Waiting {wait_time:.1f}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    last_model_error = e
+                    logger.warning(f"⚠️ Model {model_item} failed on {provider.upper()}: {e}")
+                    break
                 
         # If we exhausted all models for this provider
         latency = time.perf_counter() - start_time
@@ -326,9 +383,11 @@ async def stream_raw_llm_completion(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
         if agent_name == "ChatReply":
-            fallback_sequence = []
+            # ChatReply uses OpenRouter as primary, fallback to Gemini
+            fallback_sequence = ["gemini"]
         else:
-            fallback_sequence = ["openrouter"]
+            # All other tasks in production MUST strictly use Vertex AI and NOT openrouter
+            fallback_sequence = []
     else:  # development
         pref_provider = "openrouter"
         pref_model = settings.OPENROUTER_MODEL
@@ -351,6 +410,8 @@ async def stream_raw_llm_completion(
             continue
             
         model = pref_model if provider == pref_provider else get_default_model(provider)
+        if provider in ("google", "gemini"):
+            model = map_google_model(model)
         models = [m.strip() for m in model.split(",") if m.strip()] if model else []
         if not models:
             continue
@@ -387,12 +448,12 @@ async def stream_raw_llm_completion(
                         max_output_tokens=max_tokens
                     )
                     
-                    response_stream = client.models.generate_content_stream(
+                    response_stream = await client.aio.models.generate_content_stream(
                         model=model_item,
                         contents=contents,
                         config=config
                     )
-                    for chunk in response_stream:
+                    async for chunk in response_stream:
                         if chunk.text:
                             stream_started = True
                             yield chunk.text
@@ -432,7 +493,7 @@ async def get_llm_completion(
     agent_name: str, 
     messages: List[Dict[str, str]], 
     temperature: float = 0.7, 
-    max_tokens: int = 3000
+    max_tokens: int = 8000
 ) -> str:
     """
     Primary wrapper for all agents.
@@ -514,9 +575,11 @@ async def get_llm_completion(
             ]
             agent_tools = [mongodb_mcp_tool] if agent_name in mcp_enabled_agents else []
 
+            mapped_pref_model = map_google_model(pref_model)
+            adk_model = mapped_pref_model.split(",")[0].strip() if mapped_pref_model else pref_model
             adk_agent = ADKAgent(
                 name=agent_name,
-                model=pref_model,
+                model=adk_model,
                 instruction=system_instruction or "You are a helpful software compiler agent.",
                 tools=agent_tools
             )
@@ -551,39 +614,7 @@ async def get_llm_completion(
             return response_text
             
         except Exception as adk_err:
-            logger.warning(f"⚠️ [ADK RUNNER] Failed for {agent_name}: {adk_err}. Cascading to LangGraph Fallback...")
+            logger.warning(f"⚠️ [ADK RUNNER] Failed for {agent_name}: {adk_err}. Falling back to direct API...")
 
-    # 2. Secondary path: LangGraph StateGraph Workflow
-    try:
-        from langgraph.graph import StateGraph, END
-        from typing import TypedDict
-        
-        class RouterState(TypedDict):
-            messages: List[Dict[str, str]]
-            response: str
-            
-        logger.info(f"🔌 [LANGGRAPH FALLBACK] Orchestrating {agent_name}...")
-        
-        async def call_router_fallback(state: RouterState) -> dict:
-            res = await get_raw_llm_completion(agent_name, state.get("messages", []), temperature, max_tokens)
-            return {"response": res}
-            
-        workflow = StateGraph(RouterState)
-        workflow.add_node("call_llm", call_router_fallback)
-        workflow.set_entry_point("call_llm")
-        workflow.add_edge("call_llm", END)
-        fallback_app = workflow.compile()
-        
-        result = await fallback_app.ainvoke({"messages": messages, "response": ""})
-        response_text = result.get("response", "")
-        if not response_text:
-            raise ValueError("LangGraph fallback returned empty response")
-            
-        logger.info(f"✅ [LANGGRAPH FALLBACK] Completed {agent_name} successfully.")
-        return response_text
-        
-    except Exception as lg_err:
-        logger.warning(f"⚠️ [LANGGRAPH FALLBACK] Failed for {agent_name}: {lg_err}. Cascading to raw API call...")
-
-    # 3. Tertiary path: Direct Raw Fallback
+    # 2. Direct API call (removed wasteful LangGraph StateGraph wrapper)
     return await get_raw_llm_completion(agent_name, messages, temperature, max_tokens)

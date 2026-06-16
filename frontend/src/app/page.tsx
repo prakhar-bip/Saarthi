@@ -134,6 +134,17 @@ export default function Home() {
     }
   }, [activeChatId, isMobile]);
 
+  useEffect(() => {
+    const handleChangeTab = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setMobileTab(customEvent.detail);
+      }
+    };
+    window.addEventListener("change-mobile-tab", handleChangeTab);
+    return () => window.removeEventListener("change-mobile-tab", handleChangeTab);
+  }, []);
+
   const statusTransitionRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isMobile && activeProj?.status === "generating" && statusTransitionRef.current !== "generating") {
@@ -260,7 +271,7 @@ export default function Home() {
                 )}
                 {mobileTab === "build" && (
                   <div className="w-full h-full overflow-hidden">
-                    {activeProj ? (
+                    {(activeProj || activeChatId) ? (
                       <ProjectViewer />
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-full bg-white/20 backdrop-blur-md space-y-4">

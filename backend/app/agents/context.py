@@ -110,7 +110,13 @@ def strip_json_code_fence(raw_response: str) -> str:
     return raw
 
 
-class IncompleteJSONError(BaseException):
+class IncompleteJSONError(Exception):
+    """Raised when LLM output contains truncated/invalid JSON.
+    
+    Changed from BaseException to Exception for safer error handling.
+    The VerifierAgent catches this via isinstance() check, so it doesn't
+    need to bypass standard except-Exception blocks.
+    """
     def __init__(self, message, raw_response):
         super().__init__(message)
         self.raw_response = raw_response
@@ -119,7 +125,6 @@ def parse_json_response(raw_response: str) -> Dict[str, Any]:
     try:
         return json.loads(strip_json_code_fence(raw_response))
     except json.JSONDecodeError as e:
-        # Raise BaseException so it bypasses the agent's `except Exception:` blocks
         raise IncompleteJSONError(f"JSONDecodeError: {e}", raw_response)
 
 
@@ -143,7 +148,7 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
 
     summary: Dict[str, Any] = {
         "status": value.get("status"),
-        "top_level_keys": list(value.keys())[:14],
+        "top_level_keys": list(value.keys())[:20],
     }
 
     project_overview = value.get("project_overview")
@@ -156,10 +161,10 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
 
     features = value.get("features")
     if isinstance(features, (list, str)):
-        summary["features"] = features[:8]
+        summary["features"] = features[:15]
     core_modules = value.get("core_modules")
     if isinstance(core_modules, (list, str)):
-        summary["core_modules"] = core_modules[:8]
+        summary["core_modules"] = core_modules[:12]
     if "tech_stack" in value:
         summary["tech_stack"] = value.get("tech_stack")
     exec_order = value.get("module_execution_order")
@@ -170,7 +175,7 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
         summary["recommended_next_agents"] = next_agents[:10]
 
     if "entities" in value:
-        summary["entities"] = _names_from_items(value.get("entities"), "entity_name")[:12]
+        summary["entities"] = _names_from_items(value.get("entities"), "entity_name")[:20]
     if "relationships" in value:
         summary["relationships"] = [
             f"{rel.get('from_entity')}->{rel.get('to_entity')}"
@@ -184,9 +189,9 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
                 endpoints.append(f"{endpoint.get('method', 'GET')} {endpoint.get('path', '')}")
             elif isinstance(endpoint, str):
                 endpoints.append(endpoint)
-        summary["endpoints"] = endpoints[:14]
+        summary["endpoints"] = endpoints[:25]
     if "pages" in value:
-        summary["pages"] = _names_from_items(value.get("pages"), "page_name")[:12]
+        summary["pages"] = _names_from_items(value.get("pages"), "page_name")[:20]
     if "layouts" in value:
         summary["layouts"] = _names_from_items(value.get("layouts"), "layout_name")[:10]
 
@@ -210,7 +215,7 @@ def summarize_contract(value: Any) -> Dict[str, Any]:
         if isinstance(section, Mapping):
             summary[section_name] = {
                 key: section.get(key)
-                for key in list(section.keys())[:5]
+                for key in list(section.keys())[:8]
             }
 
     handoff = value.get("agent_handoff")
@@ -466,9 +471,43 @@ def get_json_schema(agent_role: str) -> str:
 }"""
     return JSON_SCHEMAS.get(agent_role, default_schema)
 
+# ──────────────────────────────────────────────────────────────
+# Correction Loop Circuit Breaker
+# ──────────────────────────────────────────────────────────────
+
+MAX_CORRECTION_LOOPS = 2  # Maximum number of verifier → agent_dispatcher correction loops
+
+
+def build_document_context(state: dict) -> str:
+    """Extract PRD/TRD/MRD content and summarize for agent consumption."""
+    prd = state.get("prd", "") or ""
+    trd = state.get("trd", "") or ""
+    mrd = state.get("mrd", "") or ""
+    impl_plan = state.get("implementation_plan", {}) or {}
+    
+    doc_parts = []
+    if prd:
+        doc_parts.append(f"PRD (Product Requirements — binding source of truth):\n{prd[:5000]}")
+    if trd:
+        doc_parts.append(f"TRD (Technical Requirements — drives architecture & codegen):\n{trd[:5000]}")
+    if mrd:
+        doc_parts.append(f"MRD (Market Requirements):\n{mrd[:4000]}")
+    if impl_plan:
+        plan_md = impl_plan.get("plan_markdown", "") if isinstance(impl_plan, dict) else ""
+        if plan_md:
+            doc_parts.append(f"Implementation Plan (execution contract):\n{plan_md[:4000]}")
+    
+    if doc_parts:
+        return "\n\n".join(doc_parts)
+    return "No project documents available."
+
+
 def generate_agent_prompt(agent_role: str, state: dict) -> str:
     base_template = """
     ROLE: {role_definition}
+    
+    PROJECT DOCUMENTATION (Source of Truth — align all outputs with these documents):
+    {document_context}
     
     UPSTREAM CONTEXT (BINDING CONTRACTS):
     - Requirements Context: {requirements_context}
@@ -482,6 +521,9 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     - Never write placeholders or mock codes.
     - Align database schemas with model entities exactly.
     - All JSON outputs must strictly conform to the schema outlined below.
+    - Features and entities MUST match those defined in the PRD, TRD, MRD, and Requirements.
+    - Generate production-ready architecture — minimum 5 interconnected features/pages/modules.
+    - Every route, entity, API endpoint, and component must trace back to the Implementation Plan.
     
     REQUIRED OUTPUT CONTRACT SCHEMA:
     {json_output_schema}
@@ -489,9 +531,10 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     
     return base_template.format(
         role_definition=get_role_definition(agent_role),
-        requirements_context=json.dumps(state.get("requirements") or {}),
-        plan_context=json.dumps(state.get("implementation_plan") or {}),
-        active_state_context=json.dumps(state.get(get_required_state_keys(agent_role)) or {}),
+        document_context=build_document_context(state),
+        requirements_context=json.dumps(state.get("requirements") or {})[:12000],
+        plan_context=json.dumps(state.get("implementation_plan") or {})[:6000],
+        active_state_context=json.dumps(state.get(get_required_state_keys(agent_role)) or {})[:12000],
         task_objective=get_task_objective(agent_role),
         json_output_schema=get_json_schema(agent_role)
     )

@@ -77,9 +77,12 @@ session_service = None
 runner = None
 
 if HAS_ADK:
+    from app.services.llm_router import map_google_model
+    mapped_model = map_google_model(settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL)
+    adk_model = mapped_model.split(",")[0].strip() if mapped_model else (settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL)
     sarthi_agent = Agent(
         name="Sarthi",
-        model=settings.GOOGLE_FAST_MODEL or settings.GOOGLE_MODEL,
+        model=adk_model,
         instruction=(
             "You are **Sarthi**, an expert AI development companion built for hackathon project planning and software engineering. "
             f"Currently, you are executing on the {platform_info} platform. If the user asks which platform or API route you are using, answer with this platform name.\n\n"

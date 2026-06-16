@@ -925,6 +925,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               clearInterval(interval);
               delete activeIntervalsRef.current[projectId];
               setIsGeneratingProject(false);
+            } else if (updatedProj.status === "waiting_approval") {
+              setIsGeneratingProject(false);
             }
           }
         } catch (e) {
@@ -976,6 +978,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             );
 
             if (msg.status === "waiting_approval") {
+              setIsGeneratingProject(false);
               const currentToken = localStorage.getItem("token") || token;
               fetch(`${API_BASE}/api/projects/${projectId}`, {
                 headers: { "Authorization": `Bearer ${currentToken}` }
@@ -1043,6 +1046,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  useEffect(() => {
+    const generatingProjects = projects.filter((p) => p.status === "generating");
+    if (generatingProjects.length > 0) {
+      setIsGeneratingProject(true);
+      generatingProjects.forEach((proj) => {
+        monitorProjectProgress(proj.id);
+      });
+    }
+  }, [projects]);
+
   const generateProject = useCallback(async (
     chatId: string,
     projectName: string,
@@ -1084,17 +1097,27 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const newProj = await res.json();
         setProjects((prev) => [newProj, ...prev]);
         setActiveProjectId(newProj.id);
-        if (newProj.status === "documents_ready") {
+        setShowSpecsDocs(true);
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === chatId
+              ? { ...c, is_confirmed: true, project_id: newProj.id }
+              : c
+          )
+        );
+        if (newProj.status === "documents_ready" || newProj.status === "waiting_approval") {
           setIsGeneratingProject(false);
         } else {
           monitorProjectProgress(newProj.id);
         }
+      } else {
+        setIsGeneratingProject(false);
       }
     } catch (e) {
       console.error("Generate project failed:", e);
       setIsGeneratingProject(false);
     }
-  }, [isGeneratingProject]);
+  }, [isGeneratingProject, setShowSpecsDocs, monitorProjectProgress]);
 
   const compileProjectCodebase = useCallback(async (projectId: string, chatId: string) => {
     if (isGeneratingProject) return;

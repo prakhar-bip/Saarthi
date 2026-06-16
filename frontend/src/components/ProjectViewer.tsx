@@ -481,11 +481,16 @@ export const ProjectViewer: React.FC = () => {
     return controls.stop;
   }, [activeProj?.progress]);
 
-  // Reset viewStage on chat changes
+  // Advance to theme selection when blueprint is already saved (e.g. Create Project modal)
   useEffect(() => {
-    setViewStage("blueprint");
+    if (!activeChatId || activeProj) return;
+    if (activeChat?.selected_project?.name && activeChat?.selected_project?.idea) {
+      setViewStage("theme");
+    } else {
+      setViewStage("blueprint");
+    }
     setGithubResult(null);
-  }, [activeChatId]);
+  }, [activeChatId, activeChat?.selected_project, activeProj?.id]);
 
   useEffect(() => {
     if (activeChat && !activeChat.selected_project && activeChat.category && suggestions.length === 0) {
@@ -1093,10 +1098,10 @@ export const ProjectViewer: React.FC = () => {
                       disabled={isGeneratingProject}
                       className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
                     >
-                      🚀 Build Codebase with {themes[selectedThemeIndex]?.name || "Selected"} Theme
+                      🚀 Generate Specifications with {themes[selectedThemeIndex]?.name || "Selected"} Theme
                     </button>
                     <p className="text-center text-[10px] text-stone-400 mt-2.5 leading-relaxed max-w-xs mx-auto">
-                      Sarthi will generate React & Tailwind codebase pages styled with the {themes[selectedThemeIndex]?.name || "selected"} color scheme.
+                      Sarthi will generate PRD, MRD, TRD, and an Implementation Plan styled with the {themes[selectedThemeIndex]?.name || "selected"} theme. Codebase compilation starts after you review and approve.
                     </p>
                   </div>
                 </>
@@ -1276,8 +1281,18 @@ export const ProjectViewer: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Download failed:", err);
+      let errorMsg = "An unknown error occurred.";
+      try {
+        if (err.message) {
+          const parsed = JSON.parse(err.message);
+          errorMsg = parsed.detail || err.message;
+        }
+      } catch {
+        errorMsg = err.message || errorMsg;
+      }
+      alert(`Download Failed:\n${errorMsg}\n\nPlease verify that Sarthi has successfully compiled the project codebase, or try again.`);
     } finally {
       setIsDownloading(false);
     }
@@ -1508,25 +1523,12 @@ export const ProjectViewer: React.FC = () => {
                               </button>
                             )}
                           </div>
-                          {activeProj.status === "documents_ready" ? (
+                          {activeProj.status === "documents_ready" && !activeProj.implementation_plan?.plan_markdown ? (
                             <div className="py-6 space-y-4">
-                              <h3 className="text-sm font-bold text-indigo-950">
-                                {activeProj.hitl_enabled !== false 
-                                  ? "⏳ Plan Generation Pending" 
-                                  : "⏩ Direct Compilation Enabled"
-                                }
-                              </h3>
+                              <h3 className="text-sm font-bold text-indigo-950">⏩ Direct Compilation Enabled</h3>
                               <p className="text-xs text-stone-500 leading-relaxed">
-                                {activeProj.hitl_enabled !== false 
-                                  ? "Since 'Review Planning Blueprint' is enabled, Sarthi will run the Research & Planning agent to construct a detailed file modification plan before generating any code. This plan will appear here for your review and approval after you click 'Proceed to Build Codebase'."
-                                  : "You have disabled planning review. Sarthi will compile the codebase directly in the background without pausing for approval or showing a plan."
-                                }
+                                Planning review is disabled. Sarthi will compile the production codebase directly when you click Proceed to Build.
                               </p>
-                              {activeProj.hitl_enabled !== false && (
-                                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100/80 text-[11px] text-amber-800 leading-relaxed">
-                                  <strong>Note:</strong> You can edit the generated implementation plan file-by-file once it is created.
-                                </div>
-                              )}
                             </div>
                           ) : isEditingPlan ? (
                             <textarea
@@ -1564,10 +1566,10 @@ export const ProjectViewer: React.FC = () => {
                   <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider block">Prototype Tech Stack</span>
                   <div className="flex items-center gap-2 text-stone-750">
                     <FileCode className="w-4 h-4 text-amber-500 font-bold" />
-                    <span className="text-xs font-semibold">HTML5 + CSS3 + Flask (Python)</span>
+                    <span className="text-xs font-semibold">FastAPI + Next.js + MongoDB</span>
                   </div>
                   <p className="text-[10px] text-stone-500 leading-normal">
-                    This prototype is configured to be compiled into a lightweight Python/Flask backend and a modern HTML/CSS frontend.
+                    Production monorepo: FastAPI backend, Next.js frontend, MongoDB persistence, Docker deployment.
                   </p>
                 </div>
 
@@ -1591,48 +1593,46 @@ export const ProjectViewer: React.FC = () => {
                 </div>
               </div>
 
-              {activeProj.category !== "documents" && (
-                <div className="mt-8 border-t border-stone-200/60 pt-6 space-y-4">
-                  {activeProj.status === "waiting_approval" ? (
-                    <>
-                      <div className="text-[11px] text-stone-500 leading-normal">
-                        Ready to start the codebase generation under the approved implementation plan?
-                      </div>
-                      <motion.button
-                        onClick={() => approveProjectPlan(
-                          activeProj.id,
-                          activeProj.chat_id,
-                          {
-                            ...activeProj.implementation_plan,
-                            plan_markdown: editedPlanMarkdown
-                          }
-                        )}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
-                      >
-                        <Sparkles className="w-4 h-4 animate-pulse" />
-                        <span>Approve Plan & Compile Codebase</span>
-                      </motion.button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-[11px] text-stone-500 leading-normal">
-                        Everything looks good? Proceed to generate the codebase and assemble the working application.
-                      </div>
-                      <motion.button
-                        onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
-                      >
-                        <Sparkles className="w-4 h-4 animate-pulse" />
-                        <span>Proceed to Build Codebase</span>
-                      </motion.button>
-                    </>
-                  )}
-                </div>
-              )}
+              <div className="mt-8 border-t border-stone-200/60 pt-6 space-y-4">
+                {activeProj.status === "waiting_approval" ? (
+                  <>
+                    <div className="text-[11px] text-stone-500 leading-normal">
+                      Ready to start the codebase generation under the approved implementation plan?
+                    </div>
+                    <motion.button
+                      onClick={() => approveProjectPlan(
+                        activeProj.id,
+                        activeProj.chat_id,
+                        {
+                          ...activeProj.implementation_plan,
+                          plan_markdown: editedPlanMarkdown
+                        }
+                      )}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 animate-pulse" />
+                      <span>Approve Plan & Compile Codebase</span>
+                    </motion.button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-[11px] text-stone-500 leading-normal">
+                      Everything looks good? Proceed to generate the codebase and assemble the working application.
+                    </div>
+                    <motion.button
+                      onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-semibold text-sm shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 animate-pulse" />
+                      <span>Proceed to Build Codebase</span>
+                    </motion.button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1708,9 +1708,9 @@ export const ProjectViewer: React.FC = () => {
 
                     {/* Center text */}
                     <div className="absolute text-center">
-                      <motion.span className="text-xl font-extrabold text-stone-800 font-display">
-                        {progressRounded}
-                      </motion.span>
+                      <span className="text-xl font-extrabold text-stone-800 font-display">
+                        {Math.round(activeProj.progress)}
+                      </span>
                       <span className="text-[8px] text-stone-400 block font-semibold uppercase tracking-wider">%</span>
                     </div>
                   </div>

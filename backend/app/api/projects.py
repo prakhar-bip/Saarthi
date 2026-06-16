@@ -549,9 +549,8 @@ async def run_project_compilation(
     db = get_database()
     
     try:
-        # Fetch chat history to feed Nvidia NIM for relevant context
+        # Fetch chat history for context
         chat_doc = await db.chats.find_one({"_id": chat_id, "user_id": user_id})
-        chat_history = chat_doc.get("messages", []) if chat_doc else []
         
         project_doc = await db.projects.find_one({"_id": project_id}) or {}
         bp_dict = blueprint.dict() if blueprint else {
@@ -563,24 +562,9 @@ async def run_project_compilation(
         
         if "initial_prompt" not in project_doc:
             project_doc["initial_prompt"] = bp_dict
-            
-        from app.services.workflow import compile_project_workflow
-        await compile_project_workflow(db, project_id, project_doc)
         
-        # After LangGraph completes, fetch latest project_doc
-        latest_project_doc = await db.projects.find_one({"_id": project_id, "user_id": user_id}) or {}
-        agent_context = build_compilation_context(extract_architecture_context(latest_project_doc))
-        await db.projects.update_one(
-            {"_id": project_id},
-            {"$set": {"agent_context": agent_context}}
-        )
-            
-        await broadcast_agent_progress(db, project_id, 97, "Compiling Codebase...")
-        # Call Nvidia NIM Service to compile codebase
-        logger.info(f"Requesting AI codebase generation for project {name} ({category}) with theme {theme}")
-        latest_project_doc = await db.projects.find_one({"_id": project_id, "user_id": user_id}) or {}
-        architecture_context = extract_architecture_context(latest_project_doc)
-        blueprint_dict = blueprint.dict() if blueprint else latest_project_doc.get("blueprint")
+        # Store hackathon metadata and MCP evidence before workflow starts
+        blueprint_dict = blueprint.dict() if blueprint else project_doc.get("blueprint") or bp_dict
         hackathon_metadata = build_hackathon_metadata(
             project_id=project_id,
             name=name,
@@ -588,64 +572,64 @@ async def run_project_compilation(
             blueprint=blueprint_dict,
         )
         mcp_evidence = await mcp_client.build_evidence_snapshot(project_id=project_id)
-        if architecture_context:
-            await db.projects.update_one(
-                {"_id": project_id},
-                {
-                    "$set": {
-                        "agent_context": build_compilation_context(architecture_context),
-                        "hackathon_metadata": hackathon_metadata,
-                        "mcp_evidence": mcp_evidence,
-                    }
-                }
-            )
-        ai_data = await generate_codebase(
-            name, 
-            category, 
-            chat_history, 
-            theme,
-            blueprint_dict,
-            theme_palette.dict() if theme_palette else None,
-            architecture_context=architecture_context,
-            hackathon_metadata=hackathon_metadata,
-            mcp_evidence=mcp_evidence,
-        )
-        
-        summary = ai_data.get("summary", "Complete production-ready FastAPI + React codebase compiled successfully.")
-        codebase_list = ai_data.get("codebase", [])
-        
-        # Parse CodeFiles
-        codefiles_db = []
-        for file in codebase_list:
-            codefiles_db.append({
-                "name": file.get("name", ""),
-                "path": file.get("path", ""),
-                "content": file.get("content", ""),
-                "language": file.get("language", "typescript")
-            })
-            
-        # Complete stage
         await db.projects.update_one(
             {"_id": project_id},
-            {
-                "$set": {
-                    "progress": 100,
-                    "status": "completed",
-                    "step": "Deployment Complete",
-                    "summary": summary,
-                    "codebase": codefiles_db,
-                    "hackathon_metadata": hackathon_metadata,
-                    "mcp_evidence": mcp_evidence,
-                }
-            }
+            {"$set": {
+                "hackathon_metadata": hackathon_metadata,
+                "mcp_evidence": mcp_evidence,
+            }}
         )
+        
+        # ── Run the full Sarthi workflow (architecture → synthesis → validation → export) ──
+        # The workflow now handles EVERYTHING end-to-end:
+        #   1. Requirements analysis
+        #   2. Architecture design (28 agents in parallel workspaces)
+        #   3. Verification guardrails
+        #   4. Code synthesis (CodeSynthesizerAgent generates actual files)
+        #   5. Structural validation (CodeValidatorAgent checks imports, contracts)
+        #   6. Project assembly (project_assembler merges AI + deterministic files)
+        #   7. Quality gates + export
+        from app.services.workflow import compile_project_workflow
+        await compile_project_workflow(db, project_id, project_doc)
+        
+        # After workflow completes, verify the project was assembled
+        latest_project_doc = await db.projects.find_one({"_id": project_id, "user_id": user_id}) or {}
+        
+        # Store the compilation context for reference
+        architecture_context = extract_architecture_context(latest_project_doc)
+        if architecture_context:
+            agent_context = build_compilation_context(architecture_context)
+            await db.projects.update_one(
+                {"_id": project_id},
+                {"$set": {"agent_context": agent_context}}
+            )
+        
+        # Ensure completion state is set (workflow's finalize_project_delivery should have done this)
+        if latest_project_doc.get("status") != "completed":
+            # Fallback: the workflow may have been interrupted at HITL gate
+            if latest_project_doc.get("status") == "waiting_approval":
+                logger.info(f"Project {project_id} is waiting for HITL approval — not marking complete.")
+                return
+            
+            # If workflow finished but status wasn't set, finalize now
+            logger.warning(f"Project {project_id} workflow finished but status is '{latest_project_doc.get('status')}' — finalizing.")
+            from app.services.workflow import finalize_project_delivery
+            await finalize_project_delivery(db, project_id, latest_project_doc)
         
         # Append AI message indicating completion
         time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
+        codebase_count = len(latest_project_doc.get("codebase", []))
+        synthesis_info = latest_project_doc.get("synthesis_validation", {})
+        file_count = synthesis_info.get("total_files", codebase_count)
+        
         success_msg = {
             "id": f"m-{uuid.uuid4().hex[:8]}",
             "sender": "ai",
-            "text": f"🎉 Amazing news! Your project **{name}** has been successfully generated. You can explore the codebase and architecture in the projects history or the file panel on the right!",
+            "text": (
+                f"🎉 Your project **{name}** has been successfully generated! "
+                f"Sarthi synthesized **{file_count} source files** across backend, frontend, and infrastructure. "
+                f"You can explore the codebase and architecture in the projects history or the file panel on the right!"
+            ),
             "timestamp": time_str
         }
         await db.chats.update_one(
@@ -660,7 +644,7 @@ async def run_project_compilation(
             step="Deployment Complete",
             status="completed"
         )
-        logger.info(f"Project {project_id} compilation complete!")
+        logger.info(f"Project {project_id} compilation complete! ({file_count} files synthesized)")
         
     except Exception as e:
         logger.error(f"Project compilation failed for {project_id}: {e}")
@@ -953,32 +937,29 @@ async def compile_project(
     planning = None
     impl_plan = None
     
-    if payload.hitl_enabled:
-        try:
-            logger.info("HITL is enabled. Generating Implementation Plan immediately during project creation...")
-            from app.agents.requirement_analyzer import RequirementAnalyzerAgent
-            from app.agents.planner import PlannerAgent
-            from app.agents.research_planning_agent import ResearchPlanningAgent
-            
-            # 1. Run RequirementAnalyzerAgent
-            analyzer = RequirementAnalyzerAgent()
-            requirements = await analyzer.analyze(blueprint_payload or {}, payload.theme)
-            
-            # 2. Run PlannerAgent
-            planner = PlannerAgent()
-            planning = await planner.plan(requirements)
-            
-            # 3. Run ResearchPlanningAgent
-            researcher = ResearchPlanningAgent()
-            impl_plan = await researcher.generate_plan(requirements, planning, [])
-            
-            logger.info("Successfully generated Implementation Plan synchronously during project creation.")
-        except Exception as plan_err:
-            logger.error(f"Failed to generate implementation plan during project creation: {plan_err}")
-            impl_plan = {
-                "plan_markdown": f"# Implementation Plan\nFailed to generate plan: {str(plan_err)}",
-                "files": []
-            }
+    # Always generate requirements, planning, and implementation plan as workflow source of truth
+    try:
+        logger.info("Generating requirements, planning, and implementation plan during project creation...")
+        from app.agents.requirement_analyzer import RequirementAnalyzerAgent
+        from app.agents.planner import PlannerAgent
+        from app.agents.research_planning_agent import ResearchPlanningAgent
+        
+        analyzer = RequirementAnalyzerAgent()
+        requirements = await analyzer.analyze(blueprint_payload or {}, payload.theme)
+        
+        planner = PlannerAgent()
+        planning = await planner.plan(requirements)
+        
+        researcher = ResearchPlanningAgent()
+        impl_plan = await researcher.generate_plan(requirements, planning, [])
+        
+        logger.info("Successfully generated PRD/TRD/MRD-aligned implementation plan during project creation.")
+    except Exception as plan_err:
+        logger.error(f"Failed to generate implementation plan during project creation: {plan_err}")
+        impl_plan = {
+            "plan_markdown": f"# Implementation Plan\nFailed to generate plan: {str(plan_err)}",
+            "proposed_changes": [],
+        }
 
     new_project = {
         "_id": project_id,
@@ -987,7 +968,12 @@ async def compile_project(
         "status": "waiting_approval" if payload.hitl_enabled else "documents_ready",
         "progress": 15 if payload.hitl_enabled else 100,
         "step": "Awaiting Implementation Plan Approval" if payload.hitl_enabled else "Documents Generated",
-        "summary": "Specifications and implementation plan compiled successfully. Awaiting your approval to build." if payload.hitl_enabled else "Product Requirements Document (PRD), Market Requirements Document (MRD), and Technical Requirements Document (TRD) compiled successfully.",
+        "summary": (
+            "PRD, MRD, TRD, and Implementation Plan compiled successfully. "
+            "Review and approve to start production codebase generation."
+            if payload.hitl_enabled
+            else "PRD, MRD, TRD, and Implementation Plan compiled successfully. Review specs, then proceed to build."
+        ),
         "codebase": [],
         "created": created_str,
         "created_at_dt": datetime.now(timezone.utc),
@@ -995,6 +981,7 @@ async def compile_project(
         "chat_id": payload.chat_id,
         "theme": payload.theme,
         "blueprint": blueprint_payload,
+        "initial_prompt": blueprint_payload,
         "theme_palette": payload.theme_palette.dict() if payload.theme_palette else None,
         "prd": docs.get("prd", ""),
         "mrd": docs.get("mrd", ""),
@@ -1020,9 +1007,17 @@ async def compile_project(
     # Notify chat that documents were generated
     time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
     if payload.hitl_enabled:
-        text_msg = f"Sarthi has generated the specifications (PRD/MRD/TRD) and a detailed **Implementation Plan** for your hackathon project **{payload.name}**! You can review the implementation details in the right pane, edit them if needed, and approve the plan to compile the codebase."
+        text_msg = (
+            f"Sarthi generated **PRD**, **MRD**, **TRD**, and a detailed **Implementation Plan** "
+            f"for **{payload.name}**. Review them in the right pane, edit the plan if needed, "
+            f"then approve to start production codebase generation."
+        )
     else:
-        text_msg = f"Sarthi has generated the Product, Market, and Technical specifications (PRD/MRD/TRD) for your hackathon project **{payload.name}**! You can review and download them in the right pane, then proceed to build the codebase."
+        text_msg = (
+            f"Sarthi generated **PRD**, **MRD**, **TRD**, and an **Implementation Plan** "
+            f"for **{payload.name}**. Review the specifications in the right pane, "
+            f"then click Proceed to Build to compile the production-ready codebase."
+        )
         
     start_msg = {
         "id": f"m-{uuid.uuid4().hex[:8]}",
@@ -1186,15 +1181,19 @@ async def approve_project_plan(
         
     plan_edits = payload.get("implementation_plan")
     
-    # Update state in db
+    # Persist plan edits to MongoDB BEFORE resuming workflow so agents read edited plan
+    update_fields = {
+        "hitl_approved": True,
+        "status": "generating",
+        "progress": 20,
+        "step": "Resuming codebase compilation..."
+    }
+    if plan_edits:
+        update_fields["implementation_plan"] = plan_edits
+    
     await db.projects.update_one(
         {"_id": project_id},
-        {"$set": {
-            "hitl_approved": True,
-            "status": "generating",
-            "progress": 20,
-            "step": "Resuming codebase compilation..."
-        }}
+        {"$set": update_fields}
     )
     
     from app.services.workflow import resume_project_workflow
@@ -1255,6 +1254,90 @@ async def delete_project(project_id: str, current_user: dict = Depends(get_curre
     return {"status": "success", "message": "Project deleted successfully"}
 
 
+@router.post("/{project_id}/regenerate-documents")
+async def regenerate_project_documents(
+    project_id: str,
+    payload: dict = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Regenerate PRD/MRD/TRD documents for an existing project."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") == "generating":
+        raise HTTPException(status_code=400, detail="Cannot regenerate documents while project is compiling")
+    
+    from app.services.ai import generate_prd_mrd_trd
+    
+    blueprint = project.get("blueprint", {}) or {}
+    idea = blueprint.get("idea", "")
+    features = blueprint.get("features", [])
+    tech_stack = blueprint.get("tech_stack", "")
+    features_str = ", ".join(features) if features else ""
+    
+    custom_prompt = ""
+    if payload and payload.get("custom_prompt"):
+        custom_prompt = f"\nAdditional instructions: {payload['custom_prompt']}"
+    
+    prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}{custom_prompt}"
+    
+    try:
+        docs = await generate_prd_mrd_trd(project["name"], prompt_for_docs)
+    except Exception as e:
+        logger.error(f"Failed to regenerate documents for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Document regeneration failed: {str(e)}")
+    
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {
+            "prd": docs.get("prd", ""),
+            "mrd": docs.get("mrd", ""),
+            "trd": docs.get("trd", ""),
+            "status": "documents_ready" if not project.get("hitl_enabled") else "waiting_approval",
+        }}
+    )
+    
+    return {"status": "success", "message": "Documents regenerated successfully"}
+
+
+@router.post("/{project_id}/cancel")
+async def cancel_project_compilation(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Cancel an in-progress project compilation."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "generating":
+        raise HTTPException(status_code=400, detail="Project is not currently generating")
+    
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {
+            "status": "cancelled",
+            "step": "Compilation cancelled by user",
+            "progress": project.get("progress", 0),
+        }}
+    )
+    
+    # Notify via WebSocket
+    from app.services.ws_manager import manager
+    await manager.broadcast_progress(project_id, {
+        "type": "progress",
+        "project_id": project_id,
+        "progress": project.get("progress", 0),
+        "step": "Compilation cancelled by user",
+        "status": "cancelled"
+    })
+    
+    return {"status": "success", "message": "Compilation cancelled"}
+
+
 @router.get("/{project_id}/download")
 async def download_project_zip(project_id: str, current_user: dict = Depends(get_current_user)):
     """Downloads the generated project codebase as a valid ZIP file."""
@@ -1264,6 +1347,20 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
         raise HTTPException(status_code=404, detail="Project not found")
         
     codebase = doc.get("codebase", [])
+    
+    # Auto-heal: If codebase is empty but we have requirements or a compiled status,
+    # run finalize_project_delivery on-the-fly to compile/assemble the workspace ZIP.
+    if not codebase and (doc.get("status") in ("completed", "completed_with_issues", "generating", "failed", "waiting_approval") or doc.get("synthesized_codebase")):
+        logger.info(f"Project {project_id} download requested but codebase is empty. Running on-the-fly export/assembly...")
+        try:
+            from app.services.workflow import finalize_project_delivery
+            updated_doc = await finalize_project_delivery(db, project_id, doc)
+            if updated_doc:
+                doc = updated_doc
+                codebase = doc.get("codebase", [])
+        except Exception as e:
+            logger.error(f"On-the-fly codebase assembly failed for project {project_id}: {e}")
+
     has_docs = any(doc.get(f) for f in ("prd", "mrd", "trd"))
     if not codebase and not has_docs:
         raise HTTPException(status_code=400, detail="No codebase or requirements documents have been generated yet for this project.")
@@ -1314,6 +1411,57 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={slug}.zip"}
     )
+
+
+@router.post("/{project_id}/export", response_model=ProjectResponse)
+async def force_export_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Force re-assembles, validates and exports the project's codebase."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    from app.services.workflow import finalize_project_delivery
+    
+    # We want to force re-assembly, so we clear the old codebase to force assembly
+    if project.get("codebase"):
+        await db.projects.update_one({"_id": project_id}, {"$set": {"codebase": []}})
+        project["codebase"] = []
+        
+    updated_project = await finalize_project_delivery(db, project_id, project)
+    
+    from app.models.project import BlueprintSchema, ThemePaletteSchema
+    blueprint_dict = updated_project.get("blueprint")
+    blueprint = BlueprintSchema(**blueprint_dict) if blueprint_dict else None
+    theme_palette_dict = updated_project.get("theme_palette")
+    theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
+    
+    return ProjectResponse(
+        id=updated_project["_id"],
+        name=updated_project["name"],
+        category=updated_project["category"],
+        status=updated_project["status"],
+        progress=updated_project["progress"],
+        step=updated_project["step"],
+        summary=updated_project["summary"],
+        codebase=[],  # Omit in response to prevent bloated payloads
+        created=updated_project["created"],
+        user_id=updated_project["user_id"],
+        chat_id=updated_project["chat_id"],
+        theme=updated_project.get("theme"),
+        blueprint=blueprint,
+        theme_palette=theme_palette,
+        prd=updated_project.get("prd", ""),
+        mrd=updated_project.get("mrd", ""),
+        trd=updated_project.get("trd", ""),
+        hackathon_metadata=updated_project.get("hackathon_metadata"),
+        mcp_evidence=updated_project.get("mcp_evidence"),
+        hitl_enabled=updated_project.get("hitl_enabled", True),
+        hitl_approved=updated_project.get("hitl_approved", False),
+        implementation_plan=updated_project.get("implementation_plan"),
+        validation_logs=updated_project.get("validation_logs", [])
+    )
+
 
 
 @router.post("/{project_id}/github-push")

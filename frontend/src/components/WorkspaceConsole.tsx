@@ -531,7 +531,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       <MorpankhBg />
 
       {/* Top Header */}
-      <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-xl flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
+      <header className="h-16 px-6 border-b border-stone-200/60 bg-white flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
         <div className="flex items-center gap-2">
           {!showLeftPane && !isMobile && (
             <motion.button
@@ -545,8 +545,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               <PanelLeft className="w-4 h-4" />
             </motion.button>
           )}
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse-ring" />
-          <h2 className="text-xs font-bold uppercase tracking-wider text-stone-500">Sarthi Workspace</h2>
+          <SarthiLogo className="text-2xl" />
         </div>
 
         <div className="flex items-center gap-4 text-xs font-semibold text-stone-500">
@@ -759,7 +758,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           )
         ) : (
           /* 2. Active Chat Messages list */
-          <div className="flex-1 p-6 space-y-6 overflow-y-auto bg-transparent relative z-10">
+          <div className="flex-1 p-3 md:p-6 space-y-4 md:space-y-6 overflow-y-auto bg-transparent relative z-10">
             {activeChat.messages.map((m, idx) => {
               const isUser = m.sender === "user";
               const blueprintMatch = m.text.match(/<blueprint>([\s\S]*?)<\/blueprint>/);
@@ -788,7 +787,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   variants={msgVariants}
                   initial="initial"
                   animate="animate"
-                  className={`flex gap-3 max-w-xl ${isUser ? "ml-auto flex-row-reverse" : ""}`}
+                  className={`flex gap-3 max-w-[85%] md:max-w-xl ${isUser ? "ml-auto flex-row-reverse" : ""}`}
                 >
                   {/* Avatar */}
                   {isUser ? (
@@ -803,8 +802,8 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                     <div
                       className={`p-3.5 rounded-2xl text-xs leading-relaxed select-text ${editingMessageId === m.id ? "w-full" : ""
                         } ${isUser
-                          ? "bg-indigo-950/95 backdrop-blur-sm text-amber-500 border border-indigo-500/50 shadow-inner rounded-tr-none"
-                          : "bg-stone-50 text-stone-800 border border-stone-200/60 shadow-md rounded-tl-none"
+                          ? "bg-indigo-950 text-stone-100 border border-indigo-900 shadow-sm rounded-tr-none"
+                          : "bg-white text-stone-800 border border-stone-200 shadow-sm rounded-tl-none"
                         }`}
                     >
                       {editingMessageId === m.id ? (
@@ -846,7 +845,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                           </div>
                         </div>
                       ) : isUser ? (
-                        <div className="whitespace-pre-line text-white font-semibold break-words leading-relaxed select-text">{cleanedText}</div>
+                        <div className="whitespace-pre-line text-stone-100 font-medium break-words leading-relaxed select-text">{cleanedText}</div>
                       ) : (
                         <div className="space-y-2">
                           {cleanedText && <MarkdownRenderer text={cleanedText} />}
@@ -978,7 +977,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   setInputFocused(true);
                 }}
                 onBlur={() => setInputFocused(false)}
-                className={`w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle ${!user ? 'cursor-pointer' : ''}`}
+                className={`w-full bg-stone-50 border border-stone-200 rounded-xl pl-4 pr-12 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-300 resize-none overflow-y-auto scrollbar-none max-h-[160px] align-middle ${!user ? 'cursor-pointer' : ''}`}
               />
               {/* Focus glow ring */}
               <AnimatePresence>
@@ -991,6 +990,18 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   />
                 )}
               </AnimatePresence>
+
+              {/* Pause/Resume button inside chatbox */}
+              {user && activeChatId && !aiTyping && (
+                <button
+                  type="button"
+                  onClick={() => activeChat && togglePauseChat(activeChat.id)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg hover:bg-stone-200/60 text-stone-605 transition-all cursor-pointer z-20 flex items-center justify-center"
+                  title={activeChat?.is_paused ? "Resume Chat" : "Pause Chat"}
+                >
+                  {activeChat?.is_paused ? <Play className="w-4 h-4 text-emerald-600 animate-pulse" /> : <Pause className="w-4 h-4 text-amber-600" />}
+                </button>
+              )}
             </div>
 
             {/* Create Project button */}
@@ -998,23 +1009,11 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               <button
                 type="button"
                 onClick={() => setShowCreateModal(true)}
-                className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
+                className="p-2.5 sm:px-4 sm:py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
                 title="Create Project: Open the project creator wizard and describe your idea."
               >
                 <FolderPlus className="w-4 h-4 text-indigo-950" />
-                <span className="text-xs">Create Project</span>
-              </button>
-            )}
-
-            {/* Pause/Resume button */}
-            {user && activeChatId && !aiTyping && (
-              <button
-                type="button"
-                onClick={() => activeChat && togglePauseChat(activeChat.id)}
-                className="p-2.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-700 transition-colors shadow-sm flex items-center justify-center cursor-pointer shrink-0"
-                title={activeChat?.is_paused ? "Resume Chat" : "Pause Chat"}
-              >
-                {activeChat?.is_paused ? <Play className="w-4 h-4 text-emerald-600" /> : <Pause className="w-4 h-4 text-amber-600" />}
+                <span className="hidden sm:inline text-xs">Create Project</span>
               </button>
             )}
 

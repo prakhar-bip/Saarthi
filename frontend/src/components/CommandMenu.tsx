@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { 
-  Search, Terminal, User, HelpCircle, Settings, X, Play, 
+  Search, Terminal, User, HelpCircle, X, Play, 
   ArrowRight, FolderGit2, Sidebar as SidebarIcon,
   PanelRight, Keyboard, Sparkles
 } from "lucide-react";
@@ -20,7 +20,8 @@ export const CommandMenu: React.FC = () => {
     setShowLeftPane,
     showRightPane,
     setShowRightPane,
-    compileProjectCodebase
+    compileProjectCodebase,
+    approveProjectPlan
   } = useWorkspace();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -87,15 +88,7 @@ export const CommandMenu: React.FC = () => {
         window.dispatchEvent(new CustomEvent("open-profile-modal", { detail: { tab: "profile" } }));
       }
     },
-    {
-      id: "open-settings",
-      title: "Open Workspace Settings",
-      desc: "Configure Gemini orchestration models and sound chimes.",
-      icon: <Settings className="w-4 h-4 text-amber-500" />,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("open-profile-modal", { detail: { tab: "settings" } }));
-      }
-    },
+
     {
       id: "open-help",
       title: "View Concept Guide & Help Support",
@@ -107,8 +100,16 @@ export const CommandMenu: React.FC = () => {
     }
   ];
 
-  // If compilation is ready, add proceed to build codebase option
-  if (activeProj && activeProj.status === "documents_ready") {
+  // Compilation actions when documents are ready
+  if (activeProj && activeProj.status === "waiting_approval") {
+    actions.unshift({
+      id: "approve-plan",
+      title: "Approve Plan & Compile Codebase",
+      desc: `Approve implementation plan for ${activeProj.name} and start generation.`,
+      icon: <Play className="w-4 h-4 text-emerald-500 animate-pulse" />,
+      action: () => approveProjectPlan(activeProj.id, activeProj.chat_id)
+    });
+  } else if (activeProj && activeProj.status === "documents_ready") {
     actions.unshift({
       id: "proceed-build",
       title: "Proceed to Build Codebase",

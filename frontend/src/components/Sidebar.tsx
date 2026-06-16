@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { SarthiLogo, CategoryIcon, EmptyStateIllustration } from "./CustomSvgs";
-import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2, User, Settings, HelpCircle, ChevronUp } from "lucide-react";
+import { MessageSquare, FolderGit2, Trash2, LogOut, LogIn, Sparkles, PanelLeftClose, Edit2, User, HelpCircle, ChevronUp } from "lucide-react";
 import { ProfileModal } from "./ProfileModal";
 
 export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = false }) => {
@@ -36,7 +36,19 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   const [editValue, setEditValue] = useState("");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileModalTab, setProfileModalTab] = useState<"profile" | "settings" | "help">("profile");
+  const [profileModalTab, setProfileModalTab] = useState<"profile" | "help">("profile");
+
+  useEffect(() => {
+    if (activeProjectId) {
+      setActiveTab("projects");
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (activeChatId && !activeProjectId) {
+      setActiveTab("chats");
+    }
+  }, [activeChatId, activeProjectId]);
 
   useEffect(() => {
     const handleOpenModal = (e: Event) => {
@@ -56,30 +68,20 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
   };
 
   return (
-    <aside className="w-full border-r border-transparent bg-white/30 backdrop-blur-lg flex flex-col h-full select-none transition-colors duration-300">
-      {/* Header / Logo */}
+    <aside className="w-full border-r border-transparent bg-white/10 backdrop-blur-xl flex flex-col h-full select-none transition-colors duration-300">
+      {/* Header / Version */}
       <div className="p-6 border-b border-stone-200/60 flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
+        {!isCollapsed && (
           <div className="flex items-center gap-2">
-            {isCollapsed ? <div className="w-8 h-8 rounded-full bg-indigo-950 flex items-center justify-center text-amber-500 font-bold font-display text-lg">S</div> : <SarthiLogo className="text-4xl" />}
-            {!isCollapsed && (
-            <motion.span
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3, type: "spring", stiffness: 400 }}
-              className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50/50 border border-indigo-200/50 text-indigo-950 tracking-wider mt-1"
-            >
+            <span className="text-[10px] font-sans font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-50/50 border border-indigo-200/50 text-indigo-950 tracking-wider">
               v1.0
-            </motion.span>
-          )}
+            </span>
+            <p className="text-[10px] text-stone-400 font-semibold tracking-wide">
+              Charioteer Spec
+            </p>
           </div>
-          {!isCollapsed && (
-          <p className="text-[10px] text-stone-400 font-medium tracking-wide pl-1">
-            Intelligent Coding Charioteer
-          </p>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        )}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
           <motion.button
             type="button"
             onClick={() => setShowLeftPane(false)}
@@ -97,7 +99,12 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
       <div className="px-6 pt-6 pb-2">
         <div className="flex bg-stone-100 p-1 rounded-xl transition-colors duration-300">
           <button
-            onClick={() => setActiveTab("chats")}
+            onClick={() => {
+              setActiveTab("chats");
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("change-mobile-tab", { detail: "chat" }));
+              }
+            }}
             className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all relative ${activeTab === "chats" ? "text-stone-800" : "text-stone-500 hover:text-stone-700"
               }`}
           >
@@ -121,7 +128,12 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
             )}
           </button>
           <button
-            onClick={() => setActiveTab("projects")}
+            onClick={() => {
+              setActiveTab("projects");
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("change-mobile-tab", { detail: "build" }));
+              }
+            }}
             className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all relative ${activeTab === "projects" ? "text-stone-800" : "text-stone-500 hover:text-stone-700"
               }`}
           >
@@ -263,7 +275,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                         )}
                       </div>
                       {!isCollapsed && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           <motion.button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -390,7 +402,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                       )}
                     </div>
                     {!isCollapsed && (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         <motion.button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -455,18 +467,6 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                 >
                   <User className="w-3.5 h-3.5" />
                   My Profile
-                </button>
-
-                 <button 
-                  onClick={() => {
-                    setShowProfileMenu(false);
-                    setProfileModalTab("settings");
-                    setShowProfileModal(true);
-                  }}
-                  className="flex items-center gap-2 w-full p-2 text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-50 rounded-lg transition-colors text-left cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  Settings
                 </button>
 
                 <button 

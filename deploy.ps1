@@ -64,6 +64,7 @@ $GROQ_API_KEY = [System.Environment]::GetEnvironmentVariable("GROQ_API_KEY")
 
 # Create initial env.yaml for backend
 $env_yaml = @"
+ENVIRONMENT: "production"
 MONGODB_URI: "$MONGODB_URI"
 DATABASE_NAME: "$DATABASE_NAME"
 JWT_SECRET: "$JWT_SECRET"
@@ -132,6 +133,7 @@ Write-Host "Frontend deployed at: $FRONTEND_URL"
 
 Write-Host "=== Rebuilding secure env.yaml for backend ==="
 $env_yaml_secure = @"
+ENVIRONMENT: "production"
 MONGODB_URI: "$MONGODB_URI"
 DATABASE_NAME: "$DATABASE_NAME"
 JWT_SECRET: "$JWT_SECRET"

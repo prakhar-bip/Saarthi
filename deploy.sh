@@ -39,6 +39,7 @@ GROQ_API_KEY="${GROQ_API_KEY:-}"
 
 # Create temp env.yaml for initial deploy
 cat <<EOF > backend/env.yaml
+ENVIRONMENT: "production"
 MONGODB_URI: "$MONGODB_URI"
 DATABASE_NAME: "$DATABASE_NAME"
 JWT_SECRET: "$JWT_SECRET"
@@ -90,6 +91,7 @@ echo "Frontend deployed at: $FRONTEND_URL"
 
 echo "=== Rebuilding secure env.yaml for backend ==="
 cat <<EOF > backend/env.yaml
+ENVIRONMENT: "production"
 MONGODB_URI: "$MONGODB_URI"
 DATABASE_NAME: "$DATABASE_NAME"
 JWT_SECRET: "$JWT_SECRET"

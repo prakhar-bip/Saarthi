@@ -417,20 +417,26 @@ def _merge_codebases(
     deterministic_files: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     merged: Dict[str, Dict[str, Any]] = {}
+
+    # 1. First, lay down deterministic baseline (boilerplate)
+    for file in deterministic_files:
+        merged[file["path"]] = file
+
+    # 2. Then overlay AI-synthesized files — they take priority when non-empty
     for file in ai_codebase:
         path = _clean_path(str(file.get("path") or file.get("name") or ""))
         if not path:
             continue
+        content = str(file.get("content") or "")
+        # Only override deterministic file if synthesized content is substantial
+        if path in merged and len(content.strip()) < 20:
+            continue  # Keep deterministic version for trivially small AI output
         merged[path] = {
             "name": str(file.get("name") or path.rsplit("/", 1)[-1]),
             "path": path,
             "language": str(file.get("language") or _language_for_path(path)),
-            "content": str(file.get("content") or ""),
+            "content": content,
         }
-
-    for file in deterministic_files:
-        # The compiler owns core paths so the final repo always starts and tests.
-        merged[file["path"]] = file
 
     return [merged[path] for path in sorted(merged)]
 
