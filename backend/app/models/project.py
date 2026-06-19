@@ -30,6 +30,7 @@ class ProjectCreate(BaseModel):
     blueprint: Optional[BlueprintSchema] = None
     theme_palette: Optional[ThemePaletteSchema] = None
     hitl_enabled: Optional[bool] = True
+    generation_type: Optional[str] = "full_stack"
 
 class ProjectResponse(BaseModel):
     id: str
@@ -38,7 +39,9 @@ class ProjectResponse(BaseModel):
     status: str  # "idle" | "generating" | "completed" | "failed" | "waiting_approval"
     progress: int
     step: str
+    generation_type: Optional[str] = "full_stack"
     summary: str
+
     codebase: List[CodeFileSchema] = []
     created: str
     user_id: str

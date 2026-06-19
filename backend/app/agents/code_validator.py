@@ -32,12 +32,12 @@ class CodeValidatorAgent:
         issues.extend(self._check_placeholders(codebase))
         issues.extend(self._check_python_imports(codebase))
         issues.extend(self._check_typescript_imports(codebase))
-        issues.extend(self._check_required_files(codebase))
+        issues.extend(self._check_required_files(codebase, architecture_context))
         issues.extend(self._check_api_contracts(codebase))
         issues.extend(self._check_env_consistency(codebase))
         issues.extend(self._check_package_deps(codebase))
         issues.extend(self._check_empty_files(codebase))
-        issues.extend(self._check_minimum_codebase(codebase))
+        issues.extend(self._check_minimum_codebase(codebase, architecture_context))
         if architecture_context:
             issues.extend(self._check_entity_endpoint_alignment(codebase, architecture_context))
 
@@ -131,7 +131,7 @@ class CodeValidatorAgent:
             "pathlib", "hashlib", "secrets", "functools", "collections", "enum",
             "contextlib", "abc", "io", "logging", "time", "copy", "math",
             "fastapi", "pydantic", "pydantic_settings", "motor", "pymongo",
-            "jose", "passlib", "dotenv", "httpx", "redis", "celery",
+            "jose", "jwt", "passlib", "dotenv", "httpx", "redis", "celery",
             "sqlalchemy", "alembic", "asyncpg", "aiosqlite",
             "starlette", "bson", "loguru", "openai",
             "google", "pytest", "unittest", "mock",
@@ -205,6 +205,18 @@ class CodeValidatorAgent:
             for line_num, line in enumerate(content.split("\n"), 1):
                 for m in self._TS_IMPORT_RE.finditer(line):
                     import_path = m.group(1)
+                    
+                    # Catch incorrect Next.js Link imports: 'import Link from "next"' instead of 'next/link'
+                    if import_path == "next" and "Link" in line:
+                        issues.append({
+                            "type": "incorrect_next_link_import",
+                            "severity": "error",
+                            "file": path,
+                            "line": line_num,
+                            "description": "Incorrect Next.js Link import. Link component MUST be imported from 'next/link', NOT from 'next'.",
+                        })
+                        continue
+
                     if import_path.startswith("@/"):
                         # @/ alias → src/
                         resolved = "src/" + import_path[2:]
@@ -243,16 +255,54 @@ class CodeValidatorAgent:
     # Required Files Check
     # ──────────────────────────────────────────────────────────────
 
-    _REQUIRED_FILES = [
-        "backend/requirements.txt",
-        "backend/app/main.py",
-        "frontend/package.json",
-    ]
-
-    def _check_required_files(self, codebase: List[Dict]) -> List[Dict]:
+    def _check_required_files(self, codebase: List[Dict], architecture_context: Dict = None) -> List[Dict]:
+        from app.services.project_assembler import detect_tech_stack
+        
+        project_doc = {}
+        if architecture_context:
+            project_doc["requirements"] = architecture_context.get("requirements", {})
+            project_doc["blueprint"] = architecture_context.get("blueprint", {})
+            
+        stack = detect_tech_stack(project_doc)
         existing = {f.get("path", "").replace("\\", "/") for f in codebase}
         issues: List[Dict] = []
-        for req in self._REQUIRED_FILES:
+        
+        gen_type = architecture_context.get("generation_type", "full_stack") if architecture_context else "full_stack"
+        
+        required = ["README.md"]
+        if stack["is_default"]:
+            if gen_type != "frontend_only":
+                required.extend([
+                    "backend/requirements.txt",
+                    "backend/app/main.py",
+                ])
+            if gen_type not in ("backend_only", "microservice"):
+                required.append("frontend/package.json")
+        else:
+            if gen_type != "frontend_only":
+                if stack["backend"] == "fastapi":
+                    required.extend(["backend/requirements.txt", "backend/app/main.py"])
+                elif stack["backend"] == "django":
+                    django_root = "backend/" if any(f.startswith("backend/manage.py") for f in existing) else ""
+                    required.append(django_root + "manage.py")
+                elif stack["backend"] == "flask":
+                    flask_root = "backend/" if any(f.startswith("backend/app.py") for f in existing) else ""
+                    required.append(flask_root + "app.py")
+                elif stack["backend"] == "express":
+                    express_root = "backend/" if any(f.startswith("backend/package.json") for f in existing) else ""
+                    required.append(express_root + "package.json")
+                elif stack["backend"] == "springboot":
+                    pom_root = "backend/" if any(f.startswith("backend/pom.xml") for f in existing) else ""
+                    if any(f.startswith(pom_root + "build.gradle") for f in existing):
+                        required.append(pom_root + "build.gradle")
+                    else:
+                        required.append(pom_root + "pom.xml")
+                        
+            if gen_type not in ("backend_only", "microservice"):
+                if stack["frontend"] in ("nextjs", "react", "angular", "vue"):
+                    required.append("frontend/package.json")
+
+        for req in required:
             if req not in existing:
                 issues.append({
                     "type": "missing_file",
@@ -416,7 +466,7 @@ class CodeValidatorAgent:
             content = f.get("content", "")
             stripped = content.strip()
             
-            if path.endswith((".md", ".txt", ".gitignore", ".env.example", ".env")):
+            if path.endswith((".md", ".txt", ".gitignore", ".env.example", ".env", "__init__.py")):
                 continue
                 
             if len(stripped) == 0:
@@ -441,7 +491,7 @@ class CodeValidatorAgent:
     # Minimum Codebase Size Validation
     # ──────────────────────────────────────────────────────────────
 
-    def _check_minimum_codebase(self, codebase: List[Dict]) -> List[Dict]:
+    def _check_minimum_codebase(self, codebase: List[Dict], architecture_context: Dict = None) -> List[Dict]:
         """Ensure the generated codebase meets minimum production requirements."""
         issues: List[Dict] = []
         
@@ -449,16 +499,19 @@ class CodeValidatorAgent:
         backend_files = [f for f in codebase if f.get("path", "").startswith("backend/")]
         frontend_files = [f for f in codebase if f.get("path", "").startswith("frontend/")]
         
-        if total_files < 15:
+        gen_type = architecture_context.get("generation_type", "full_stack") if architecture_context else "full_stack"
+        
+        min_files = 15 if gen_type == "full_stack" else 7
+        if total_files < min_files:
             issues.append({
                 "type": "insufficient_files",
                 "severity": "error",
                 "file": "-",
                 "line": 0,
-                "description": f"Only {total_files} total files — production projects need at least 15 files",
+                "description": f"Only {total_files} total files — production projects need at least {min_files} files",
             })
         
-        if len(backend_files) < 5:
+        if gen_type != "frontend_only" and len(backend_files) < 5:
             issues.append({
                 "type": "insufficient_backend",
                 "severity": "warning",
@@ -467,7 +520,7 @@ class CodeValidatorAgent:
                 "description": f"Only {len(backend_files)} backend files — need at least 5 (main, config, models, routes, services)",
             })
         
-        if len(frontend_files) < 5:
+        if gen_type not in ("backend_only", "microservice") and len(frontend_files) < 5:
             issues.append({
                 "type": "insufficient_frontend",
                 "severity": "warning",
@@ -478,7 +531,8 @@ class CodeValidatorAgent:
         
         # Check total code volume
         total_chars = sum(len(f.get("content", "")) for f in codebase)
-        if total_chars < 5000:
+        min_chars = 5000 if gen_type == "full_stack" else 2500
+        if total_chars < min_chars:
             issues.append({
                 "type": "insufficient_code",
                 "severity": "error",

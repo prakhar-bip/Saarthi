@@ -1301,31 +1301,93 @@ The JSON must match this structure exactly:
         logger.error(f"Error generating suggestions from LLM: {e}. Falling back.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
 
-async def generate_single_project_suggestion(idea: str) -> Dict[str, Any]:
+async def generate_single_project_suggestion(idea: str, generation_type: str = "full_stack") -> Dict[str, Any]:
     """
-    Generate a single project suggestion/blueprint in JSON format based on user's custom idea.
+    Generate a single project suggestion/blueprint in JSON format based on user's custom idea and scope.
     """
     if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
-        # Local fallback if no LLM key
-        return {
-            "name": "Custom Idea Project",
-            "idea": idea,
-            "features": [
-                "Interactive modular dashboard with charts",
-                "Advanced data tables with filtering",
-                "Setting profiles and settings configuration"
-            ],
-            "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
-        }
+        # Local fallback if no LLM key, tailored to scope
+        if generation_type == "frontend_only":
+            return {
+                "name": "Custom Frontend Prototype",
+                "idea": f"[Frontend Only] {idea}",
+                "features": [
+                    "High-fidelity interactive UI with responsive layout",
+                    "Client-side state management & local mock data integration",
+                    "Polished glassmorphism dashboard and widgets"
+                ],
+                "tech_stack": "React, Tailwind CSS, Lucide Icons, Framer Motion"
+            }
+        elif generation_type == "backend_only":
+            return {
+                "name": "Custom Backend Core",
+                "idea": f"[Backend Only] {idea}",
+                "features": [
+                    "RESTful API design with clean endpoint routing",
+                    "Pydantic data schemas and strict validation rules",
+                    "Database integration with robust repository patterns"
+                ],
+                "tech_stack": "FastAPI, Python, Pydantic, PostgreSQL, SQLAlchemy"
+            }
+        elif generation_type == "microservice":
+            return {
+                "name": "Custom Microservice Engine",
+                "idea": f"[Microservice] {idea}",
+                "features": [
+                    "Ultra-lightweight API service or async background worker",
+                    "High-performance message broker queue with Redis",
+                    "Dockerized infrastructure container with built-in health-checks"
+                ],
+                "tech_stack": "FastAPI, Redis, Celery, Docker, Pydantic"
+            }
+        else:
+            return {
+                "name": "Custom Full Stack App",
+                "idea": idea,
+                "features": [
+                    "Interactive React frontend with responsive glassmorphism modules",
+                    "High-performance FastAPI backend server supporting endpoints",
+                    "Secure database management with streamlined schemas"
+                ],
+                "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
+            }
+
+    scope_guidance = ""
+    if generation_type == "frontend_only":
+        scope_guidance = (
+            "CRITICAL: The generation scope is FRONTEND ONLY. No real backend exists. "
+            "Focus completely on modern, highly interactive UI features, client-side React logic, local mock data state, and sleek user experience aesthetics. "
+            "The suggested tech_stack must be purely frontend focused (e.g. React, Tailwind CSS, etc.)."
+        )
+    elif generation_type == "backend_only":
+        scope_guidance = (
+            "CRITICAL: The generation scope is BACKEND ONLY. No frontend UI exists. "
+            "Focus completely on server-side architecture, robust RESTful APIs, request-response schemas, database management, and service layers. "
+            "The suggested tech_stack must be purely backend focused (e.g. FastAPI, PostgreSQL, etc.)."
+        )
+    elif generation_type == "microservice":
+        scope_guidance = (
+            "CRITICAL: The generation scope is MICROSERVICE. It is a highly-focused backend-only service or background worker. "
+            "Focus on lightweight endpoints, message queues (Redis/Celery), high performance, single-responsibility logic, API endpoints, and containerized deployment structures. "
+            "The suggested tech_stack must be suited for a microservice (e.g. FastAPI, Redis, Celery, Docker, etc.)."
+        )
+    else:
+        scope_guidance = (
+            "The generation scope is FULL STACK. Deliver both a modern, interactive web frontend dashboard "
+            "and a robust server-side REST API/backend."
+        )
 
     prompt = f"""
 You are Sarthi, an expert AI partner. The user wants to build a project with this core idea: "{idea}".
 Create a detailed project blueprint matching this idea.
+
+{scope_guidance}
+
 Generate exactly:
 1. name (A catchy, professional Project Name)
 2. idea (A refined, professional description of the application's vision - between 40 to 60 words)
-3. features (List of exactly 3 descriptive system features/modules, e.g., 'Real-time WebSocket dashboard with interactive SVG charts' - under 15 words each)
-4. tech_stack (Suggested Tech Stack, e.g. "React, Tailwind CSS, FastAPI, MongoDB")
+3. features (List of exactly 3 descriptive system features/modules matching the selected scope - under 15 words each)
+4. tech_stack (Suggested Tech Stack, matching the selected scope, e.g. "React, Tailwind CSS, FastAPI, MongoDB" for full stack, "React, Tailwind CSS, Framer Motion" for frontend, "FastAPI, PostgreSQL, SQLAlchemy" for backend, "FastAPI, Redis, Celery, Docker" for microservice)
 
 CRITICAL: Return your output ONLY as a valid JSON object.
 - NO trailing commas.
@@ -1384,17 +1446,50 @@ The JSON must match this structure exactly:
             raise ValueError("Invalid single suggestion format returned by model")
     except Exception as e:
         logger.error(f"Error generating single suggestion from LLM: {e}. Falling back.")
-        # Return fallback with user's idea
-        return {
-            "name": f"Project Idea MVP",
-            "idea": idea,
-            "features": [
-                "Responsive dashboard layouts",
-                "Advanced action tracking modules",
-                "Settings and profile panels"
-            ],
-            "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
-        }
+        if generation_type == "frontend_only":
+            return {
+                "name": "Custom Frontend App",
+                "idea": idea,
+                "features": [
+                    "Responsive client-side dashboard",
+                    "Mock data controller hooks",
+                    "Beautiful UI components and navigation"
+                ],
+                "tech_stack": "React, Tailwind CSS, Framer Motion"
+            }
+        elif generation_type == "backend_only":
+            return {
+                "name": "Custom API Service",
+                "idea": idea,
+                "features": [
+                    "RESTful endpoints and path routers",
+                    "SQLAlchemy/MongoDB model schemas",
+                    "Pydantic validation layer"
+                ],
+                "tech_stack": "FastAPI, Python, Pydantic, SQLite"
+            }
+        elif generation_type == "microservice":
+            return {
+                "name": "Custom Worker/API Service",
+                "idea": idea,
+                "features": [
+                    "Lightweight FastAPI service routing",
+                    "Async Redis queue integration",
+                    "Dockerized config and health monitor"
+                ],
+                "tech_stack": "FastAPI, Python, Redis, Docker"
+            }
+        else:
+            return {
+                "name": f"Project Idea MVP",
+                "idea": idea,
+                "features": [
+                    "Responsive dashboard layouts",
+                    "Advanced action tracking modules",
+                    "Settings and profile panels"
+                ],
+                "tech_stack": "React, Tailwind CSS, FastAPI, MongoDB"
+            }
 
 
 def get_fallback_chat_reply(category: str, user_text: str, selected_project: dict = None) -> str:

@@ -194,29 +194,122 @@ class CodeSynthesizerAgent:
 
     def _build_backend_prompt(self, info: Dict, entities: List[Dict], rels: List[Dict],
                               endpoints: List[Dict], auth: Dict, db_type: str,
-                              doc_context: Optional[Dict] = None) -> str:
+                              stack: Dict[str, Any], doc_context: Optional[Dict] = None) -> str:
         rels_text = "\n".join([f"  {r['from']} -> {r['to']} ({r['type']})" for r in rels]) or "  None"
+        
+        backend_framework = stack["backend"]
+        
+        if backend_framework == "fastapi":
+            if db_type.lower() in ("postgresql", "postgres", "sqlite", "mysql", "mariadb"):
+                db_inst = (
+                    f"Use {db_type} with SQLAlchemy async engine (asyncpg driver).\n"
+                    "Create declarative Base models. Include Alembic migration setup."
+                )
+            else:
+                db_inst = (
+                    "Use MongoDB with motor async driver.\n"
+                    "Create Pydantic models for document schemas.\n"
+                    "Do NOT use $search — use $text or regex for search."
+                )
+            
+            entity_file_list = ""
+            for e in entities:
+                ename = e['name'].lower()
+                entity_file_list += f"  - backend/app/models/{ename}.py — {e['name']} DB model with ALL fields\n"
+                entity_file_list += f"  - backend/app/schemas/{ename}.py — {e['name']}Create, {e['name']}Update, {e['name']}Response Pydantic schemas\n"
+                entity_file_list += f"  - backend/app/api/v1/{ename}s.py — full CRUD routes for {e['name']} (GET list, GET by id, POST, PUT, DELETE)\n"
+                entity_file_list += f"  - backend/app/services/{ename}_service.py — {e['name']} business logic layer\n"
 
-        if db_type.lower() in ("postgresql", "postgres", "sqlite", "mysql", "mariadb"):
-            db_inst = (
-                f"Use {db_type} with SQLAlchemy async engine (asyncpg driver).\n"
-                "Create declarative Base models. Include Alembic migration setup."
-            )
+            files_to_gen = f"""1. backend/requirements.txt — all deps with pinned versions
+2. backend/app/__init__.py
+3. backend/app/main.py — FastAPI app, CORS, lifespan, include ALL routers matching the PRD
+4. backend/app/core/__init__.py
+5. backend/app/core/config.py — Pydantic BaseSettings, env vars
+6. backend/app/core/security.py — JWT create/verify, password hash/verify
+7. backend/app/database.py — DB connection setup + client
+8. backend/app/api/__init__.py
+9. backend/app/api/auth.py — /auth/signup, /auth/login, /auth/refresh, /auth/me
+10. backend/app/middleware/auth.py — get_current_user dependency
+PER-ENTITY FILES (generate ALL of these for EVERY entity mentioned in PRD/TRD, at minimum yielding 5 functional interconnected modules):
+{entity_file_list}"""
+            
+            rules = """- EVERY file must be 100% COMPLETE — never use "...", "pass", "add more here", or omitting sections. Write out the actual implementations.
+- ALL imports must resolve to actual files listed above.
+- Ensure the API logic matches the TRD closely.
+- Use async/await for ALL DB operations.
+- Proper error handling with HTTPException.
+- Use Depends() for auth injection on protected routes.
+- You MUST generate model, schema, route, and service files for EVERY entity."""
+
+        elif backend_framework == "django":
+            db_inst = f"Use Django ORM configured for {db_type}."
+            files_to_gen = f"""1. backend/requirements.txt — django, djangorestframework, djangorestframework-simplejwt, corsheaders, and database drivers.
+2. backend/manage.py — Django management script
+3. backend/project/settings.py — Django settings with SimpleJWT and CORS configured
+4. backend/project/urls.py — Django root URL config
+5. backend/project/wsgi.py / asgi.py
+6. backend/app/models.py — Django models for all entities: {", ".join([e['name'] for e in entities])}
+7. backend/app/serializers.py — DRF serializers for all entities
+8. backend/app/views.py — DRF ViewSets / views for CRUD and authentication
+9. backend/app/urls.py — app specific endpoints routing to views
+10. backend/app/admin.py — django admin registrations"""
+            
+            rules = """- Use Django and Django REST Framework (DRF) with SimpleJWT auth.
+- Write full, complete django files.
+- Setup standard Django project layout under `backend/project` and app under `backend/app`.
+- Ensure all views return correct data structures matching the endpoints contract."""
+
+        elif backend_framework == "springboot":
+            db_inst = f"Use Spring Data JPA configured for {db_type}."
+            entity_classes = ""
+            for e in entities:
+                ename = e['name']
+                entity_classes += f"  - backend/src/main/java/com/sarthi/app/model/{ename}.java — JPA Entity class\n"
+                entity_classes += f"  - backend/src/main/java/com/sarthi/app/repository/{ename}Repository.java — Repository interface\n"
+                entity_classes += f"  - backend/src/main/java/com/sarthi/app/service/{ename}Service.java — Service class\n"
+                entity_classes += f"  - backend/src/main/java/com/sarthi/app/controller/{ename}Controller.java — RestController class\n"
+
+            files_to_gen = f"""1. backend/pom.xml — Maven configuration with spring-boot-starter-web, spring-boot-starter-data-jpa, spring-boot-starter-security, spring-boot-starter-validation, jwt dependencies, and DB driver.
+2. backend/src/main/resources/application.properties — spring datasource and server configurations.
+3. backend/src/main/java/com/sarthi/app/Application.java — Spring Boot entry point with @SpringBootApplication
+4. backend/src/main/java/com/sarthi/app/config/SecurityConfig.java — Spring Security configuration with JWT filter
+5. backend/src/main/java/com/sarthi/app/config/JwtUtils.java — JWT token generation and validation utilities
+6. backend/src/main/java/com/sarthi/app/controller/AuthController.java — Auth endpoints (/login, /signup)
+PER-ENTITY Java Classes (generate Entity, Repository, Service, Controller for each):
+{entity_classes}"""
+            
+            rules = """- Use Spring Boot 3.x with Java 17.
+- Write complete Java files with all annotations (@Entity, @Repository, @Service, @RestController, etc.).
+- Ensure package structure: com.sarthi.app."""
+
+        elif backend_framework == "express":
+            db_inst = f"Use Express.js with database driver for {db_type}."
+            entity_files = ""
+            for e in entities:
+                ename = e['name'].lower()
+                entity_files += f"  - backend/src/models/{e['name']}.js — DB schema model\n"
+                entity_files += f"  - backend/src/controllers/{ename}Controller.js — controller handlers\n"
+                entity_files += f"  - backend/src/routes/{ename}Routes.js — route declarations\n"
+
+            files_to_gen = f"""1. backend/package.json — express, mongoose/pg, jsonwebtoken, bcryptjs, cors, dotenv.
+2. backend/src/index.js — express entrypoint with routing, middleware, server listener
+3. backend/src/config/db.js — database connection configuration
+4. backend/src/middleware/auth.js — JWT verification middleware
+5. backend/src/controllers/authController.js — authentication views (login/signup)
+PER-ENTITY Files:
+{entity_files}"""
+            
+            rules = """- Use Node.js Express.
+- Structure routes, controllers, and models cleanly.
+- Write complete Javascript/ES6 files."""
+
         else:
-            db_inst = (
-                "Use MongoDB with motor async driver.\n"
-                "Create Pydantic models for document schemas.\n"
-                "Do NOT use $search — use $text or regex for search."
-            )
-
-        # Build per-entity file listing for clarity
-        entity_file_list = ""
-        for e in entities:
-            ename = e['name'].lower()
-            entity_file_list += f"""  - backend/app/models/{ename}.py — {e['name']} DB model with ALL fields\n"""
-            entity_file_list += f"""  - backend/app/schemas/{ename}.py — {e['name']}Create, {e['name']}Update, {e['name']}Response Pydantic schemas\n"""
-            entity_file_list += f"""  - backend/app/api/v1/{ename}s.py — full CRUD routes for {e['name']} (GET list, GET by id, POST, PUT, DELETE)\n"""
-            entity_file_list += f"""  - backend/app/services/{ename}_service.py — {e['name']} business logic layer\n"""
+            db_inst = f"Use database driver for {db_type}."
+            files_to_gen = f"""1. backend/requirements.txt
+2. backend/app.py — main application entrypoint
+3. backend/models.py — database models
+4. backend/routes.py — app routing and controllers"""
+            rules = f"- Use {backend_framework} backend."
 
         # Document context section
         doc_section = ""
@@ -230,7 +323,7 @@ Implementation Plan: {doc_context['implementation_plan']}
 MINIMUM SCOPE REQUIREMENT: You MUST generate a production-ready backend supporting AT LEAST 5 core features or modules derived from the above documents. If the PRD demands more, generate them all. Ensure absolute complete interconnectivity without omitting ANY controllers, routes, or services.
 """
 
-        return f"""Generate the COMPLETE backend codebase for "{info['name']}".
+        return f"""Generate the COMPLETE backend codebase for "{info['name']}" using {backend_framework.upper()} tech stack.
 Description: {info['description']}
 Features: {json.dumps(info['features'][:12])}
 {doc_section}
@@ -246,29 +339,15 @@ RELATIONSHIPS:
 API ENDPOINTS:
 {self._fmt_endpoints(endpoints)}
 
-AUTH: JWT access+refresh tokens, bcrypt hashing, role-based access
-
 FILES TO GENERATE (each with COMPLETE, RUNNABLE code — ABSOLUTELY NO TODOs or PLACEHOLDERS):
-1. backend/requirements.txt — all deps with pinned versions
-2. backend/app/__init__.py
-3. backend/app/main.py — FastAPI app, CORS, lifespan, include ALL routers matching the PRD
-4. backend/app/core/__init__.py
-5. backend/app/core/config.py — Pydantic BaseSettings, env vars
-6. backend/app/core/security.py — JWT create/verify, password hash/verify
-7. backend/app/database.py — DB connection setup + client
-8. backend/app/api/__init__.py
-9. backend/app/api/auth.py — /auth/signup, /auth/login, /auth/refresh, /auth/me
-10. backend/app/middleware/auth.py — get_current_user dependency
-PER-ENTITY FILES (generate ALL of these for EVERY entity mentioned in PRD/TRD, at minimum yielding 5 functional interconnected modules):
-{entity_file_list}
+{files_to_gen}
+
 CRITICAL RULES FOR PRODUCTION-READY BACKEND:
+{rules}
 - EVERY file must be 100% COMPLETE — never use "...", "pass", "add more here", or omitting sections. Write out the actual implementations.
-- ALL imports must resolve to actual files listed above.
-- Ensure the API logic matches the TRD closely.
+- ALL imports must resolve to actual files.
 - Use async/await for ALL DB operations.
-- Proper error handling with HTTPException.
-- Use Depends() for auth injection on protected routes.
-- You MUST generate model, schema, route, and service files for EVERY entity. 
+- Proper error handling.
 
 Return ONLY valid JSON — no markdown wrapper:
 {{
@@ -281,7 +360,7 @@ Return ONLY valid JSON — no markdown wrapper:
 
     def _build_frontend_prompt(self, info: Dict, entities: List[Dict], endpoints: List[Dict],
                                pages: List[Dict], tokens: Dict, stores: List[Dict],
-                               backend_files: List[Dict],
+                               backend_files: List[Dict], stack: Dict[str, Any],
                                doc_context: Optional[Dict] = None) -> str:
         entity_names = [e["name"] for e in entities]
         pages_text = "\n".join([f"  - {p['name']} at {p['route']} (protected={p.get('protected',False)})" for p in pages[:20]]) or "  Auto-generate: Landing, Login, Register, Dashboard + per-entity pages"
@@ -296,6 +375,104 @@ Return ONLY valid JSON — no markdown wrapper:
         border_radius_text = json.dumps(tokens.get("border_radius", {}), indent=2) if tokens.get("border_radius") else "rounded-lg for cards, rounded-xl for modals, rounded-md for buttons"
         shadows_text = json.dumps(tokens.get("shadows", {}), indent=2) if tokens.get("shadows") else "Layered shadow system: sm for inputs, md for cards, lg for modals"
 
+        frontend_framework = stack["frontend"]
+        
+        if frontend_framework == "nextjs":
+            tech = "Next.js 14 App Router, TypeScript, Tailwind CSS, Zustand, SWR, Framer Motion"
+            files_to_gen = """1. frontend/package.json — next@14, react@18, typescript, tailwindcss@3, zustand, swr, framer-motion, lucide-react, clsx, zod, @radix-ui/react-*
+2. frontend/tsconfig.json — path aliases @/*
+3. frontend/next.config.js — rewrites /api proxy to backend
+4. frontend/tailwind.config.ts — custom colors from palette, dark mode class, typography, spacing
+5. frontend/postcss.config.js
+6. frontend/src/app/globals.css — Tailwind directives + CSS variables from design system + custom styles
+7. frontend/src/app/layout.tsx — root layout, metadata, font (match typography system), providers
+8. frontend/src/app/page.tsx — beautiful landing page with hero, features, CTA
+9. frontend/src/app/(auth)/login/page.tsx — login form with validation
+10. frontend/src/app/(auth)/register/page.tsx — register form
+11. frontend/src/app/dashboard/page.tsx — main dashboard with stats + entity summaries
+12. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx — entity list + CRUD fully integrated with API
+13. frontend/src/utils/api.ts — axios/fetch client, auth headers, BASE_URL from env
+14. frontend/src/utils/auth.ts — token storage, refresh logic
+15. frontend/src/stores/useAuthStore.ts — Zustand auth state + persist
+16. FOR EACH ENTITY: frontend/src/stores/use<Entity>Store.ts — entity state
+17. FOR EACH ENTITY: frontend/src/hooks/use<Entity>.ts — SWR data hooks matching backend routes
+18. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx — styled using design system tokens
+19. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx — styled using layout and spacing tokens
+20. FOR EACH ENTITY: frontend/src/components/<Entity>/<Entity>List.tsx, <Entity>Form.tsx"""
+            
+            rules = """- 'use client' on client components, server components by default
+- Connect to NEXT_PUBLIC_API_URL (default http://localhost:8000)
+- Implement COMPLETE auth flow: login → store JWT → include in all API calls → refresh on 401
+- Apply design system tokens consistently to guarantee visual cohesion.
+- NEVER truncate any component return statement. ALL components must be fully fleshed out.
+- SWR for data fetching with proper keys and mutate calls referencing real backend API routes given above.
+- NO static/mock data — ALL data from API
+- Ensure all pages and routes defined in the PRD are fully coded and linked via Next.js <Link>.
+- Next.js Link component MUST strictly be imported from 'next/link', NEVER import Link from 'next' directly. Example: import Link from 'next/link';"""
+
+        elif frontend_framework == "react":
+            tech = "React (Vite SPA), TypeScript, Tailwind CSS, Zustand/Redux, Axios, React Router Dom"
+            files_to_gen = """1. frontend/package.json — react@18, react-dom@18, react-router-dom@6, typescript, tailwindcss@3, zustand, axios, lucide-react.
+2. frontend/tsconfig.json
+3. frontend/vite.config.ts — proxy config
+4. frontend/index.html — entry html
+5. frontend/tailwind.config.js
+6. frontend/src/main.tsx — main bootstrap
+7. frontend/src/App.tsx — routing setup, navbar, sidebar, theme wrappers
+8. frontend/src/pages/Home.tsx — landing page
+9. frontend/src/pages/Login.tsx — login page
+10. frontend/src/pages/Register.tsx — signup page
+11. frontend/src/pages/Dashboard.tsx — dashboard stats
+12. FOR EACH ENTITY: frontend/src/pages/<Entity>Page.tsx — entity CRUD page
+13. frontend/src/utils/api.ts — axios client
+14. frontend/src/stores/useAuthStore.ts — auth store
+15. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx"""
+            
+            rules = """- Use standard Vite React SPA routing.
+- Import standard React router links: import { Link } from 'react-router-dom';
+- Connect to backend API.
+- Write complete components."""
+
+        elif frontend_framework == "angular":
+            tech = "Angular, TypeScript, CSS/SCSS, RxJS"
+            files_to_gen = """1. frontend/package.json — @angular/core, @angular/router, etc.
+2. frontend/angular.json — build configurations
+3. frontend/src/main.ts — angular bootstrap
+4. frontend/src/app/app.module.ts / app.config.ts
+5. frontend/src/app/app-routing.module.ts
+6. frontend/src/app/app.component.ts & app.component.html
+7. frontend/src/app/services/api.service.ts — Angular HttpClient service
+8. frontend/src/app/components/login/login.component.ts & .html
+9. frontend/src/app/components/dashboard/dashboard.component.ts & .html
+10. FOR EACH ENTITY: frontend/src/app/components/<entity>/<entity>.component.ts & .html"""
+            
+            rules = """- Use standard Angular architecture (Services, Components, Routing).
+- Inject HttpClient for backend communication."""
+
+        elif frontend_framework == "vue":
+            tech = "Vue 3, TypeScript, Pinia, Vue Router, Tailwind CSS"
+            files_to_gen = """1. frontend/package.json — vue@3, vue-router@4, pinia, axios, tailwindcss.
+2. frontend/vite.config.ts
+3. frontend/src/main.ts
+4. frontend/src/App.vue
+5. frontend/src/router/index.ts
+6. frontend/src/stores/auth.ts — Pinia auth store
+7. frontend/src/views/Home.vue — landing view
+8. frontend/src/views/Login.vue — login form
+9. frontend/src/views/Dashboard.vue — dashboard
+10. FOR EACH ENTITY: frontend/src/views/<Entity>View.vue — CRUD view
+11. frontend/src/components/ui/Button.vue, Card.vue"""
+            
+            rules = """- Use Vue 3 Composition API with <script setup lang="ts">.
+- Use Pinia for state management."""
+
+        else:
+            tech = f"{frontend_framework.capitalize()} frontend application"
+            files_to_gen = """1. frontend/package.json
+2. frontend/src/main.js
+3. frontend/index.html"""
+            rules = f"- Use {frontend_framework} for frontend."
+
         # Document context section
         doc_section = ""
         if doc_context:
@@ -308,10 +485,10 @@ Implementation Plan: {doc_context['implementation_plan']}
 MINIMUM SCOPE REQUIREMENT: You MUST generate a production-ready frontend containing AT LEAST 5 major pages/modules/screens as described in the PRD (Dashboard, User Management, Analytics, Settings, Forms, etc.). Do not generate single-page toy apps. 
 """
 
-        return f"""Generate the COMPLETE frontend codebase for "{info['name']}".
+        return f"""Generate the COMPLETE frontend codebase for "{info['name']}" using {frontend_framework.upper()} tech stack.
 Description: {info['description']}
 {doc_section}
-TECH: Next.js 14 App Router, TypeScript, Tailwind CSS, Zustand, SWR, Framer Motion
+TECH: {tech}
 
 BACKEND ENDPOINTS TO CONSUME (Strictly use these, do NOT invent missing ones):
 {self._fmt_endpoints(endpoints)}
@@ -344,36 +521,14 @@ BACKEND FILES (for reference to match types and routes exactly):
 {self._fmt_file_list(backend_files)}
 
 FILES TO GENERATE (COMPLETE code, NO placeholders or truncated components):
-1. frontend/package.json — next@14, react@18, typescript, tailwindcss@3, zustand, swr, framer-motion, lucide-react, clsx, zod, @radix-ui/react-*
-2. frontend/tsconfig.json — path aliases @/*
-3. frontend/next.config.js — rewrites /api proxy to backend
-4. frontend/tailwind.config.ts — custom colors from palette, dark mode class, typography, spacing
-5. frontend/postcss.config.js
-6. frontend/src/app/globals.css — Tailwind directives + CSS variables from design system + custom styles
-7. frontend/src/app/layout.tsx — root layout, metadata, font (match typography system), providers
-8. frontend/src/app/page.tsx — beautiful landing page with hero, features, CTA
-9. frontend/src/app/(auth)/login/page.tsx — login form with validation
-10. frontend/src/app/(auth)/register/page.tsx — register form
-11. frontend/src/app/dashboard/page.tsx — main dashboard with stats + entity summaries
-12. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx — entity list + CRUD fully integrated with API
-13. frontend/src/utils/api.ts — axios/fetch client, auth headers, BASE_URL from env
-14. frontend/src/utils/auth.ts — token storage, refresh logic
-15. frontend/src/stores/useAuthStore.ts — Zustand auth state + persist
-16. FOR EACH ENTITY: frontend/src/stores/use<Entity>Store.ts — entity state
-17. FOR EACH ENTITY: frontend/src/hooks/use<Entity>.ts — SWR data hooks matching backend routes
-18. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx — styled using design system tokens
-19. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx — styled using layout and spacing tokens
-20. FOR EACH ENTITY: frontend/src/components/<Entity>/<Entity>List.tsx, <Entity>Form.tsx
+{files_to_gen}
 
 CRITICAL RULES FOR PRODUCTION-READY FRONTEND:
-- 'use client' on client components, server components by default
-- Connect to NEXT_PUBLIC_API_URL (default http://localhost:8000)
-- Implement COMPLETE auth flow: login → store JWT → include in all API calls → refresh on 401
+{rules}
 - Apply design system tokens consistently to guarantee visual cohesion.
 - NEVER truncate any component return statement. ALL components must be fully fleshed out.
-- SWR for data fetching with proper keys and mutate calls referencing real backend API routes given above.
 - NO static/mock data — ALL data from API
-- Ensure all pages and routes defined in the PRD are fully coded and linked via Next.js <Link>.
+- Ensure all pages and routes defined in the PRD are fully coded and linked via Links.
 
 Return ONLY valid JSON:
 {{
@@ -386,7 +541,7 @@ Return ONLY valid JSON:
 
     def _build_infra_prompt(self, info: Dict, entities: List[Dict], db_type: str,
                             backend_files: List[Dict], frontend_files: List[Dict],
-                            doc_context: Optional[Dict] = None) -> str:
+                            doc_context: Optional[Dict] = None, gen_type: str = "full_stack") -> str:
         entity_names = [e["name"] for e in entities]
         slug = info["name"].lower().replace(" ", "-").replace("_", "-")
 
@@ -401,6 +556,57 @@ Implementation Plan: {doc_context['implementation_plan']}
 MINIMUM SCOPE REQUIREMENT: Generate complete infrastructure ensuring tests, models, interfaces and deployments are fully connected and derived directly from the generated components. Do NOT leave missing links.
 """
 
+        # Build list of files to generate based on gen_type
+        files_to_generate = []
+        if gen_type == "frontend_only":
+            files_to_generate = [
+                "1. README.md — comprehensive: description, features, tech stack, quick start, env vars, deployment (Frontend Only)",
+                "2. .gitignore — Node.js + IDE",
+                "3. .env.example — Frontend env vars with safe placeholders",
+                "4. docker-compose.yml — frontend:3000",
+                "5. frontend/Dockerfile — node:20-alpine multi-stage (build + standalone)",
+                "6. Makefile — frontend dev, build, up, down, clean targets",
+                "7. shared/types/index.ts — TypeScript interfaces matching the domain entities",
+                "8. scripts/setup.sh — dev environment bootstrap"
+            ]
+        elif gen_type in ("backend_only", "microservice"):
+            readme_label = "Microservice/Worker" if gen_type == "microservice" else "Backend Only"
+            docker_services = "microservice:8000, async worker, redis:6379" if gen_type == "microservice" else ("backend:8000, " + ('postgres:5432' if db_type.lower() in ('postgresql','postgres') else 'mongodb:27017') + ", redis:6379")
+            files_to_generate = [
+                f"1. README.md — comprehensive: description, features, tech stack, quick start, API docs, env vars, deployment ({readme_label})",
+                "2. .gitignore — Python + Docker + IDE",
+                "3. .env.example — Backend/Microservice env vars with safe placeholders",
+                f"4. docker-compose.yml — {docker_services}",
+                "5. backend/Dockerfile — python:3.11-slim, install deps, uvicorn",
+                "6. Makefile — dev, build, up, down, test, clean, migrate targets",
+                "7. backend/tests/__init__.py",
+                "8. backend/tests/conftest.py — pytest fixtures (test client, test DB, auth headers)",
+                "9. backend/tests/test_auth.py — signup, login, refresh, protected route tests",
+                "10. backend/tests/test_crud.py — CRUD tests for each entity fully implemented",
+                "11. scripts/setup.sh — dev environment bootstrap"
+            ]
+        else: # full_stack
+            files_to_generate = [
+                "1. README.md — comprehensive: description, features, tech stack, quick start, API docs, env vars, deployment",
+                "2. .gitignore — Python + Node.js + Docker + IDE",
+                "3. .env.example — ALL env vars with safe placeholders",
+                "4. docker-compose.yml — backend:8000, frontend:3000, " + ('postgres:5432' if db_type.lower() in ('postgresql','postgres') else 'mongodb:27017') + ", redis:6379",
+                "5. docker-compose.prod.yml — production overrides",
+                "6. backend/Dockerfile — python:3.11-slim, install deps, uvicorn",
+                "7. frontend/Dockerfile — node:20-alpine multi-stage (build + standalone)",
+                "8. Makefile — dev, build, up, down, test, clean, migrate targets",
+                "9. shared/types/index.ts — TypeScript interfaces matching Python schemas EXACTLY",
+                "10. shared/types/api.ts — API response types, error types",
+                "11. backend/tests/__init__.py",
+                "12. backend/tests/conftest.py — pytest fixtures (test client, test DB, auth headers)",
+                "13. backend/tests/test_auth.py — signup, login, refresh, protected route tests",
+                "14. backend/tests/test_crud.py — CRUD tests for each entity fully implemented",
+                "15. scripts/setup.sh — dev environment bootstrap",
+                "16. nginx/nginx.conf — reverse proxy /api→backend, /*→frontend (optional for prod)"
+            ]
+
+        files_to_generate_text = "\n".join(files_to_generate)
+
         return f"""Generate infrastructure, DevOps, testing, and integration files for "{info['name']}".
 
 SLUG: {slug}
@@ -414,22 +620,7 @@ EXISTING FRONTEND FILES:
 {self._fmt_file_list(frontend_files)}
 
 FILES TO GENERATE:
-1. README.md — comprehensive: description, features, tech stack, quick start, API docs, env vars, deployment
-2. .gitignore — Python + Node.js + Docker + IDE
-3. .env.example — ALL env vars with safe placeholders
-4. docker-compose.yml — backend:8000, frontend:3000, {'postgres:5432' if db_type.lower() in ('postgresql','postgres') else 'mongodb:27017'}, redis:6379
-5. docker-compose.prod.yml — production overrides
-6. backend/Dockerfile — python:3.11-slim, install deps, uvicorn
-7. frontend/Dockerfile — node:20-alpine multi-stage (build + standalone)
-8. Makefile — dev, build, up, down, test, clean, migrate targets
-9. shared/types/index.ts — TypeScript interfaces matching Python schemas EXACTLY
-10. shared/types/api.ts — API response types, error types
-11. backend/tests/__init__.py
-12. backend/tests/conftest.py — pytest fixtures (test client, test DB, auth headers)
-13. backend/tests/test_auth.py — signup, login, refresh, protected route tests
-14. backend/tests/test_crud.py — CRUD tests for each entity fully implemented
-15. scripts/setup.sh — dev environment bootstrap
-16. nginx/nginx.conf — reverse proxy /api→backend, /*→frontend (optional for prod)
+{files_to_generate_text}
 
 CRITICAL RULES FOR PRODUCTION-READY INFRASTRUCTURE:
 - Docker services must use correct ports and env vars matching the code.
@@ -471,7 +662,7 @@ ALL FILES AND THEIR IMPORTS:
 {files_text}
 
 VALIDATION CHECKLIST — fix ALL of these:
-1. IMPORTS: Every 'from X import Y' / 'import X from "Y"' must resolve to a file that EXISTS above. Fix broken paths.
+1. IMPORTS: Every 'from X import Y' / 'import X from "Y"' must resolve to a file that EXISTS above. Fix broken paths. Specifically, in Next.js, the 'Link' component MUST be imported from 'next/link', NOT from 'next'.
 2. API CONTRACTS: Frontend fetch/axios URLs must EXACTLY match backend route paths. Fix mismatches.
 3. TYPES: TypeScript interfaces in shared/types must match Python Pydantic schemas. Fix field name differences (snake_case ↔ camelCase).
 4. AUTH FLOW: Login form → POST /auth/login → receive JWT → store in Zustand → attach to all API calls via Authorization header. Verify end-to-end.
@@ -508,6 +699,7 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
             "- NEVER truncate a file — write the FULL content\n"
             "- NO TODOs, NO placeholders, NO '...', NO 'implement here', NO 'add more'\n"
             "- ALL imports must resolve to real files in the project\n"
+            "- Next.js Link component MUST strictly be imported from 'next/link', NEVER import Link from 'next' directly.\n"
             "- Use proper error handling, validation, and edge-case coverage\n"
             "- Return ONLY valid JSON — absolutely no markdown code fences"
         )
@@ -557,11 +749,147 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                 return lang
         return "plaintext"
 
-    async def synthesize(self, project_doc: Dict, db: Any, project_id: str) -> List[Dict]:
+    async def heal_codebase(self, project_doc: Dict, db: Any, project_id: str,
+                            validation_errors: List[Dict], existing_codebase: List[Dict]) -> List[Dict]:
+        """
+        Targeted self-healing pass: takes files with errors and validation error logs,
+        runs a focused LLM repair, and merges the repaired files back.
+        """
+        logger.info(f"[CodeSynthesizer] 🩺 Starting targeted dynamic healing for {len(validation_errors)} issues.")
+        from app.services.workflow import broadcast_agent_progress
+        await broadcast_agent_progress(db, project_id, 89, "🩺 Running dynamic healing on compilation/syntax errors...")
+        
+        # 1. Group errors by file
+        errors_by_file: Dict[str, List[Dict]] = {}
+        for err in validation_errors:
+            file_path = err.get("file", "-")
+            if file_path and file_path != "-":
+                errors_by_file.setdefault(file_path, []).append(err)
+                
+        # 2. Extract contents of files with errors and related context files
+        files_to_heal: Dict[str, str] = {}
+        for file_path in errors_by_file:
+            # Find in existing codebase
+            file_content = ""
+            for f in existing_codebase:
+                if f.get("path") == file_path:
+                    file_content = f.get("content", "")
+                    break
+            files_to_heal[file_path] = file_content
+            
+        # 3. If there are missing files, identify them
+        missing_files = [err.get("file") for err in validation_errors if err.get("type") == "missing_file" and err.get("file")]
+        for mf in missing_files:
+            if mf not in files_to_heal:
+                files_to_heal[mf] = ""
+                
+        if not files_to_heal:
+            logger.warning("[CodeSynthesizer] Healing called but no specific files were mapped to errors. Healing main entrypoints.")
+            for path in ["backend/app/main.py", "frontend/src/app/page.tsx"]:
+                for f in existing_codebase:
+                    if f.get("path") == path:
+                        files_to_heal[path] = f.get("content", "")
+                        
+        # 4. Build prompt
+        info = self._extract_project_info(project_doc)
+        prompt = self._build_dynamic_healing_prompt(info, files_to_heal, errors_by_file, validation_errors)
+        
+        # 5. Run LLM
+        healed_files = await self._run_phase("Healing", prompt, db, project_id, 91,
+                                            "🩺 Applying targeted code repairs...")
+                                            
+        # 6. Merge healed files back into existing_codebase
+        healed_paths = {f["path"] for f in healed_files}
+        final_codebase = []
+        for f in existing_codebase:
+            path = f.get("path", "")
+            if path in healed_paths:
+                healed_f = next(hf for hf in healed_files if hf["path"] == path)
+                final_codebase.append(healed_f)
+                healed_paths.remove(path)
+            else:
+                final_codebase.append(f)
+                
+        # Append any newly created files
+        for path in healed_paths:
+            healed_f = next(hf for hf in healed_files if hf["path"] == path)
+            final_codebase.append(healed_f)
+            
+        logger.info(f"[CodeSynthesizer] Dynamic healing applied {len(healed_files)} corrected files.")
+        return final_codebase
+
+    def _build_dynamic_healing_prompt(self, info: Dict, files_to_heal: Dict[str, str],
+                                     errors_by_file: Dict[str, List[Dict]], all_errors: List[Dict]) -> str:
+        files_section = ""
+        for path, content in files_to_heal.items():
+            errs = errors_by_file.get(path, [])
+            err_desc = "\n".join([f"  - Line {e.get('line', 'N/A')}: [{e.get('type')}] {e.get('description')}" for e in errs])
+            if not err_desc:
+                err_desc = "  - File is missing or needs generation/refactoring to resolve global compilation issues."
+            
+            files_section += f"""
+--- FILE PATH: {path} ---
+ERRORS/ISSUES:
+{err_desc}
+
+CURRENT CODE CONTENT:
+```
+{content}
+```
+"""
+
+        general_errors = [e for e in all_errors if e.get("file", "-") in ("-", "", None)]
+        general_desc = ""
+        if general_errors:
+            general_desc = "\nGENERAL SYSTEM/COMPILATION ERRORS:\n" + "\n".join([
+                f"  - [{e.get('type')}] {e.get('description')}" for e in general_errors
+            ])
+
+        return f"""You are Sarthi's Dynamic Healing Agent. Your task is to analyze and repair compilation, syntax, and import errors in the generated codebase.
+
+Project Name: {info['name']}
+Description: {info['description']}
+Tech Stack: {json.dumps(info['tech_stack'])}
+
+We have run compilation and code validation checks, and detected the following issues.
+
+{general_desc}
+
+FILES REQUIRING REPAIR:
+{files_section}
+
+CRITICAL REPAIR INSTRUCTIONS:
+1. Fix all reported syntax, compile, and typechecking errors in the files.
+2. Resolve broken imports. Ensure every import refers to a file that actually exists or is being created.
+3. For Next.js/React, ensure 'Link' is imported from 'next/link', not 'next'.
+4. Ensure all files returned contain COMPLETE, runnable code with no truncation, placeholders, or TODOs.
+5. If a file was reported as missing, generate its initial complete implementation.
+
+Return ONLY the files you have repaired or created in the following JSON format:
+{{
+  "codebase": [
+    {{
+      "name": "filename.ext",
+      "path": "path/to/file.ext",
+      "language": "programming-language",
+      "content": "repaired full file content"
+    }}
+  ]
+}}"""
+
+    async def synthesize(self, project_doc: Dict, db: Any, project_id: str,
+                         validation_errors: Optional[List[Dict]] = None,
+                         existing_codebase: Optional[List[Dict]] = None) -> List[Dict]:
         """
         Main entry point — multi-phase code synthesis.
         Returns [{name, path, language, content}].
         """
+        if validation_errors and existing_codebase:
+            return await self.heal_codebase(project_doc, db, project_id, validation_errors, existing_codebase)
+
+        from app.services.project_assembler import detect_tech_stack
+        stack = detect_tech_stack(project_doc)
+
         info = self._extract_project_info(project_doc)
         entities = self._extract_entities(project_doc)
         rels = self._extract_relationships(project_doc)
@@ -572,48 +900,54 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
         stores = self._extract_stores(project_doc)
         db_type = self._get_db_type(project_doc)
         doc_context = self._extract_document_context(project_doc)
+        
+        gen_type = project_doc.get("generation_type", "full_stack")
 
-        # ── Enforce minimum entities from features ──
-        if not entities or len(entities) < 2:
-            for feat in info.get('features', [])[:8]:
-                if isinstance(feat, str):
-                    entity_name = feat.replace(' ', '').replace('-', '')
-                    if entity_name and entity_name not in [e['name'] for e in entities]:
-                        entities.append({
-                            'name': entity_name,
-                            'fields': [
-                                {'name': 'id', 'type': 'string', 'required': True, 'indexed': True},
-                                {'name': 'name', 'type': 'string', 'required': True, 'indexed': False},
-                                {'name': 'description', 'type': 'string', 'required': False, 'indexed': False},
-                                {'name': 'created_at', 'type': 'datetime', 'required': True, 'indexed': True},
-                                {'name': 'updated_at', 'type': 'datetime', 'required': False, 'indexed': False},
-                            ],
-                            'description': f'{feat} entity'
-                        })
-            logger.info(f"[CodeSynthesizer] Entities augmented from features: {[e['name'] for e in entities]}")
+        # ── Enforce minimum entities from features (Only if not frontend_only) ──
+        if gen_type != "frontend_only":
+            if not entities or len(entities) < 2:
+                for feat in info.get('features', [])[:8]:
+                    if isinstance(feat, str):
+                        entity_name = feat.replace(' ', '').replace('-', '')
+                        if entity_name and entity_name not in [e['name'] for e in entities]:
+                            entities.append({
+                                'name': entity_name,
+                                'fields': [
+                                    {'name': 'id', 'type': 'string', 'required': True, 'indexed': True},
+                                    {'name': 'name', 'type': 'string', 'required': True, 'indexed': False},
+                                    {'name': 'description', 'type': 'string', 'required': False, 'indexed': False},
+                                    {'name': 'created_at', 'type': 'datetime', 'required': True, 'indexed': True},
+                                    {'name': 'updated_at', 'type': 'datetime', 'required': False, 'indexed': False},
+                                ],
+                                'description': f'{feat} entity'
+                            })
+                logger.info(f"[CodeSynthesizer] Entities augmented from features: {[e['name'] for e in entities]}")
 
-        # ── Enforce minimum pages/features ──
-        min_features = max(5, len(info.get('features', [])))
-        if len(pages) < 5:
-            default_pages = [
-                {"name": "Dashboard", "route": "/dashboard", "protected": True},
-                {"name": "Login", "route": "/login", "protected": False},
-                {"name": "Register", "route": "/register", "protected": False},
-                {"name": "Settings", "route": "/settings", "protected": True},
-                {"name": "Profile", "route": "/profile", "protected": True},
-            ]
-            existing_routes = {p.get('route', '') for p in pages}
-            for dp in default_pages:
-                if dp['route'] not in existing_routes and len(pages) < min_features:
-                    pages.append(dp)
-            logger.info(f"[CodeSynthesizer] Pages padded to minimum: {len(pages)} pages")
+        # ── Enforce minimum pages/features (Only if not backend_only or microservice) ──
+        if gen_type not in ("backend_only", "microservice"):
+            min_features = max(5, len(info.get('features', [])))
+            if len(pages) < 5:
+                default_pages = [
+                    {"name": "Dashboard", "route": "/dashboard", "protected": True},
+                    {"name": "Login", "route": "/login", "protected": False},
+                    {"name": "Register", "route": "/register", "protected": False},
+                    {"name": "Settings", "route": "/settings", "protected": True},
+                    {"name": "Profile", "route": "/profile", "protected": True},
+                ]
+                existing_routes = {p.get('route', '') for p in pages}
+                for dp in default_pages:
+                    if dp['route'] not in existing_routes and len(pages) < min_features:
+                        pages.append(dp)
+                logger.info(f"[CodeSynthesizer] Pages padded to minimum: {len(pages)} pages")
 
         logger.info("=" * 60)
-        logger.info(f"[CodeSynthesizer] Starting synthesis for '{info['name']}'")
+        logger.info(f"[CodeSynthesizer] Starting synthesis for '{info['name']}' ({gen_type})")
         logger.info(f"  Entities : {[e['name'] for e in entities]}")
         logger.info(f"  Endpoints: {len(endpoints)}")
         logger.info(f"  Pages    : {len(pages)}")
         logger.info(f"  DB       : {db_type}")
+        logger.info(f"  Backend  : {stack['backend']}")
+        logger.info(f"  Frontend : {stack['frontend']}")
         logger.info(f"  PRD      : {'Available (' + str(len(doc_context['prd_summary'])) + ' chars)' if doc_context['prd_summary'] != 'No PRD available' else 'Not available'}")
         logger.info(f"  TRD      : {'Available (' + str(len(doc_context['trd_summary'])) + ' chars)' if doc_context['trd_summary'] != 'No TRD available' else 'Not available'}")
         logger.info(f"  MRD      : {'Available (' + str(len(doc_context['mrd_summary'])) + ' chars)' if doc_context['mrd_summary'] != 'No MRD available' else 'Not available'}")
@@ -622,22 +956,26 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
         all_files: List[Dict] = []
 
         # ── Phase 1: Backend ──
-        backend_prompt = self._build_backend_prompt(info, entities, rels, endpoints, auth, db_type, doc_context)
-        backend_files = await self._run_phase("Backend", backend_prompt, db, project_id, 62,
-                                              "🔧 Synthesizing Backend Code...")
-        all_files.extend(backend_files)
-        await self._store_intermediate(db, project_id, all_files, "phase_backend")
+        backend_files = []
+        if gen_type != "frontend_only":
+            backend_prompt = self._build_backend_prompt(info, entities, rels, endpoints, auth, db_type, stack, doc_context)
+            backend_files = await self._run_phase("Backend", backend_prompt, db, project_id, 62,
+                                                  "🔧 Synthesizing Backend Code...")
+            all_files.extend(backend_files)
+            await self._store_intermediate(db, project_id, all_files, "phase_backend")
 
         # ── Phase 2: Frontend ──
-        frontend_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
-                                                      tokens, stores, backend_files, doc_context)
-        frontend_files = await self._run_phase("Frontend", frontend_prompt, db, project_id, 74,
-                                               "🎨 Synthesizing Frontend Code...")
-        all_files.extend(frontend_files)
-        await self._store_intermediate(db, project_id, all_files, "phase_frontend")
+        frontend_files = []
+        if gen_type not in ("backend_only", "microservice"):
+            frontend_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
+                                                          tokens, stores, backend_files, stack, doc_context)
+            frontend_files = await self._run_phase("Frontend", frontend_prompt, db, project_id, 74,
+                                                   "🎨 Synthesizing Frontend Code...")
+            all_files.extend(frontend_files)
+            await self._store_intermediate(db, project_id, all_files, "phase_frontend")
 
         # ── Phase 3: Infrastructure ──
-        infra_prompt = self._build_infra_prompt(info, entities, db_type, backend_files, frontend_files, doc_context)
+        infra_prompt = self._build_infra_prompt(info, entities, db_type, backend_files, frontend_files, doc_context, gen_type)
         infra_files = await self._run_phase("Infrastructure", infra_prompt, db, project_id, 84,
                                             "🐳 Synthesizing Infrastructure & Tests...")
         all_files.extend(infra_files)
@@ -658,9 +996,9 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                 logger.info(f"[CodeSynthesizer] Review applied {len(fix_result)} fixes")
 
         # ── Safety net: ensure minimum viable files ──
-        if len(all_files) < 5:
+        if len(all_files) < (3 if gen_type in ("frontend_only", "backend_only", "microservice") else 5):
             logger.warning("[CodeSynthesizer] Too few files — injecting essential boilerplate")
-            all_files = self._inject_essential_boilerplate(all_files, info, entities, db_type)
+            all_files = self._inject_essential_boilerplate(all_files, info, entities, db_type, stack, gen_type)
 
         # Deduplicate by path (keep latest)
         seen: Dict[str, Dict] = {}
@@ -669,7 +1007,7 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
         all_files = list(seen.values())
 
         # ── Validation Step ──
-        self._validate_synthesis_output(all_files, backend_files, frontend_files)
+        self._validate_synthesis_output(all_files, backend_files, frontend_files, stack, gen_type)
 
         logger.info("=" * 60)
         logger.info(f"[CodeSynthesizer] ✅ Synthesis complete — {len(all_files)} files")
@@ -681,32 +1019,45 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
 
     def _validate_synthesis_output(self, all_files: List[Dict],
                                     backend_files: List[Dict],
-                                    frontend_files: List[Dict]) -> None:
+                                    frontend_files: List[Dict],
+                                    stack: Dict[str, Any],
+                                    gen_type: str = "full_stack") -> None:
         """Post-synthesis validation — logs warnings but does not fail."""
         warnings: List[str] = []
 
         # Check total file count
-        if len(all_files) < 20:
-            warnings.append(f"Total files ({len(all_files)}) is below recommended minimum of 20")
+        min_files = 6 if gen_type in ("frontend_only", "backend_only", "microservice") else 15
+        if len(all_files) < min_files:
+            warnings.append(f"Total files ({len(all_files)}) is below recommended minimum of {min_files}")
 
-        # Check backend file count
-        be_count = len([f for f in all_files if f.get("path", "").startswith("backend/")])
-        if be_count < 8:
-            warnings.append(f"Backend files ({be_count}) is below recommended minimum of 8")
-
-        # Check frontend file count
-        fe_count = len([f for f in all_files if f.get("path", "").startswith("frontend/")])
-        if fe_count < 10:
-            warnings.append(f"Frontend files ({fe_count}) is below recommended minimum of 10")
-
-        # Check for required files
+        # Check for required files based on stack
         all_paths = {f.get("path", "") for f in all_files}
-        required_files = [
-            ("backend/requirements.txt", "Python dependencies"),
-            ("backend/app/main.py", "FastAPI entrypoint"),
-            ("frontend/package.json", "Node.js dependencies"),
-            ("README.md", "Project documentation"),
-        ]
+        required_files = [("README.md", "Project documentation")]
+        
+        if stack["is_default"]:
+            if gen_type != "frontend_only":
+                required_files.extend([
+                    ("backend/requirements.txt", "Python dependencies"),
+                    ("backend/app/main.py", "FastAPI entrypoint"),
+                ])
+            if gen_type not in ("backend_only", "microservice"):
+                required_files.append(("frontend/package.json", "Node.js dependencies"))
+        else:
+            if gen_type != "frontend_only":
+                if stack["backend"] == "fastapi":
+                    required_files.extend([
+                        ("backend/requirements.txt", "Python dependencies"),
+                        ("backend/app/main.py", "FastAPI entrypoint"),
+                    ])
+                elif stack["backend"] == "django":
+                    required_files.append(("backend/manage.py" if any(f.startswith("backend/manage.py") for f in all_paths) else "manage.py", "Django manager"))
+                elif stack["backend"] == "express":
+                    required_files.append(("backend/package.json" if any(f.startswith("backend/package.json") for f in all_paths) else "package.json", "Express dependencies"))
+                    
+            if gen_type not in ("backend_only", "microservice"):
+                if stack["frontend"] in ("nextjs", "react", "angular", "vue"):
+                    required_files.append(("frontend/package.json", "Frontend dependencies"))
+
         for req_path, desc in required_files:
             if req_path not in all_paths:
                 warnings.append(f"Missing required file: {req_path} ({desc})")
@@ -718,45 +1069,31 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
         else:
             logger.info("[CodeSynthesizer] ✅ Synthesis validation passed — all checks OK")
 
-    async def _store_intermediate(self, db: Any, project_id: str,
-                                  files: List[Dict], phase: str) -> None:
-        try:
-            summary = [{"path": f.get("path", ""), "size": len(f.get("content", ""))} for f in files]
-            await db.projects.update_one(
-                {"_id": project_id},
-                {"$set": {f"synthesis_{phase}": summary}}
-            )
-        except Exception as e:
-            logger.warning(f"Failed to store intermediate {phase}: {e}")
-
-    # ──────────────────────────────────────────────────────────────
-    # Safety Net Boilerplate
-    # ──────────────────────────────────────────────────────────────
-
     def _inject_essential_boilerplate(self, files: List[Dict], info: Dict,
-                                     entities: List[Dict], db_type: str) -> List[Dict]:
+                                     entities: List[Dict], db_type: str, stack: Dict[str, Any], gen_type: str = "full_stack") -> List[Dict]:
         existing = {f.get("path", "") for f in files}
         slug = info["name"].lower().replace(" ", "-")
         entity_names = [e["name"] for e in entities]
 
         boilerplate: List[Dict] = []
+        
+        if stack["is_default"]:
+            if gen_type != "frontend_only" and "backend/requirements.txt" not in existing:
+                boilerplate.append({
+                    "name": "requirements.txt",
+                    "path": "backend/requirements.txt",
+                    "language": "plaintext",
+                    "content": "fastapi>=0.104.0\nuvicorn[standard]>=0.24.0\nmotor>=3.3.0\npydantic>=2.5.0\npydantic-settings>=2.1.0\npython-jose[cryptography]>=3.3.0\npasslib[bcrypt]>=1.7.4\npython-multipart>=0.0.6\npython-dotenv>=1.0.0\nhttpx>=0.25.0\npytest>=7.4.0\npytest-asyncio>=0.21.0\n"
+                })
 
-        if "backend/requirements.txt" not in existing:
-            boilerplate.append({
-                "name": "requirements.txt",
-                "path": "backend/requirements.txt",
-                "language": "plaintext",
-                "content": "fastapi>=0.104.0\nuvicorn[standard]>=0.24.0\nmotor>=3.3.0\npydantic>=2.5.0\npydantic-settings>=2.1.0\npython-jose[cryptography]>=3.3.0\npasslib[bcrypt]>=1.7.4\npython-multipart>=0.0.6\npython-dotenv>=1.0.0\nhttpx>=0.25.0\npytest>=7.4.0\npytest-asyncio>=0.21.0\n"
-            })
-
-        if "backend/app/main.py" not in existing:
-            imports_models = "\n".join([f"from app.api.v1 import {n.lower()}s" for n in entity_names])
-            includes = "\n".join([f'    app.include_router({n.lower()}s.router, prefix="/api/v1/{n.lower()}s", tags=["{n}s"])' for n in entity_names])
-            boilerplate.append({
-                "name": "main.py",
-                "path": "backend/app/main.py",
-                "language": "python",
-                "content": f'''from contextlib import asynccontextmanager
+            if gen_type != "frontend_only" and "backend/app/main.py" not in existing:
+                imports_models = "\n".join([f"from app.api.v1 import {n.lower()}s" for n in entity_names])
+                includes = "\n".join([f'    app.include_router({n.lower()}s.router, prefix="/api/v1/{n.lower()}s", tags=["{n}s"])' for n in entity_names])
+                boilerplate.append({
+                    "name": "main.py",
+                    "path": "backend/app/main.py",
+                    "language": "python",
+                    "content": f'''from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import connect_db, close_db
@@ -778,63 +1115,75 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 async def health():
     return {{"status": "healthy"}}
 '''
-            })
+                })
 
-        if "frontend/package.json" not in existing:
-            boilerplate.append({
-                "name": "package.json",
-                "path": "frontend/package.json",
-                "language": "json",
-                "content": json.dumps({
-                    "name": slug,
-                    "version": "0.1.0",
-                    "private": True,
-                    "scripts": {"dev": "next dev", "build": "next build", "start": "next start", "lint": "next lint"},
-                    "dependencies": {
-                        "next": "14.2.0", "react": "^18.2.0", "react-dom": "^18.2.0",
-                        "zustand": "^4.5.0", "swr": "^2.2.0", "framer-motion": "^11.0.0",
-                        "lucide-react": "^0.300.0", "clsx": "^2.1.0", "zod": "^3.22.0",
-                        "tailwind-merge": "^2.2.0",
-                    },
-                    "devDependencies": {
-                        "typescript": "^5.3.0", "@types/react": "^18.2.0", "@types/node": "^20.10.0",
-                        "tailwindcss": "^3.4.0", "postcss": "^8.4.0", "autoprefixer": "^10.4.0",
-                    }
-                }, indent=2)
-            })
-
+            if gen_type not in ("backend_only", "microservice") and "frontend/package.json" not in existing:
+                boilerplate.append({
+                    "name": "package.json",
+                    "path": "frontend/package.json",
+                    "language": "json",
+                    "content": json.dumps({
+                        "name": slug,
+                        "version": "0.1.0",
+                        "private": True,
+                        "scripts": {"dev": "next dev", "build": "next build", "start": "next start", "lint": "next lint"},
+                        "dependencies": {
+                            "next": "14.2.0", "react": "^18.2.0", "react-dom": "^18.2.0",
+                            "zustand": "^4.5.0", "swr": "^2.2.0", "framer-motion": "^11.0.0",
+                            "lucide-react": "^0.300.0", "clsx": "^2.1.0", "zod": "^3.22.0",
+                            "tailwind-merge": "^2.2.0",
+                        },
+                        "devDependencies": {
+                            "typescript": "^5.3.0", "@types/react": "^18.2.0", "@types/node": "^20.10.0",
+                            "tailwindcss": "^3.4.0", "postcss": "^8.4.0", "autoprefixer": "^10.4.0",
+                        }
+                    }, indent=2)
+                })
+        
         if "README.md" not in existing:
             boilerplate.append({
                 "name": "README.md",
                 "path": "README.md",
                 "language": "markdown",
-                "content": f"# {info['name']}\n\n{info['description']}\n\n## Quick Start\n\n```bash\ndocker-compose up --build\n```\n\nBackend: http://localhost:8000\nFrontend: http://localhost:3000\n"
+                "content": f"# {info['name']}\n\n{info['description']}\n\n## Quick Start\n\n```bash\ndocker-compose up --build\n```\n"
             })
 
         if "docker-compose.yml" not in existing:
+            db_service_name = "mongodb" if stack["database"] == "mongodb" else "postgres"
+            services_block = ""
+            if gen_type == "frontend_only":
+                services_block = f"""  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]"""
+            elif gen_type in ("backend_only", "microservice"):
+                services_block = f"""  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [{db_service_name}]
+  {db_service_name}:
+    image: {"mongo:7" if db_service_name == "mongodb" else "postgres:15"}"""
+            else:
+                services_block = f"""  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [{db_service_name}]
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+  {db_service_name}:
+    image: {"mongo:7" if db_service_name == "mongodb" else "postgres:15"}"""
+                
             boilerplate.append({
                 "name": "docker-compose.yml",
                 "path": "docker-compose.yml",
                 "language": "yaml",
                 "content": f"""version: '3.8'
 services:
-  backend:
-    build: ./backend
-    ports: ["8000:8000"]
-    env_file: .env
-    depends_on: [mongodb]
-  frontend:
-    build: ./frontend
-    ports: ["3000:3000"]
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-  mongodb:
-    image: mongo:7
-    ports: ["27017:27017"]
-    volumes: [mongodb_data:/data/db]
-volumes:
-  mongodb_data:
+{services_block}
 """
             })
 
         return files + boilerplate
+

@@ -483,7 +483,15 @@ async def join_workspaces_node(state: AppState, config: Optional[RunnableConfig]
         "ops_security": bool(project_doc.get("auth_architecture") and project_doc.get("security_architecture")),
     }
     logger.info(f"Workspace merge status for {project_id}: {workspace_status}")
-    missing = [k for k, v in workspace_status.items() if not v]
+    
+    gen_type = project_doc.get("generation_type", "full_stack")
+    expected_workspaces = ["ops_security"]
+    if gen_type != "frontend_only":
+        expected_workspaces.extend(["db", "backend"])
+    if gen_type not in ("backend_only", "microservice"):
+        expected_workspaces.append("frontend")
+        
+    missing = [k for k in expected_workspaces if not workspace_status[k]]
     if missing:
         logger.warning(f"Incomplete workspaces detected: {missing}")
     
@@ -531,35 +539,41 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
     impl_plan = project_doc.get("implementation_plan", {}) or {}
     security_arch = project_doc.get("security_architecture", {}) or {}
     
-    # 1. Entity existence check
+    gen_type = project_doc.get("generation_type", "full_stack")
+    
+    # 1. Entity existence check (Only if not frontend_only)
     db_entities = set()
     for e in db_arch.get("entities", []):
         if isinstance(e, dict) and e.get("entity_name"):
             db_entities.add(e["entity_name"])
         elif isinstance(e, str):
             db_entities.add(e)
-    if not db_entities:
-        validation_logs.append({"module": "Database", "error": "No entities defined in db_architecture."})
+    if gen_type != "frontend_only":
+        if not db_entities:
+            validation_logs.append({"module": "Database", "error": "No entities defined in db_architecture."})
     
-    # 2. API endpoints exist for entities
+    # 2. API endpoints exist for entities (Only if not frontend_only)
     api_endpoints = api_arch.get("endpoints", [])
-    if db_entities and not api_endpoints:
-        validation_logs.append({"module": "API", "error": "No API endpoints defined despite having entities."})
+    if gen_type != "frontend_only":
+        if db_entities and not api_endpoints:
+            validation_logs.append({"module": "API", "error": "No API endpoints defined despite having entities."})
     
-    # 3. Frontend pages exist
+    # 3. Frontend pages exist (Only if not backend_only or microservice)
     fe_pages = fe_arch.get("pages", [])
-    if not fe_pages and not fe_arch.get("structure"):
-        validation_logs.append({"module": "Frontend", "error": "No frontend pages defined."})
+    if gen_type not in ("backend_only", "microservice"):
+        if not fe_pages and not fe_arch.get("structure"):
+            validation_logs.append({"module": "Frontend", "error": "No frontend pages defined."})
     
-    # 4. Auth architecture exists if auth is needed
+    # 4. Auth architecture exists if auth is needed (Only if not frontend_only)
     has_auth_endpoints = any(
         (ep.get("requires_auth") if isinstance(ep, dict) else False)
         for ep in api_endpoints
     )
-    if has_auth_endpoints and not auth_arch:
-        validation_logs.append({"module": "Auth", "error": "Endpoints require auth but no auth_architecture defined."})
+    if gen_type != "frontend_only":
+        if has_auth_endpoints and not auth_arch:
+            validation_logs.append({"module": "Auth", "error": "Endpoints require auth but no auth_architecture defined."})
     
-    # 5. Minimum feature scope from PRD/requirements
+    # 5. Minimum feature scope from PRD/requirements (Applies to all)
     features = requirements.get("features", []) if isinstance(requirements, dict) else []
     if isinstance(features, list) and len(features) < 5:
         validation_logs.append({
@@ -567,36 +581,43 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
             "error": f"Only {len(features)} features defined — production projects require at least 5 interconnected features.",
         })
 
-    # 6. Minimum page scope
-    if fe_pages and len(fe_pages) < 5:
-        validation_logs.append({
-            "module": "Frontend",
-            "severity": "warning",
-            "error": f"Only {len(fe_pages)} frontend pages — production apps need at least 5 pages/modules.",
-        })
+    # 6. Minimum page scope (Only if not backend_only or microservice)
+    if gen_type not in ("backend_only", "microservice"):
+        if fe_pages and len(fe_pages) < 5:
+            validation_logs.append({
+                "module": "Frontend",
+                "severity": "warning",
+                "error": f"Only {len(fe_pages)} frontend pages — production apps need at least 5 pages/modules.",
+            })
 
-    # 7. PRD/TRD/MRD must exist as generation source of truth
+    # 7. PRD/TRD/MRD must exist as generation source of truth (Applies to all)
     if not project_doc.get("prd") or not project_doc.get("trd"):
         validation_logs.append({
             "module": "Documents",
             "error": "PRD and TRD must be present before architecture compilation.",
         })
 
-    # 8. Implementation plan must exist
+    # 8. Implementation plan must exist (Applies to all)
     if not impl_plan:
         validation_logs.append({"module": "ImplementationPlan", "error": "No implementation_plan defined."})
-    # 9. Backend architecture exists (warning)
-    if not be_arch:
-        validation_logs.append({"module": "Backend", "severity": "warning", "error": "No backend_architecture defined."})
+        
+    # 9. Backend architecture exists (warning, only if not frontend_only)
+    if gen_type != "frontend_only":
+        if not be_arch:
+            validation_logs.append({"module": "Backend", "severity": "warning", "error": "No backend_architecture defined."})
     
-    # 10. Theme/styling exists (warning)
-    if not theme_styling:
-        validation_logs.append({"module": "ThemeStyling", "severity": "warning", "error": "No theme_styling defined."})
+    # 10. Theme/styling exists (warning, only if not backend_only or microservice)
+    if gen_type not in ("backend_only", "microservice"):
+        if not theme_styling:
+            validation_logs.append({"module": "ThemeStyling", "severity": "warning", "error": "No theme_styling defined."})
     
-    # 11. State management exists (warning)
-    if not state_mgmt:
-        validation_logs.append({"module": "StateManagement", "severity": "warning", "error": "No state_management defined."})
-    if db_entities and api_endpoints:
+    # 11. State management exists (warning, only if not backend_only or microservice)
+    if gen_type not in ("backend_only", "microservice"):
+        if not state_mgmt:
+            validation_logs.append({"module": "StateManagement", "severity": "warning", "error": "No state_management defined."})
+            
+    # 12. Cross-reference: entities in db_architecture should have corresponding API endpoints (Only if not frontend_only)
+    if gen_type != "frontend_only" and db_entities and api_endpoints:
         endpoint_paths = set()
         for ep in api_endpoints:
             if isinstance(ep, dict):
@@ -615,8 +636,8 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
                 "error": f"Entities without matching API endpoints: {uncovered_entities}",
             })
     
-    # 12. Cross-reference: entities in db_architecture should have corresponding API endpoints
-    if fe_pages:
+    # 13. Cross-reference: pages in frontend_architecture should have routes (Only if not backend_only or microservice)
+    if gen_type not in ("backend_only", "microservice") and fe_pages:
         pages_without_routes = []
         for page in fe_pages:
             if isinstance(page, dict):
@@ -666,6 +687,12 @@ async def backend_code_generation_node(state: AppState, config: Optional[Runnabl
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+    
+    gen_type = project_doc.get("generation_type", "full_stack")
+    if gen_type == "frontend_only":
+        logger.info(f"[{project_id}] Skipping Backend Code Generation for frontend_only project.")
+        return {"project_doc": project_doc}
+        
     await broadcast_agent_progress(db, project_id, 77, "Generating Backend Code Contracts...")
     res = await run_single_agent(db, project_id, project_doc, "BackendCodeGenerationAgent")
     return {"project_doc": project_doc, "latest_output": res}
@@ -674,6 +701,12 @@ async def frontend_code_generation_node(state: AppState, config: Optional[Runnab
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+    
+    gen_type = project_doc.get("generation_type", "full_stack")
+    if gen_type in ("backend_only", "microservice"):
+        logger.info(f"[{project_id}] Skipping Frontend Code Generation for backend_only or microservice project.")
+        return {"project_doc": project_doc}
+        
     await broadcast_agent_progress(db, project_id, 78, "Generating Frontend Code Contracts...")
     res = await run_single_agent(db, project_id, project_doc, "FrontendCodeGenerationAgent")
     return {"project_doc": project_doc, "latest_output": res}
@@ -792,25 +825,36 @@ async def code_synthesis_node(state: AppState, config: Optional[RunnableConfig] 
         "api_architecture": project_doc.get("api_architecture", {}),
         "frontend_architecture": project_doc.get("frontend_architecture", {}),
         "implementation_plan": project_doc.get("implementation_plan", {}),
+        "requirements": project_doc.get("requirements", {}),
+        "blueprint": project_doc.get("blueprint", {}) or project_doc.get("initial_prompt", {}),
+        "generation_type": project_doc.get("generation_type", "full_stack"),
     }
     
     codebase: List[Dict[str, Any]] = []
     issues: List[Dict[str, Any]] = []
-    max_synthesis_attempts = 2
+    max_synthesis_attempts = 3
     for attempt in range(1, max_synthesis_attempts + 1):
         if attempt > 1:
             await broadcast_agent_progress(
                 db, project_id, 88,
-                f"🔁 Re-synthesizing code (attempt {attempt}/{max_synthesis_attempts})..."
+                f"🔁 Re-synthesizing & healing code (attempt {attempt}/{max_synthesis_attempts})..."
             )
             project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-        codebase = await synthesizer.synthesize(project_doc, db, project_id)
+            critical_issues = [i for i in issues if i.get("severity") == "error"]
+            codebase = await synthesizer.synthesize(
+                project_doc, db, project_id,
+                validation_errors=critical_issues,
+                existing_codebase=codebase
+            )
+        else:
+            codebase = await synthesizer.synthesize(project_doc, db, project_id)
+            
         issues = validator.validate(codebase, arch_context)
         critical_issues = [i for i in issues if i.get("severity") == "error"]
         if not critical_issues or attempt == max_synthesis_attempts:
             break
         logger.warning(
-            f"[{project_id}] Synthesis attempt {attempt} produced {len(critical_issues)} critical issues — retrying."
+            f"[{project_id}] Synthesis attempt {attempt} produced {len(critical_issues)} critical issues — triggering self-healing loop."
         )
         await db.projects.update_one(
             {"_id": project_id},
@@ -856,6 +900,20 @@ async def project_export_node(state: AppState, config: Optional[RunnableConfig] 
         "quality_report": updated_doc.get("quality_report"),
     }
 
+async def runtime_compilation_verifier_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+    db = get_db(state, config)
+    project_id = state["project_id"]
+    project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+    
+    await broadcast_agent_progress(db, project_id, 91, "🔍 Running Runtime Verification & Compile-Checks...")
+    
+    from app.agents.runtime_verifier import RuntimeVerifierAgent
+    verifier = RuntimeVerifierAgent()
+    updated_doc = await verifier.verify_and_heal(project_doc, db, project_id)
+    
+    await broadcast_agent_progress(db, project_id, 94, "✅ Runtime Verification & Auto-Healing Complete!")
+    return {"project_doc": updated_doc}
+
 # ──────────────────────────────────────────────────────────────
 # Routing Logic
 # ──────────────────────────────────────────────────────────────
@@ -868,12 +926,20 @@ def route_after_planner(state: AppState) -> str:
 
 def route_dispatcher(state: AppState) -> str:
     """Sequential architecture pipeline — each workspace sees upstream outputs."""
+    project_doc = state.get("project_doc", {}) or {}
+    gen_type = project_doc.get("generation_type", "full_stack")
+    if gen_type == "frontend_only":
+        return "frontend_workspace"
     return "db_workspace"
 
 def route_after_db_workspace(state: AppState) -> str:
     return "backend_workspace"
 
 def route_after_backend_workspace(state: AppState) -> str:
+    project_doc = state.get("project_doc", {}) or {}
+    gen_type = project_doc.get("generation_type", "full_stack")
+    if gen_type in ("backend_only", "microservice"):
+        return "ops_security_workspace"
     return "frontend_workspace"
 
 def route_after_frontend_workspace(state: AppState) -> str:
@@ -923,6 +989,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("build_compiler", build_compiler_node)
     workflow.add_node("error_correction", error_correction_node)
     workflow.add_node("code_synthesis", code_synthesis_node)
+    workflow.add_node("runtime_compilation_verifier", runtime_compilation_verifier_node)
     workflow.add_node("project_export", project_export_node)
     
     # Edges
@@ -965,7 +1032,8 @@ def build_graph() -> StateGraph:
     workflow.add_edge("integration_generator", "build_compiler")
     workflow.add_edge("build_compiler", "error_correction")
     workflow.add_edge("error_correction", "code_synthesis")
-    workflow.add_edge("code_synthesis", "project_export")
+    workflow.add_edge("code_synthesis", "runtime_compilation_verifier")
+    workflow.add_edge("runtime_compilation_verifier", "project_export")
     workflow.add_edge("project_export", END)
     
     # Compile graph with interruption before dispatcher node

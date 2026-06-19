@@ -106,6 +106,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   const [modalFeatures, setModalFeatures] = useState<string[]>(["", "", ""]);
   const [modalTechStack, setModalTechStack] = useState("React, Tailwind CSS, FastAPI, MongoDB");
   const [modalHitlEnabled, setModalHitlEnabled] = useState(true);
+  const [modalGenType, setModalGenType] = useState<string>("full_stack");
   const [isSuggesting, setIsSuggesting] = useState(false);
 
   // Document Architect states
@@ -270,7 +271,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       setCurrentCategory(targetCategory);
     }
 
-    let targetChatId = activeChatId;
+    const targetChatId = activeChatId;
     if (!activeChat) {
       // Optimistically create temporary chat session so the user message appears instantly
       const tempChatId = `chat-temp-${Date.now()}`;
@@ -350,7 +351,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   const handleGenerateClick = async (category: string) => {
     if (!activeChatId) return;
     const name = projectNameInput.trim() || `${category.charAt(0).toUpperCase() + category.slice(1)} Workspace`;
-    await generateProject(activeChatId, name, category);
+    await generateProject(activeChatId, name, category, undefined, undefined, undefined, true, "full_stack");
     setProjectNameInput("");
   };
 
@@ -365,7 +366,10 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ idea: modalPrompt.trim() })
+        body: JSON.stringify({
+          idea: modalPrompt.trim(),
+          generation_type: modalGenType
+        })
       });
       if (res.ok) {
         const blueprint = await res.json();
@@ -397,7 +401,8 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       idea: modalIdea.trim(),
       features: modalFeatures.map(f => f.trim()).filter(Boolean),
       tech_stack: modalTechStack.trim(),
-      hitl_enabled: modalHitlEnabled
+      hitl_enabled: modalHitlEnabled,
+      generation_type: modalGenType
     };
 
     try {
@@ -412,6 +417,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       setModalFeatures(["", "", ""]);
       setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
       setModalHitlEnabled(true);
+      setModalGenType("full_stack");
     } catch (err) {
       console.error("Failed to submit modal blueprint:", err);
     }
@@ -531,7 +537,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       <MorpankhBg />
 
       {/* Top Header */}
-      <header className="h-16 px-6 border-b border-stone-200/60 bg-white flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
+      <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
         <div className="flex items-center gap-2">
           {!showLeftPane && !isMobile && (
             <motion.button
@@ -1086,27 +1092,69 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
 
               {/* Form Content */}
               <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                {/* Generation Scope (Project Type Selection) */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                    1. Select Generation Scope
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
+                      { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
+                      { id: "backend_only", label: "Backend Only", desc: "API & Models" },
+                      { id: "microservice", label: "Microservice", desc: "API Service / Worker" }
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setModalGenType(item.id);
+                          if (item.id === "frontend_only") {
+                            setModalTechStack("Next.js, Tailwind CSS");
+                          } else if (item.id === "backend_only") {
+                            setModalTechStack("FastAPI, MongoDB");
+                          } else if (item.id === "microservice") {
+                            setModalTechStack("FastAPI, Docker, Redis");
+                          } else {
+                            setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
+                          }
+                        }}
+                        className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                          modalGenType === item.id
+                            ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm ring-1 ring-indigo-950/20"
+                            : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600"
+                        }`}
+                      >
+                        <span className="text-xs font-bold">{item.label}</span>
+                        <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-stone-100 my-1" />
+
                 {/* AI Suggestion Section */}
                 <div className="p-4 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" />
-                      End-to-End AI Suggestion
+                      2. Describe Project Idea
                     </label>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <textarea
-                      placeholder="Describe your project idea in a sentence or two... (e.g. 'A simple habit tracker app')"
+                      placeholder="Describe your project idea in a sentence or two... (e.g. 'A payment validation microservice that consumes stripe webhook payloads, validates signature, and publishes to RabbitMQ')"
                       value={modalPrompt}
                       onChange={(e) => setModalPrompt(e.target.value)}
-                      rows={2}
+                      rows={4}
                       className="flex-1 bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium resize-none leading-relaxed"
                     />
                     <button
                       type="button"
                       onClick={handleSuggestProject}
                       disabled={isSuggesting || !modalPrompt.trim()}
-                      className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shrink-0 cursor-pointer self-stretch animate-pulse-subtle"
+                      className="px-5 py-3 sm:py-2 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shrink-0 cursor-pointer sm:self-stretch animate-pulse-subtle"
                     >
                       {isSuggesting ? (
                         <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1118,7 +1166,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   </div>
                 </div>
 
-                <div className="border-t border-stone-100 my-2" />
+                <div className="border-t border-stone-100 my-1" />
 
                 {/* Editable Fields */}
                 <form onSubmit={handleModalSubmit} className="space-y-4">
@@ -1138,7 +1186,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                     <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
                     <textarea
                       required
-                      rows={3}
+                      rows={5}
                       placeholder="Refined vision and description of the app..."
                       value={modalIdea}
                       onChange={(e) => setModalIdea(e.target.value)}

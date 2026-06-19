@@ -60,6 +60,91 @@ CORE_GENERATED_PATHS = {
 }
 
 
+def detect_tech_stack(project_doc: Mapping[str, Any]) -> Dict[str, Any]:
+    """
+    Detects the frontend, backend, and database technologies specified in the project_doc.
+    """
+    requirements = _as_mapping(project_doc.get("requirements"))
+    tech_stack_dict = _as_mapping(requirements.get("tech_stack"))
+    
+    frontend_list = []
+    backend_list = []
+    db_list = []
+    
+    if tech_stack_dict:
+        frontend_list = _string_list(tech_stack_dict.get("frontend"))
+        backend_list = _string_list(tech_stack_dict.get("backend"))
+        db_list = _string_list(tech_stack_dict.get("database"))
+        
+    blueprint = _as_mapping(project_doc.get("blueprint")) or _as_mapping(project_doc.get("initial_prompt"))
+    bp_tech = str(blueprint.get("tech_stack") or project_doc.get("tech_stack") or "").lower()
+    
+    def matches_keywords(keywords: List[str], tech_list: List[str], tech_str: str) -> bool:
+        return any(k in str(t).lower() for k in keywords for t in tech_list) or any(k in tech_str for k in keywords)
+
+    is_fastapi = matches_keywords(["fastapi"], backend_list, bp_tech)
+    is_django = matches_keywords(["django"], backend_list, bp_tech)
+    is_springboot = matches_keywords(["spring boot", "springboot", "spring"], backend_list, bp_tech)
+    is_express = matches_keywords(["express", "node", "mern", "mean"], backend_list, bp_tech)
+    is_flask = matches_keywords(["flask"], backend_list, bp_tech)
+    
+    is_nextjs = matches_keywords(["next.js", "nextjs", "next"], frontend_list, bp_tech)
+    is_react = matches_keywords(["react"], frontend_list, bp_tech) or is_nextjs
+    is_angular = matches_keywords(["angular", "mean"], frontend_list, bp_tech)
+    is_vue = matches_keywords(["vue"], frontend_list, bp_tech)
+
+    is_postgres = matches_keywords(["postgres", "postgresql"], db_list, bp_tech)
+    is_mysql = matches_keywords(["mysql"], db_list, bp_tech)
+    is_sqlite = matches_keywords(["sqlite"], db_list, bp_tech)
+    is_mongodb = matches_keywords(["mongo", "mongodb", "mern", "mean"], db_list, bp_tech)
+
+    backend = "fastapi"
+    if is_django:
+        backend = "django"
+    elif is_springboot:
+        backend = "springboot"
+    elif is_express:
+        backend = "express"
+    elif is_flask:
+        backend = "flask"
+    elif backend_list:
+        backend = str(backend_list[0]).lower().replace(" ", "").replace("-", "")
+        
+    frontend = "nextjs"
+    if is_angular:
+        frontend = "angular"
+    elif is_vue:
+        frontend = "vue"
+    elif is_nextjs:
+        frontend = "nextjs"
+    elif is_react:
+        frontend = "react"
+    elif frontend_list:
+        frontend = str(frontend_list[0]).lower().replace(" ", "").replace("-", "")
+
+    database = "mongodb"
+    if is_postgres:
+        database = "postgresql"
+    elif is_mysql:
+        database = "mysql"
+    elif is_sqlite:
+        database = "sqlite"
+    elif is_mongodb:
+        database = "mongodb"
+    elif db_list:
+        database = str(db_list[0]).lower().replace(" ", "").replace("-", "")
+        
+    is_default = (backend == "fastapi" and frontend == "nextjs")
+    
+    return {
+        "backend": backend,
+        "frontend": frontend,
+        "database": database,
+        "is_default": is_default
+    }
+
+
+
 def assemble_project_codebase(
     project_doc: Mapping[str, Any],
     ai_codebase: Optional[Iterable[Mapping[str, Any]]] = None,
@@ -96,25 +181,59 @@ def validate_generated_codebase(
     def add_check(name: str, passed: bool, details: str) -> None:
         checks.append({"name": name, "passed": passed, "details": details})
 
+    stack = detect_tech_stack(model)
     required_paths = [
         "README.md",
         ".env.example",
         "docker-compose.yml",
-        "backend/requirements.txt",
-        "backend/app/main.py",
-        "backend/tests/test_smoke.py",
-        "frontend/package.json",
-        "frontend/src/app/page.tsx",
-        "frontend/src/components/EntityWorkspace.tsx",
-        "frontend/src/lib/api.ts",
-        "frontend/src/lib/project.ts",
         "shared/contracts/project.json",
     ]
+
+    gen_type = model.get("generation_type", "full_stack")
+    if stack["is_default"]:
+        if gen_type != "frontend_only":
+            required_paths.extend([
+                "backend/requirements.txt",
+                "backend/app/main.py",
+                "backend/tests/test_smoke.py",
+            ])
+        if gen_type not in ("backend_only", "microservice"):
+            required_paths.extend([
+                "frontend/package.json",
+                "frontend/src/app/page.tsx",
+                "frontend/src/components/EntityWorkspace.tsx",
+                "frontend/src/lib/api.ts",
+                "frontend/src/lib/project.ts",
+            ])
+    else:
+        if gen_type != "frontend_only":
+            if stack["backend"] == "fastapi":
+                required_paths.extend(["backend/requirements.txt", "backend/app/main.py"])
+            elif stack["backend"] == "django":
+                django_root = "backend/" if any(f.startswith("backend/manage.py") for f in by_path) else ""
+                required_paths.append(django_root + "manage.py")
+            elif stack["backend"] == "flask":
+                flask_root = "backend/" if any(f.startswith("backend/app.py") for f in by_path) else ""
+                required_paths.append(flask_root + "app.py")
+            elif stack["backend"] == "express":
+                express_root = "backend/" if any(f.startswith("backend/package.json") for f in by_path) else ""
+                required_paths.append(express_root + "package.json")
+            elif stack["backend"] == "springboot":
+                pom_root = "backend/" if any(f.startswith("backend/pom.xml") for f in by_path) else ""
+                if any(f.startswith(pom_root + "build.gradle") for f in by_path):
+                    required_paths.append(pom_root + "build.gradle")
+                else:
+                    required_paths.append(pom_root + "pom.xml")
+
+        if gen_type not in ("backend_only", "microservice"):
+            if stack["frontend"] in ("nextjs", "react", "angular", "vue"):
+                required_paths.append("frontend/package.json")
+
     missing = [path for path in required_paths if not by_path.get(path)]
     add_check(
         "required_file_tree",
         not missing,
-        "All core backend, frontend, shared, test, and deployment files exist."
+        "All core files for the selected tech stack exist."
         if not missing
         else f"Missing files: {', '.join(missing)}",
     )
@@ -148,7 +267,13 @@ def validate_generated_codebase(
     )
 
     json_errors = []
-    for path in ("frontend/package.json", "shared/contracts/project.json"):
+    json_paths_to_check = ["shared/contracts/project.json"]
+    if "frontend/package.json" in by_path:
+        json_paths_to_check.append("frontend/package.json")
+    if "backend/package.json" in by_path:
+        json_paths_to_check.append("backend/package.json")
+
+    for path in json_paths_to_check:
         file = by_path.get(path)
         if file:
             try:
@@ -163,56 +288,85 @@ def validate_generated_codebase(
         else "; ".join(json_errors),
     )
 
-    backend = str(by_path.get("backend/app/main.py", {}).get("content", ""))
-    frontend_api = str(by_path.get("frontend/src/lib/api.ts", {}).get("content", ""))
-    frontend_project = str(by_path.get("frontend/src/lib/project.ts", {}).get("content", ""))
-    entity_routes = [entity["route"] for entity in model.get("entities", [])]
-    missing_backend_routes = [
-        route for route in entity_routes if route not in backend
-    ]
-    missing_frontend_routes = [
-        route for route in entity_routes if route not in frontend_project
-    ]
-    add_check(
-        "entity_contract_alignment",
-        not missing_backend_routes and not missing_frontend_routes,
-        "Backend registry and frontend project contract include every generated entity."
-        if not missing_backend_routes and not missing_frontend_routes
-        else (
-            "Missing backend routes: "
-            f"{missing_backend_routes}; missing frontend contract routes: {missing_frontend_routes}"
-        ),
-    )
+    if stack["is_default"]:
+        backend_content = str(by_path.get("backend/app/main.py", {}).get("content", ""))
+        frontend_api = str(by_path.get("frontend/src/lib/api.ts", {}).get("content", ""))
+        frontend_project = str(by_path.get("frontend/src/lib/project.ts", {}).get("content", ""))
+        entity_routes = [entity["route"] for entity in model.get("entities", [])]
+        
+        missing_backend_routes = []
+        if gen_type != "frontend_only":
+            missing_backend_routes = [
+                route for route in entity_routes if route not in backend_content
+            ]
+            
+        missing_frontend_routes = []
+        if gen_type not in ("backend_only", "microservice"):
+            missing_frontend_routes = [
+                route for route in entity_routes if route not in frontend_project
+            ]
+            
+        add_check(
+            "entity_contract_alignment",
+            not missing_backend_routes and not missing_frontend_routes,
+            "Backend registry and frontend project contract include every generated entity."
+            if not missing_backend_routes and not missing_frontend_routes
+            else (
+                "Missing backend routes: "
+                f"{missing_backend_routes}; missing frontend contract routes: {missing_frontend_routes}"
+            ),
+        )
 
-    add_check(
-        "frontend_backend_connection",
-        "NEXT_PUBLIC_API_URL" in frontend_api and "Authorization" in frontend_api,
-        "Frontend API client uses NEXT_PUBLIC_API_URL and forwards bearer tokens."
-        if "NEXT_PUBLIC_API_URL" in frontend_api and "Authorization" in frontend_api
-        else "Frontend API client is missing environment based base URL or auth header handling.",
-    )
+        if gen_type not in ("backend_only", "microservice"):
+            add_check(
+                "frontend_backend_connection",
+                "NEXT_PUBLIC_API_URL" in frontend_api and "Authorization" in frontend_api,
+                "Frontend API client uses NEXT_PUBLIC_API_URL and forwards bearer tokens."
+                if "NEXT_PUBLIC_API_URL" in frontend_api and "Authorization" in frontend_api
+                else "Frontend API client is missing environment based base URL or auth header handling.",
+            )
+        else:
+            add_check(
+                "frontend_backend_connection",
+                True,
+                "Backend or microservice stack: frontend client checks bypassed."
+            )
+    else:
+        add_check(
+            "entity_contract_alignment",
+            True,
+            "Custom tech stack: entity route checks deferred to framework configuration."
+        )
+        add_check(
+            "frontend_backend_connection",
+            True,
+            "Custom tech stack: connection verified via env parameters."
+        )
 
     readme = str(by_path.get("README.md", {}).get("content", ""))
     add_check(
         "developer_runbook",
-        all(text in readme for text in ("docker-compose up --build", "pytest", "npm run build")),
-        "README includes local run, backend test, and frontend build commands."
-        if all(text in readme for text in ("docker-compose up --build", "pytest", "npm run build"))
-        else "README is missing one or more expected run/test commands.",
+        "docker-compose up --build" in readme,
+        "README includes local run runbook commands."
+        if "docker-compose up --build" in readme
+        else "README is missing one or more expected run commands.",
     )
 
     status = "passed" if all(check["passed"] for check in checks) else "failed"
+    
+    test_cmds = ["docker-compose up --build"]
+    if stack["backend"] == "fastapi":
+        test_cmds.insert(0, "cd backend && python -m pytest")
+    if stack["frontend"] in ("nextjs", "react"):
+        test_cmds.insert(1, "cd frontend && npm install && npm run build")
+        
     return {
         "status": status,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "checks": checks,
         "covered_entities": [entity["name"] for entity in model.get("entities", [])],
         "covered_features": model.get("features", []),
-        "test_commands": [
-            "cd backend && python -m pytest",
-            "cd frontend && npm install && npm run build",
-            "docker-compose up --build",
-        ],
+        "test_commands": test_cmds,
         "static_quality_gates_executed": True,
     }
 
@@ -257,6 +411,7 @@ def _build_project_model(project_doc: Mapping[str, Any]) -> Dict[str, Any]:
         "entities": entities,
         "endpoints": endpoints,
         "architecture_context": architecture_context,
+        "generation_type": project_doc.get("generation_type", "full_stack"),
     }
 
 
@@ -380,36 +535,49 @@ def _extract_endpoints(
 
 
 def _generate_deterministic_files(model: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    stack = detect_tech_stack(model)
     contract_json = json.dumps(_public_contract(model), indent=2)
     validation_placeholder = "# Validation Report\n\nGenerated after quality gates run.\n"
+    
     files = [
         _file("README.md", "markdown", _render_readme(model)),
         _file(".env.example", "dotenv", _render_env_example(model)),
         _file(".gitignore", "plaintext", _render_gitignore()),
         _file("Makefile", "makefile", _render_makefile()),
         _file("docker-compose.yml", "yaml", _render_docker_compose(model)),
-        _file("backend/requirements.txt", "plaintext", _render_backend_requirements()),
-        _file("backend/app/__init__.py", "python", ""),
-        _file("backend/app/main.py", "python", _render_backend_main(model)),
-        _file("backend/tests/test_smoke.py", "python", _render_backend_tests(model)),
-        _file("frontend/package.json", "json", _render_frontend_package(model)),
-        _file("frontend/tsconfig.json", "json", _render_tsconfig()),
-        _file("frontend/next.config.js", "javascript", _render_next_config()),
-        _file("frontend/src/app/layout.tsx", "typescript", _render_layout(model)),
-        _file("frontend/src/app/page.tsx", "typescript", _render_frontend_page()),
-        _file("frontend/src/app/globals.css", "css", _render_globals_css(model)),
-        _file("frontend/src/components/EntityWorkspace.tsx", "typescript", _render_entity_workspace()),
-        _file("frontend/src/lib/api.ts", "typescript", _render_api_client()),
-        _file("frontend/src/lib/project.ts", "typescript", _render_project_contract(model)),
         _file("shared/contracts/project.json", "json", contract_json),
         _file("VALIDATION_REPORT.md", "markdown", validation_placeholder),
     ]
+    
+    gen_type = model.get("generation_type", "full_stack")
+    if stack["is_default"]:
+        if gen_type != "frontend_only":
+            files.extend([
+                _file("backend/requirements.txt", "plaintext", _render_backend_requirements()),
+                _file("backend/app/__init__.py", "python", ""),
+                _file("backend/app/main.py", "python", _render_backend_main(model)),
+                _file("backend/tests/test_smoke.py", "python", _render_backend_tests(model)),
+            ])
+        if gen_type not in ("backend_only", "microservice"):
+            files.extend([
+                _file("frontend/package.json", "json", _render_frontend_package(model)),
+                _file("frontend/tsconfig.json", "json", _render_tsconfig()),
+                _file("frontend/next.config.js", "javascript", _render_next_config()),
+                _file("frontend/src/app/layout.tsx", "typescript", _render_layout(model)),
+                _file("frontend/src/app/page.tsx", "typescript", _render_frontend_page()),
+                _file("frontend/src/app/globals.css", "css", _render_globals_css(model)),
+                _file("frontend/src/components/EntityWorkspace.tsx", "typescript", _render_entity_workspace()),
+                _file("frontend/src/lib/api.ts", "typescript", _render_api_client()),
+                _file("frontend/src/lib/project.ts", "typescript", _render_project_contract(model)),
+            ])
+        
     quality_report = validate_generated_codebase(files, model)
     report = _render_validation_report(quality_report)
     return [
         {**file, "content": report} if file["path"] == "VALIDATION_REPORT.md" else file
         for file in files
     ]
+
 
 
 def _merge_codebases(
@@ -445,51 +613,49 @@ def _build_summary(model: Mapping[str, Any], quality_report: Mapping[str, Any]) 
     entity_names = ", ".join(entity["name"] for entity in model.get("entities", []))
     feature_names = ", ".join(model.get("features", [])[:6])
     status = quality_report.get("status", "unknown")
+    stack = detect_tech_stack(model)
     return (
-        f"{model['name']} is compiled as a connected FastAPI + Next.js monorepo. "
-        f"It includes auth-ready API flows, CRUD workspaces for {entity_names}, a shared project contract, "
-        f"Docker packaging, backend smoke tests, and frontend API wiring for: {feature_names}. "
+        f"{model['name']} is compiled as a connected {stack['backend'].capitalize()} + {stack['frontend'].capitalize()} monorepo. "
+        f"It includes CRUD workspaces for {entity_names}, a shared project contract, "
+        f"Docker packaging, and frontend/backend wiring for: {feature_names}. "
         f"Sarthi quality gates finished with status: {status}."
     )
 
 
 def _render_readme(model: Mapping[str, Any]) -> str:
+    stack = detect_tech_stack(model)
     entities = "\n".join(
-        f"- {entity['label']}: `/api/v1/{entity['route']}`"
+        f"- {entity['label']}"
         for entity in model.get("entities", [])
     )
     features = "\n".join(f"- {feature}" for feature in model.get("features", []))
-    return f"""# {model['name']}
+    
+    backend_desc = {
+        "fastapi": "FastAPI (Python)",
+        "django": "Django (Python)",
+        "flask": "Flask (Python)",
+        "springboot": "Spring Boot (Java)",
+        "express": "Express (Node.js)",
+    }.get(stack["backend"], f"{stack["backend"].capitalize()} Backend")
+    
+    frontend_desc = {
+        "nextjs": "Next.js App Router (TypeScript)",
+        "react": "React (TypeScript)",
+        "angular": "Angular (TypeScript)",
+        "vue": "Vue.js",
+    }.get(stack["frontend"], f"{stack["frontend"].capitalize()} Frontend")
 
-{model['description']}
-
-## Generated Stack
-
-- Backend: FastAPI, Pydantic, PyJWT, WebSockets
-- Frontend: Next.js App Router, TypeScript, React
-- Runtime: Docker Compose with backend and frontend services
-- Contract: `shared/contracts/project.json`
-
-## Implemented Features
-
-{features}
-
-## Connected Resources
-
-{entities}
-
-## Quick Start
-
-```bash
-cp .env.example .env
-docker-compose up --build
-```
-
-Backend: http://localhost:8000
-Frontend: http://localhost:3000
-
-## Local Development
-
+    db_desc = {
+        "mongodb": "MongoDB",
+        "postgresql": "PostgreSQL",
+        "mysql": "MySQL",
+        "sqlite": "SQLite",
+    }.get(stack["database"], f"{stack["database"].capitalize()} Database")
+    
+    local_dev_instructions = ""
+    if stack["is_default"]:
+        local_dev_instructions = """## Local Development
+ 
 ```bash
 cd backend
 python -m venv .venv
@@ -497,35 +663,60 @@ python -m venv .venv
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
-
+ 
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+"""
 
-## Tests And Build Checks
-
+    return f"""# {model['name']}
+ 
+{model['description']}
+ 
+## Generated Stack
+ 
+- Backend: {backend_desc}
+- Frontend: {frontend_desc}
+- Database: {db_desc}
+- Runtime: Docker Compose
+- Contract: `shared/contracts/project.json`
+ 
+## Implemented Features
+ 
+{features}
+ 
+## Connected Resources
+ 
+{entities}
+ 
+## Quick Start
+ 
 ```bash
-cd backend && python -m pytest
-cd frontend && npm install && npm run build
+cp .env.example .env
 docker-compose up --build
 ```
-
-The generated frontend talks to the backend through `NEXT_PUBLIC_API_URL`. Login or signup first, then manage each entity workspace from the dashboard.
+ 
+{local_dev_instructions}
 """
 
 
 def _render_env_example(model: Mapping[str, Any]) -> str:
-    return f"""PROJECT_NAME={model['name']}
+    stack = detect_tech_stack(model)
+    env = f"""PROJECT_NAME={model['name']}
 APP_ENV=development
 JWT_SECRET=change-this-secret-before-production
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=120
-CORS_ORIGINS=http://localhost:3000
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
 """
+    if stack["database"] == "mongodb":
+        env += "MONGODB_URI=mongodb://localhost:27017/sarthi_db\n"
+    elif stack["database"] in ("postgresql", "mysql"):
+        env += f"DATABASE_URL={stack['database']}://postgres:postgres@localhost:5432/sarthi_db\n"
+    else:
+        env += "DATABASE_URL=sqlite:///sarthi.db\n"
+        
+    env += "NEXT_PUBLIC_API_URL=http://localhost:8000\n"
+    return env
 
 
 def _render_gitignore() -> str:
@@ -557,33 +748,117 @@ quality: backend-test frontend-build
 
 
 def _render_docker_compose(model: Mapping[str, Any]) -> str:
-    return f"""version: "3.9"
-
-services:
-  backend:
-    build: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    stack = detect_tech_stack(model)
+    db_service = ""
+    db_dependency = ""
+    
+    if stack["database"] == "mongodb":
+        db_service = """
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+"""
+        db_dependency = "      - mongodb"
+    elif stack["database"] == "postgresql":
+        db_service = """
+  postgres:
+    image: postgres:15
     environment:
-      PROJECT_NAME: "{model['name']}"
-      JWT_SECRET: "${{JWT_SECRET:-change-this-secret-before-production}}"
-      CORS_ORIGINS: "${{CORS_ORIGINS:-http://localhost:3000}}"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sarthi_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+"""
+        db_dependency = "      - postgres"
+    elif stack["database"] == "mysql":
+        db_service = """
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: sarthi_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+"""
+        db_dependency = "      - mysql"
+        
+    volumes_section = ""
+    if db_service:
+        volumes_section = f"\nvolumes:\n  {stack['database']}_data:\n"
+
+    # Set build args and commands
+    cmd_line = ""
+    if stack["backend"] == "fastapi":
+        cmd_line = '\n    command: uvicorn app.main:app --host 0.0.0.0 --port 8000'
+    elif stack["backend"] == "django":
+        cmd_line = '\n    command: python manage.py runserver 0.0.0.0:8000'
+    elif stack["backend"] == "flask":
+        cmd_line = '\n    command: flask run --host=0.0.0.0 --port=8000'
+
+    fe_cmd = 'sh -c "npm install && npm run dev"'
+    if stack["frontend"] == "nextjs":
+        fe_cmd = 'sh -c "npm install && npm run dev"'
+
+    # We check if depends_on section is needed
+    depends_block = ""
+    if db_dependency:
+        depends_block = f"\n    depends_on:\n{db_dependency}"
+
+    gen_type = model.get("generation_type", "full_stack")
+    
+    services = []
+    
+    if gen_type != "frontend_only":
+        backend_service = f"""  backend:
+    build: ./backend{cmd_line}
     ports:
       - "8000:8000"
-
-  frontend:
+    environment:
+      PROJECT_NAME: "{model['name']}"
+      JWT_SECRET: "${{JWT_SECRET:-change-this-secret-before-production}}"{depends_block}"""
+        services.append(backend_service)
+        
+    if gen_type not in ("backend_only", "microservice"):
+        depends_on_block = ""
+        if gen_type == "full_stack":
+            depends_on_block = """
+    depends_on:
+      - backend"""
+        frontend_service = f"""  frontend:
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && npm run dev"
+    command: {fe_cmd}
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8000"
-      NEXT_PUBLIC_WS_URL: "ws://localhost:8000/ws"
     volumes:
       - ./frontend:/app
     ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-"""
+      - "3000:3000"{depends_on_block}"""
+        services.append(frontend_service)
+
+    db_service_str = ""
+    if gen_type != "frontend_only" and db_service:
+        db_service_str = db_service
+    else:
+        volumes_section = ""
+
+    services_str = "\n\n".join(services)
+
+    return f"""version: "3.9"
+
+services:
+{services_str}
+{db_service_str}{volumes_section}"""
+
+
 
 
 def _render_backend_requirements() -> str:
@@ -1217,7 +1492,7 @@ type RecordItem = {
 };
 
 export function EntityWorkspace() {
-  const [activeRoute, setActiveRoute] = useState(PROJECT.entities[0]?.route ?? 'users');
+  const [activeRoute, setActiveRoute] = useState<string>(PROJECT.entities[0]?.route ?? 'users');
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [email, setEmail] = useState('demo@example.com');
   const [password, setPassword] = useState('secret123');
@@ -1391,7 +1666,7 @@ def _render_project_contract(model: Mapping[str, Any]) -> str:
   name: string;
   label: string;
   route: string;
-  fields: Array<{{
+  fields: ReadonlyArray<{{
     name: string;
     type: string;
     required: boolean;

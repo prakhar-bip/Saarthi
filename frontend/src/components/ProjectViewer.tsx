@@ -369,6 +369,7 @@ export const ProjectViewer: React.FC = () => {
   const [customIdea, setCustomIdea] = useState("");
   const [customFeatures, setCustomFeatures] = useState<string[]>(["", "", ""]);
   const [customTechStack, setCustomTechStack] = useState("React, Tailwind CSS, Node.js");
+  const [customGenType, setCustomGenType] = useState("full_stack");
 
   // Export action states
   const [isDownloading, setIsDownloading] = useState(false);
@@ -469,6 +470,7 @@ export const ProjectViewer: React.FC = () => {
         setCustomFeatures(newFeatures);
       }
       if (parsed.tech_stack && parsed.tech_stack !== customTechStack) setCustomTechStack(parsed.tech_stack);
+      if (parsed.generation_type && parsed.generation_type !== customGenType) setCustomGenType(parsed.generation_type);
     }
   }, [activeChat?.selected_project]);
 
@@ -644,7 +646,41 @@ export const ProjectViewer: React.FC = () => {
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {loadingThemes ? (
+              {customGenType === "backend_only" ? (
+                <>
+                  <div className="bg-indigo-50/50 p-6 rounded-2xl border border-indigo-100/40 shadow-sm space-y-3">
+                    <h3 className="text-sm font-bold text-indigo-950">Backend-Only Project Scope</h3>
+                    <p className="text-xs text-stone-600 leading-relaxed font-medium">
+                      You have selected a **Backend Only** codebase generation. UI themes, stylesheets, and frontend pages are excluded. 
+                      Sarthi will compile database models, auth middlewares, and REST API controllers based on your blueprint.
+                    </p>
+                  </div>
+                  
+                  {/* Confirm & Compile button */}
+                  <div className="pt-2 pb-8">
+                    <button
+                      type="button"
+                      onClick={() => generateProject(
+                        activeChat.id, 
+                        blueprint.name, 
+                        activeChat.category || "General", 
+                        "BackendDefault", 
+                        blueprint, 
+                        undefined,
+                        activeChat.selected_project?.hitl_enabled !== false,
+                        "backend_only"
+                      )}
+                      disabled={isGeneratingProject}
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
+                    >
+                      🚀 Generate Specifications
+                    </button>
+                    <p className="text-center text-[10px] text-stone-400 mt-2.5 leading-relaxed max-w-xs mx-auto">
+                      Sarthi will generate Technical Requirements Documents, Database Schemas, and API endpoints design. Codebase compilation starts after you review and approve.
+                    </p>
+                  </div>
+                </>
+              ) : loadingThemes ? (
                 <div className="flex flex-col items-center justify-center py-16 space-y-4">
                   <div className="relative w-12 h-12">
                     <span className="absolute inset-0 rounded-full border-4 border-indigo-100 animate-pulse" />
@@ -1093,7 +1129,8 @@ export const ProjectViewer: React.FC = () => {
                         themes[selectedThemeIndex]?.name, 
                         blueprint, 
                         themes[selectedThemeIndex]?.palette,
-                        activeChat.selected_project?.hitl_enabled !== false
+                        activeChat.selected_project?.hitl_enabled !== false,
+                        activeChat.selected_project?.generation_type || "full_stack"
                       )}
                       disabled={isGeneratingProject}
                       className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-950 via-indigo-900 to-amber-500 hover:from-indigo-900 hover:via-indigo-900 hover:to-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-indigo-200 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer text-xs"
@@ -1152,7 +1189,8 @@ export const ProjectViewer: React.FC = () => {
                   idea: customIdea.trim(),
                   features: customFeatures.map(f => f.trim()).filter(Boolean),
                   tech_stack: customTechStack.trim(),
-                  category: activeChat.category
+                  category: activeChat.category,
+                  generation_type: customGenType
                 };
                 await updateChatSelectedProject(activeChat.id, newBlueprint);
                 setViewStage("theme");
@@ -1217,6 +1255,40 @@ export const ProjectViewer: React.FC = () => {
                   >
                     <Plus className="w-3 h-3" /> Add Feature
                   </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Generation Scope</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
+                      { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
+                      { id: "backend_only", label: "Backend Only", desc: "API & Models" }
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setCustomGenType(item.id);
+                          if (item.id === "frontend_only") {
+                            setCustomTechStack("Next.js, Tailwind CSS");
+                          } else if (item.id === "backend_only") {
+                            setCustomTechStack("FastAPI, MongoDB");
+                          } else {
+                            setCustomTechStack("React, Tailwind CSS, FastAPI, MongoDB");
+                          }
+                        }}
+                        className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                          customGenType === item.id
+                            ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm"
+                            : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600"
+                        }`}
+                      >
+                        <span className="text-xs font-bold">{item.label}</span>
+                        <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">

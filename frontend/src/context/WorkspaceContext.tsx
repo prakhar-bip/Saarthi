@@ -17,6 +17,7 @@ export interface ProjectSuggestion {
   tech_stack: string;
   category?: string;
   hitl_enabled?: boolean;
+  generation_type?: string;
 }
 
 export interface ChatSession {
@@ -45,6 +46,7 @@ export interface Project {
   status: "idle" | "generating" | "completed" | "failed" | "documents_ready" | "waiting_approval";
   progress: number;
   step: string;
+  generation_type?: string;
   summary: string;
   codebase: CodeFile[];
   created: string;
@@ -130,7 +132,8 @@ interface WorkspaceContextType {
     theme?: string,
     blueprint?: any,
     themePalette?: any,
-    hitlEnabled?: boolean
+    hitlEnabled?: boolean,
+    generationType?: string
   ) => Promise<void>;
   compileProjectCodebase: (projectId: string, chatId: string) => Promise<void>;
   generateDocuments: (projectName: string, prompt: string) => Promise<void>;
@@ -1063,7 +1066,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     theme?: string,
     blueprint?: any,
     themePalette?: any,
-    hitlEnabled: boolean = true
+    hitlEnabled: boolean = true,
+    generationType: string = "full_stack"
   ) => {
     if (isGeneratingProject) return;
     setIsGeneratingProject(true);
@@ -1090,7 +1094,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           theme,
           blueprint,
           theme_palette: themePalette,
-          hitl_enabled: hitlEnabled
+          hitl_enabled: hitlEnabled,
+          generation_type: generationType
         })
       });
       if (res.ok) {

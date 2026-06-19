@@ -97,7 +97,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
 
       {/* Main Tab Switcher */}
       <div className="px-6 pt-6 pb-2">
-        <div className="flex bg-stone-100 p-1 rounded-xl transition-colors duration-300">
+        <div className="flex bg-stone-100/50 p-1 rounded-xl transition-colors duration-300">
           <button
             onClick={() => {
               setActiveTab("chats");
@@ -230,8 +230,8 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                       transition={{ delay: idx * 0.04, duration: 0.3 }}
                       whileHover={{ x: 2 }}
                       className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${isActive
-                        ? "bg-indigo-50 border border-indigo-100 text-indigo-900"
-                        : "hover:bg-stone-50 border border-transparent text-stone-600"
+                        ? "bg-indigo-50/50 border border-indigo-100/50 text-indigo-900"
+                        : "hover:bg-stone-50/40 border border-transparent text-stone-600"
                         }`}
                       onClick={() => {
                         setActiveChatId(c.id);
@@ -339,8 +339,8 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                     transition={{ delay: idx * 0.04, duration: 0.3 }}
                     whileHover={{ x: 2 }}
                     className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${isActive
-                      ? "bg-indigo-50 border border-indigo-100 text-indigo-900"
-                      : "hover:bg-stone-50 border border-transparent text-stone-600"
+                      ? "bg-indigo-50/50 border border-indigo-100/50 text-indigo-900"
+                      : "hover:bg-stone-50/40 border border-transparent text-stone-600"
                       }`}
                     onClick={() => {
                       if (!isGeneratingProject) {
@@ -512,7 +512,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => setShowProfileMenu(!showProfileMenu)}
-            className="flex items-center justify-between bg-stone-50 hover:bg-stone-100 p-2.5 rounded-xl border border-stone-200/40 cursor-pointer transition-colors"
+            className="flex items-center justify-between bg-stone-50/40 hover:bg-stone-100/40 p-2.5 rounded-xl border border-stone-200/30 cursor-pointer transition-colors"
           >
             <div className="flex items-center gap-2 overflow-hidden">
               <motion.div

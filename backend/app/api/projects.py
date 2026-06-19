@@ -114,6 +114,63 @@ def extract_architecture_context(project_doc: dict) -> dict:
         if project_doc.get(field)
     }
 
+def _map_project_doc(doc: dict) -> ProjectResponse:
+    if "_id" in doc and "id" not in doc:
+        doc["id"] = doc["_id"]
+    return ProjectResponse(
+        id=doc.get("id") or doc.get("_id"),
+        name=doc.get("name"),
+        category=doc.get("category"),
+        status=doc.get("status", "completed"),
+        progress=doc.get("progress", 100),
+        step=doc.get("step", ""),
+        summary=doc.get("summary", ""),
+        codebase=doc.get("codebase", []),
+        created=doc.get("created", ""),
+        user_id=doc.get("user_id"),
+        chat_id=doc.get("chat_id", ""),
+        theme=doc.get("theme"),
+        blueprint=doc.get("blueprint"),
+        theme_palette=doc.get("theme_palette"),
+        requirements=doc.get("requirements"),
+        planning=doc.get("planning"),
+        db_architecture=doc.get("db_architecture"),
+        backend_architecture=doc.get("backend_architecture"),
+        api_architecture=doc.get("api_architecture"),
+        frontend_architecture=doc.get("frontend_architecture"),
+        theme_styling=doc.get("theme_styling"),
+        auth_architecture=doc.get("auth_architecture"),
+        realtime_architecture=doc.get("realtime_architecture"),
+        state_management=doc.get("state_management"),
+        devops_architecture=doc.get("devops_architecture"),
+        security_architecture=doc.get("security_architecture"),
+        testing_architecture=doc.get("testing_architecture"),
+        validation_architecture=doc.get("validation_architecture"),
+        optimization_architecture=doc.get("optimization_architecture"),
+        code_generation_plan=doc.get("code_generation_plan"),
+        database_model_generation=doc.get("database_model_generation"),
+        backend_code_generation=doc.get("backend_code_generation"),
+        api_implementation=doc.get("api_implementation"),
+        frontend_code_generation=doc.get("frontend_code_generation"),
+        ui_component_generation=doc.get("ui_component_generation"),
+        state_implementation=doc.get("state_implementation"),
+        integration_generation=doc.get("integration_generation"),
+        build_compilation=doc.get("build_compilation"),
+        error_correction=doc.get("error_correction"),
+        project_export=doc.get("project_export"),
+        agent_context=doc.get("agent_context"),
+        hackathon_metadata=doc.get("hackathon_metadata"),
+        mcp_evidence=doc.get("mcp_evidence"),
+        prd=doc.get("prd"),
+        mrd=doc.get("mrd"),
+        trd=doc.get("trd"),
+        hitl_enabled=doc.get("hitl_enabled", True),
+        hitl_approved=doc.get("hitl_approved", False),
+        implementation_plan=doc.get("implementation_plan"),
+        validation_logs=doc.get("validation_logs", []),
+        generation_type=doc.get("generation_type", "full_stack")
+    )
+
 async def broadcast_agent_progress(db, project_id: str, progress: int, step: str) -> None:
     await db.projects.update_one(
         {"_id": project_id},
@@ -676,13 +733,14 @@ async def get_suggestions(category: str, current_user: dict = Depends(get_curren
 
 class SuggestBlueprintRequest(BaseModel):
     idea: str
+    generation_type: str = "full_stack"
 
 @router.post("/suggest-blueprint")
 async def suggest_blueprint(req: SuggestBlueprintRequest, current_user: dict = Depends(get_current_user)):
     if not req.idea.strip():
         raise HTTPException(status_code=400, detail="Project idea description is required")
     from app.services.ai import generate_single_project_suggestion
-    blueprint = await generate_single_project_suggestion(req.idea.strip())
+    blueprint = await generate_single_project_suggestion(req.idea.strip(), req.generation_type)
     return blueprint
 
 @router.get("", response_model=list[ProjectResponse])
@@ -691,58 +749,7 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
     cursor = db.projects.find({"user_id": current_user["id"]}).sort("created_at_dt", -1)
     projects = []
     async for doc in cursor:
-        projects.append(ProjectResponse(
-            id=doc["_id"],
-            name=doc["name"],
-            category=doc["category"],
-            status=doc.get("status", "completed"),
-            progress=doc.get("progress", 100),
-            step=doc.get("step", ""),
-            summary=doc.get("summary", ""),
-            codebase=doc.get("codebase", []),
-            created=doc.get("created", ""),
-            user_id=doc["user_id"],
-            chat_id=doc.get("chat_id", ""),
-            theme=doc.get("theme"),
-            blueprint=doc.get("blueprint"),
-            theme_palette=doc.get("theme_palette"),
-            requirements=doc.get("requirements"),
-            planning=doc.get("planning"),
-            db_architecture=doc.get("db_architecture"),
-            backend_architecture=doc.get("backend_architecture"),
-            api_architecture=doc.get("api_architecture"),
-            frontend_architecture=doc.get("frontend_architecture"),
-            theme_styling=doc.get("theme_styling"),
-            auth_architecture=doc.get("auth_architecture"),
-            realtime_architecture=doc.get("realtime_architecture"),
-            state_management=doc.get("state_management"),
-            devops_architecture=doc.get("devops_architecture"),
-            security_architecture=doc.get("security_architecture"),
-            testing_architecture=doc.get("testing_architecture"),
-            validation_architecture=doc.get("validation_architecture"),
-            optimization_architecture=doc.get("optimization_architecture"),
-            code_generation_plan=doc.get("code_generation_plan"),
-            database_model_generation=doc.get("database_model_generation"),
-            backend_code_generation=doc.get("backend_code_generation"),
-            api_implementation=doc.get("api_implementation"),
-            frontend_code_generation=doc.get("frontend_code_generation"),
-            ui_component_generation=doc.get("ui_component_generation"),
-            state_implementation=doc.get("state_implementation"),
-            integration_generation=doc.get("integration_generation"),
-            build_compilation=doc.get("build_compilation"),
-            error_correction=doc.get("error_correction"),
-            project_export=doc.get("project_export"),
-            agent_context=doc.get("agent_context"),
-            hackathon_metadata=doc.get("hackathon_metadata"),
-            mcp_evidence=doc.get("mcp_evidence"),
-            prd=doc.get("prd"),
-            mrd=doc.get("mrd"),
-            trd=doc.get("trd"),
-            hitl_enabled=doc.get("hitl_enabled", True),
-            hitl_approved=doc.get("hitl_approved", False),
-            implementation_plan=doc.get("implementation_plan"),
-            validation_logs=doc.get("validation_logs", [])
-        ))
+        projects.append(_map_project_doc(doc))
     return projects
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -751,58 +758,7 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
     doc = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
     if not doc:
         raise HTTPException(status_code=404, detail="Project not found")
-    return ProjectResponse(
-        id=doc["_id"],
-        name=doc["name"],
-        category=doc["category"],
-        status=doc.get("status", "completed"),
-        progress=doc.get("progress", 100),
-        step=doc.get("step", ""),
-        summary=doc.get("summary", ""),
-        codebase=doc.get("codebase", []),
-        created=doc.get("created", ""),
-        user_id=doc["user_id"],
-        chat_id=doc.get("chat_id", ""),
-        theme=doc.get("theme"),
-        blueprint=doc.get("blueprint"),
-        theme_palette=doc.get("theme_palette"),
-        requirements=doc.get("requirements"),
-        planning=doc.get("planning"),
-        db_architecture=doc.get("db_architecture"),
-        backend_architecture=doc.get("backend_architecture"),
-        api_architecture=doc.get("api_architecture"),
-        frontend_architecture=doc.get("frontend_architecture"),
-        theme_styling=doc.get("theme_styling"),
-        auth_architecture=doc.get("auth_architecture"),
-        realtime_architecture=doc.get("realtime_architecture"),
-        state_management=doc.get("state_management"),
-        devops_architecture=doc.get("devops_architecture"),
-        security_architecture=doc.get("security_architecture"),
-        testing_architecture=doc.get("testing_architecture"),
-        validation_architecture=doc.get("validation_architecture"),
-        optimization_architecture=doc.get("optimization_architecture"),
-        code_generation_plan=doc.get("code_generation_plan"),
-        database_model_generation=doc.get("database_model_generation"),
-        backend_code_generation=doc.get("backend_code_generation"),
-        api_implementation=doc.get("api_implementation"),
-        frontend_code_generation=doc.get("frontend_code_generation"),
-        ui_component_generation=doc.get("ui_component_generation"),
-        state_implementation=doc.get("state_implementation"),
-        integration_generation=doc.get("integration_generation"),
-        build_compilation=doc.get("build_compilation"),
-        error_correction=doc.get("error_correction"),
-        project_export=doc.get("project_export"),
-        agent_context=doc.get("agent_context"),
-        hackathon_metadata=doc.get("hackathon_metadata"),
-        mcp_evidence=doc.get("mcp_evidence"),
-        prd=doc.get("prd"),
-        mrd=doc.get("mrd"),
-        trd=doc.get("trd"),
-        hitl_enabled=doc.get("hitl_enabled", True),
-        hitl_approved=doc.get("hitl_approved", False),
-        implementation_plan=doc.get("implementation_plan"),
-        validation_logs=doc.get("validation_logs", [])
-    )
+    return _map_project_doc(doc)
 
 from pydantic import BaseModel as PydanticBaseModel
 
@@ -860,31 +816,7 @@ async def generate_documents_endpoint(
     
     await db.projects.insert_one(new_project)
     
-    return ProjectResponse(
-        id=project_id,
-        name=new_project["name"],
-        category=new_project["category"],
-        status=new_project["status"],
-        progress=new_project["progress"],
-        step=new_project["step"],
-        summary=new_project["summary"],
-        codebase=[],
-        created=new_project["created"],
-        user_id=new_project["user_id"],
-        chat_id=new_project["chat_id"],
-        theme=None,
-        blueprint=None,
-        theme_palette=None,
-        prd=new_project["prd"],
-        mrd=new_project["mrd"],
-        trd=new_project["trd"],
-        hackathon_metadata=new_project["hackathon_metadata"],
-        mcp_evidence=new_project["mcp_evidence"],
-        hitl_enabled=new_project.get("hitl_enabled", True),
-        hitl_approved=new_project.get("hitl_approved", False),
-        implementation_plan=new_project.get("implementation_plan"),
-        validation_logs=new_project.get("validation_logs", [])
-    )
+    return _map_project_doc(new_project)
 
 @router.post("", response_model=ProjectResponse)
 async def compile_project(
@@ -994,6 +926,7 @@ async def compile_project(
         "planning": planning,
         "implementation_plan": impl_plan,
         "validation_logs": [],
+        "generation_type": payload.generation_type or "full_stack",
     }
     
     await db.projects.insert_one(new_project)
@@ -1030,31 +963,7 @@ async def compile_project(
         {"$push": {"messages": start_msg}}
     )
     
-    return ProjectResponse(
-        id=project_id,
-        name=new_project["name"],
-        category=new_project["category"],
-        status=new_project["status"],
-        progress=new_project["progress"],
-        step=new_project["step"],
-        summary=new_project["summary"],
-        codebase=[],
-        created=new_project["created"],
-        user_id=new_project["user_id"],
-        chat_id=new_project["chat_id"],
-        theme=new_project["theme"],
-        blueprint=payload.blueprint,
-        theme_palette=payload.theme_palette,
-        prd=new_project["prd"],
-        mrd=new_project["mrd"],
-        trd=new_project["trd"],
-        hackathon_metadata=new_project["hackathon_metadata"],
-        mcp_evidence=new_project["mcp_evidence"],
-        hitl_enabled=new_project["hitl_enabled"],
-        hitl_approved=new_project["hitl_approved"],
-        implementation_plan=new_project["implementation_plan"],
-        validation_logs=new_project["validation_logs"]
-    )
+    return _map_project_doc(new_project)
 
 @router.post("/{project_id}/compile", response_model=ProjectResponse)
 async def compile_project_codebase(
@@ -1121,31 +1030,7 @@ async def compile_project_codebase(
     
     # Return updated project dict mapped to ProjectResponse
     updated_project = await db.projects.find_one({"_id": project_id})
-    return ProjectResponse(
-        id=updated_project["_id"],
-        name=updated_project["name"],
-        category=updated_project["category"],
-        status=updated_project["status"],
-        progress=updated_project["progress"],
-        step=updated_project["step"],
-        summary=updated_project["summary"],
-        codebase=[],
-        created=updated_project["created"],
-        user_id=updated_project["user_id"],
-        chat_id=updated_project["chat_id"],
-        theme=updated_project.get("theme"),
-        blueprint=blueprint,
-        theme_palette=theme_palette,
-        prd=updated_project.get("prd", ""),
-        mrd=updated_project.get("mrd", ""),
-        trd=updated_project.get("trd", ""),
-        hackathon_metadata=updated_project.get("hackathon_metadata"),
-        mcp_evidence=updated_project.get("mcp_evidence"),
-        hitl_enabled=updated_project.get("hitl_enabled", True),
-        hitl_approved=updated_project.get("hitl_approved", False),
-        implementation_plan=updated_project.get("implementation_plan"),
-        validation_logs=updated_project.get("validation_logs", [])
-    )
+    return _map_project_doc(updated_project)
 
 @router.put("/{project_id}")
 async def update_project(project_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
@@ -1212,31 +1097,7 @@ async def approve_project_plan(
     theme_palette_dict = updated_project.get("theme_palette")
     theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
     
-    return ProjectResponse(
-        id=updated_project["_id"],
-        name=updated_project["name"],
-        category=updated_project["category"],
-        status=updated_project["status"],
-        progress=updated_project["progress"],
-        step=updated_project["step"],
-        summary=updated_project["summary"],
-        codebase=[],
-        created=updated_project["created"],
-        user_id=updated_project["user_id"],
-        chat_id=updated_project["chat_id"],
-        theme=updated_project.get("theme"),
-        blueprint=blueprint,
-        theme_palette=theme_palette,
-        prd=updated_project.get("prd", ""),
-        mrd=updated_project.get("mrd", ""),
-        trd=updated_project.get("trd", ""),
-        hackathon_metadata=updated_project.get("hackathon_metadata"),
-        mcp_evidence=updated_project.get("mcp_evidence"),
-        hitl_enabled=updated_project.get("hitl_enabled", True),
-        hitl_approved=updated_project.get("hitl_approved", False),
-        implementation_plan=updated_project.get("implementation_plan"),
-        validation_logs=updated_project.get("validation_logs", [])
-    )
+    return _map_project_doc(updated_project)
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
@@ -1436,31 +1297,7 @@ async def force_export_project(project_id: str, current_user: dict = Depends(get
     theme_palette_dict = updated_project.get("theme_palette")
     theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
     
-    return ProjectResponse(
-        id=updated_project["_id"],
-        name=updated_project["name"],
-        category=updated_project["category"],
-        status=updated_project["status"],
-        progress=updated_project["progress"],
-        step=updated_project["step"],
-        summary=updated_project["summary"],
-        codebase=[],  # Omit in response to prevent bloated payloads
-        created=updated_project["created"],
-        user_id=updated_project["user_id"],
-        chat_id=updated_project["chat_id"],
-        theme=updated_project.get("theme"),
-        blueprint=blueprint,
-        theme_palette=theme_palette,
-        prd=updated_project.get("prd", ""),
-        mrd=updated_project.get("mrd", ""),
-        trd=updated_project.get("trd", ""),
-        hackathon_metadata=updated_project.get("hackathon_metadata"),
-        mcp_evidence=updated_project.get("mcp_evidence"),
-        hitl_enabled=updated_project.get("hitl_enabled", True),
-        hitl_approved=updated_project.get("hitl_approved", False),
-        implementation_plan=updated_project.get("implementation_plan"),
-        validation_logs=updated_project.get("validation_logs", [])
-    )
+    return _map_project_doc(updated_project)
 
 
 
