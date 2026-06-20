@@ -82,6 +82,28 @@ def get_downstream_agents(agent_name: str) -> List[str]:
 
 def build_agent_system_prompt(agent_name: str, responsibility: str) -> str:
     """Create one connected-agent system prompt used by every architecture agent."""
+    from app.services.llm_router import current_tech_stack, current_theme_palette, current_generation_type
+    
+    tech_stack = current_tech_stack.get()
+    theme_palette = current_theme_palette.get()
+    generation_type = current_generation_type.get()
+    
+    context_directives = ""
+    if generation_type:
+        context_directives += (
+            f"\n- TARGET SYSTEM SCOPE: '{generation_type}'. You must output designs, architectures, and integration parameters strictly aligned with this scope. "
+            "For example, if scope is 'frontend_only', your design must not specify custom backend API routing logic or database tables (assume third-party or mock API endpoints). "
+            "If scope is 'backend_only' or 'microservice', your design must exclude any user interface layouts, stylesheets, or page flows."
+        )
+    if tech_stack:
+        context_directives += f"\n- TARGET TECH STACK: {tech_stack}. You must output designs, architectures, and integration parameters that are optimized and compatible with this technology stack."
+    if theme_palette:
+        context_directives += (
+            f"\n- THEME DESIGN PALETTE: Primary: {theme_palette.get('primary')}, Secondary: {theme_palette.get('secondary')}, "
+            f"Text: {theme_palette.get('text')}, Background: {theme_palette.get('background')}, Border: {theme_palette.get('border')}, Dark Mode: {theme_palette.get('is_dark')}. "
+            "If you are a frontend or styling architect/agent, strictly conform all component aesthetics, styles, and custom visual variables to these values."
+        )
+        
     downstream = get_downstream_agents(agent_name)
     downstream_text = ", ".join(downstream) if downstream else "the final compiler"
     pipeline_text = " -> ".join(AGENT_PIPELINE)
@@ -91,6 +113,7 @@ def build_agent_system_prompt(agent_name: str, responsibility: str) -> str:
         f"Your responsibility: {responsibility}\n"
         "Treat every upstream JSON input as a binding contract. Preserve names, entities, routes, theme tokens, "
         "workflow labels, and security assumptions unless a direct conflict requires a correction.\n"
+        f"{context_directives}\n"
         f"Optimize your output for handoff to: {downstream_text}.\n"
         "Return ONLY valid JSON. Do NOT ask questions. Do NOT generate source code. Do NOT explain reasoning.\n"
         "Include an `agent_handoff` object in the JSON with: agent, role, upstream_agents, downstream_agents, "
@@ -503,11 +526,17 @@ def build_document_context(state: dict) -> str:
 
 
 def generate_agent_prompt(agent_role: str, state: dict) -> str:
+    from app.services.llm_router import current_generation_type
+    generation_type = state.get("generation_type") or current_generation_type.get()
+    
     base_template = """
     ROLE: {role_definition}
     
     PROJECT DOCUMENTATION (Source of Truth — align all outputs with these documents):
     {document_context}
+    
+    TARGET SYSTEM SCOPE:
+    {generation_type_context}
     
     UPSTREAM CONTEXT (BINDING CONTRACTS):
     - Requirements Context: {requirements_context}
@@ -529,9 +558,16 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     {json_output_schema}
     """
     
+    gen_scope_text = "Full Stack Application Development"
+    if generation_type == "frontend_only":
+        gen_scope_text = "Frontend-Only development scope. Your designs must NOT assume or require custom backend codebase services, DB schemas, or API routes beyond standard third-party or mock API calls."
+    elif generation_type in ("backend_only", "microservice"):
+        gen_scope_text = f"Backend-Only / {generation_type.capitalize()} development scope. Your designs must exclude user interface pages, React components, styles, or page flows."
+        
     return base_template.format(
         role_definition=get_role_definition(agent_role),
         document_context=build_document_context(state),
+        generation_type_context=gen_scope_text,
         requirements_context=json.dumps(state.get("requirements") or {})[:12000],
         plan_context=json.dumps(state.get("implementation_plan") or {})[:6000],
         active_state_context=json.dumps(state.get(get_required_state_keys(agent_role)) or {})[:12000],

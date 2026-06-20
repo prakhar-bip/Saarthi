@@ -384,15 +384,15 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                           {isCompiling ? (
                             <div className="mt-1">
                               {/* Live progress bar strip */}
-                              <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                              <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden">
                                 <motion.div
-                                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500"
+                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500"
                                   animate={{ width: `${p.progress}%` }}
                                   transition={{ duration: 0.6, ease: "easeOut" }}
                                 />
                               </div>
-                              <span className="text-[9px] text-amber-500 font-semibold mt-0.5 block">
-                                {p.progress}% — Compiling
+                              <span className="text-[9px] text-indigo-500 font-bold mt-1 block">
+                                {typeof p.progress === "number" ? p.progress.toFixed(1) : Number(p.progress || 0).toFixed(1)}% — Compiling
                               </span>
                             </div>
                           ) : (

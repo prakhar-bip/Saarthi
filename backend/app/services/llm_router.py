@@ -11,6 +11,10 @@ import os
 
 # Context variable for LangGraph to inject feedback on retries
 current_agent_feedback = contextvars.ContextVar("current_agent_feedback", default=None)
+current_tech_stack = contextvars.ContextVar("current_tech_stack", default=None)
+current_theme_palette = contextvars.ContextVar("current_theme_palette", default=None)
+current_generation_type = contextvars.ContextVar("current_generation_type", default=None)
+
 
 
 def map_google_model(model_name: str) -> str:
@@ -221,13 +225,10 @@ async def get_raw_llm_completion(
     Standard direct API client completion call without ADK or LangGraph wrapping.
     """
     _inject_platform_instruction(messages)
-    feedback = current_agent_feedback.get()
-    if feedback:
-        # Inject feedback into the last message
-        last_msg = messages[-1]
-        last_msg["content"] += f"\n\n--- IMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT ---\n{feedback}\nPlease ensure your JSON output is complete and not truncated."
-        logger.info(f"[{agent_name}] Injecting retry feedback into prompt.")
+    # Feedback injection moved to the top of get_llm_completion to cover all code paths
+
     # Determine preferred provider and model
+    has_google = settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GEMINI_API_KEY")
     if settings.ENVIRONMENT == "production":
         pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
@@ -271,10 +272,14 @@ async def get_raw_llm_completion(
         start_time = time.perf_counter()
         last_model_error = None
         
+        break_provider = False
         for model_item in models:
+            if break_provider:
+                break
             max_retries = 3
             for retry_attempt in range(max_retries):
                 try:
+                    reply = None
                     logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model_item}...")
                     
                     if provider in ("google", "gemini"):
@@ -308,9 +313,9 @@ async def get_raw_llm_completion(
                             config=config
                         )
                         reply = response.text
-                        
                     else:
-                        completion = client.chat.completions.create(
+                        completion = await asyncio.to_thread(
+                            client.chat.completions.create,
                             model=model_item,
                             messages=messages,
                             temperature=temperature,
@@ -345,6 +350,9 @@ async def get_raw_llm_completion(
                         continue
                     last_model_error = e
                     logger.warning(f"⚠️ Model {model_item} failed on {provider.upper()}: {e}")
+                    if "credentials" in str(e).lower() or "default credentials" in str(e).lower():
+                        logger.error(f"❌ Credentials/Auth error on {provider.upper()}. Skipping remaining models.")
+                        break_provider = True
                     break
                 
         # If we exhausted all models for this provider
@@ -498,6 +506,16 @@ async def get_llm_completion(
     """
     Primary wrapper for all agents.
     """
+    # Extract feedback context from previous attempt if present (enables self-healing globally)
+    feedback = current_agent_feedback.get()
+    if feedback:
+        logger.info(f"[{agent_name}] Injecting retry feedback into prompt at the top of get_llm_completion.")
+        if messages:
+            messages = [dict(m) for m in messages]
+            last_msg = messages[-1]
+            last_msg["content"] += f"\n\n--- IMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT ---\n{feedback}\nPlease ensure your JSON output is complete and not truncated."
+
+    has_google = settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GEMINI_API_KEY")
     if settings.ENVIRONMENT == "production":
         pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
@@ -593,7 +611,8 @@ async def get_llm_completion(
             user_message = Content(role="user", parts=[Part.from_text(text=user_prompt)])
             run_config = RunConfig(response_modalities=["TEXT"])
             
-            events = runner.run(
+            events = await asyncio.to_thread(
+                runner.run,
                 user_id=session.user_id,
                 session_id=session.id,
                 new_message=user_message,

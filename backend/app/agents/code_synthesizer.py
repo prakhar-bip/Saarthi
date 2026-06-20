@@ -133,8 +133,21 @@ class CodeSynthesizerAgent:
     @staticmethod
     def _extract_design_tokens(project_doc: Dict) -> Dict:
         theme = project_doc.get("theme_styling", {}) or {}
+        color_palette = theme.get("color_palette", {})
+        if not color_palette and project_doc.get("theme_palette"):
+            # Fallback to UI-selected theme palette
+            tp = project_doc.get("theme_palette")
+            color_palette = {
+                "primary": tp.get("primary"),
+                "secondary": tp.get("secondary"),
+                "background": tp.get("background"),
+                "card_bg": tp.get("card_bg"),
+                "text": tp.get("text"),
+                "border": tp.get("border"),
+                "is_dark": tp.get("is_dark")
+            }
         return {
-            "color_palette": theme.get("color_palette", {}),
+            "color_palette": color_palette,
             "typography": theme.get("typography_system", {}),
             "dark_mode": theme.get("dark_light_mode", {}),
             "component_styling": theme.get("component_styling", {}),
@@ -361,7 +374,8 @@ Return ONLY valid JSON — no markdown wrapper:
     def _build_frontend_prompt(self, info: Dict, entities: List[Dict], endpoints: List[Dict],
                                pages: List[Dict], tokens: Dict, stores: List[Dict],
                                backend_files: List[Dict], stack: Dict[str, Any],
-                               doc_context: Optional[Dict] = None) -> str:
+                               doc_context: Optional[Dict] = None, gen_type: str = "full_stack",
+                               phase: str = "all") -> str:
         entity_names = [e["name"] for e in entities]
         pages_text = "\n".join([f"  - {p['name']} at {p['route']} (protected={p.get('protected',False)})" for p in pages[:20]]) or "  Auto-generate: Landing, Login, Register, Dashboard + per-entity pages"
         colors_text = json.dumps(tokens.get("color_palette", {}), indent=2) if tokens.get("color_palette") else "Modern dark theme with vibrant accent — use slate/zinc base, blue/violet accents"
@@ -379,25 +393,48 @@ Return ONLY valid JSON — no markdown wrapper:
         
         if frontend_framework == "nextjs":
             tech = "Next.js 14 App Router, TypeScript, Tailwind CSS, Zustand, SWR, Framer Motion"
-            files_to_gen = """1. frontend/package.json — next@14, react@18, typescript, tailwindcss@3, zustand, swr, framer-motion, lucide-react, clsx, zod, @radix-ui/react-*
+            if phase == "config":
+                files_to_gen = """1. frontend/package.json — next@14, react@18, typescript, tailwindcss@3, zustand, swr, framer-motion, lucide-react, clsx, zod, @radix-ui/react-*
 2. frontend/tsconfig.json — path aliases @/*
 3. frontend/next.config.js — rewrites /api proxy to backend
 4. frontend/tailwind.config.ts — custom colors from palette, dark mode class, typography, spacing
 5. frontend/postcss.config.js
 6. frontend/src/app/globals.css — Tailwind directives + CSS variables from design system + custom styles
-7. frontend/src/app/layout.tsx — root layout, metadata, font (match typography system), providers
-8. frontend/src/app/page.tsx — beautiful landing page with hero, features, CTA
-9. frontend/src/app/(auth)/login/page.tsx — login form with validation
-10. frontend/src/app/(auth)/register/page.tsx — register form
-11. frontend/src/app/dashboard/page.tsx — main dashboard with stats + entity summaries
-12. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx — entity list + CRUD fully integrated with API
-13. frontend/src/utils/api.ts — axios/fetch client, auth headers, BASE_URL from env
-14. frontend/src/utils/auth.ts — token storage, refresh logic
-15. frontend/src/stores/useAuthStore.ts — Zustand auth state + persist
-16. FOR EACH ENTITY: frontend/src/stores/use<Entity>Store.ts — entity state
-17. FOR EACH ENTITY: frontend/src/hooks/use<Entity>.ts — SWR data hooks matching backend routes
-18. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx — styled using design system tokens
-19. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx — styled using layout and spacing tokens
+7. frontend/src/utils/api.ts — axios/fetch client, auth headers, BASE_URL from env
+8. frontend/src/utils/auth.ts — token storage, refresh logic
+9. frontend/src/stores/useAuthStore.ts — Zustand auth state + persist
+10. FOR EACH ENTITY: frontend/src/stores/use<Entity>Store.ts — entity state
+11. FOR EACH ENTITY: frontend/src/hooks/use<Entity>.ts — SWR data hooks matching backend routes
+12. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx — styled using design system tokens
+13. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx — styled using layout and spacing tokens"""
+            elif phase == "pages":
+                files_to_gen = """1. frontend/src/app/layout.tsx — root layout, metadata, font (match typography system), providers
+2. frontend/src/app/page.tsx — beautiful landing page with hero, features, CTA
+3. frontend/src/app/(auth)/login/page.tsx — login form with validation
+4. frontend/src/app/(auth)/register/page.tsx — register form
+5. frontend/src/app/dashboard/page.tsx — main dashboard with stats + entity summaries
+6. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx — entity list + CRUD fully integrated with API
+7. FOR EACH ENTITY: frontend/src/components/<Entity>/<Entity>List.tsx, <Entity>Form.tsx"""
+            else:
+                files_to_gen = """1. frontend/package.json
+2. frontend/tsconfig.json
+3. frontend/next.config.js
+4. frontend/tailwind.config.ts
+5. frontend/postcss.config.js
+6. frontend/src/app/globals.css
+7. frontend/src/app/layout.tsx
+8. frontend/src/app/page.tsx
+9. frontend/src/app/(auth)/login/page.tsx
+10. frontend/src/app/(auth)/register/page.tsx
+11. frontend/src/app/dashboard/page.tsx
+12. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx
+13. frontend/src/utils/api.ts
+14. frontend/src/utils/auth.ts
+15. frontend/src/stores/useAuthStore.ts
+16. FOR EACH ENTITY: frontend/src/stores/use<Entity>Store.ts
+17. FOR EACH ENTITY: frontend/src/hooks/use<Entity>.ts
+18. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx
+19. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx
 20. FOR EACH ENTITY: frontend/src/components/<Entity>/<Entity>List.tsx, <Entity>Form.tsx"""
             
             rules = """- 'use client' on client components, server components by default
@@ -412,20 +449,38 @@ Return ONLY valid JSON — no markdown wrapper:
 
         elif frontend_framework == "react":
             tech = "React (Vite SPA), TypeScript, Tailwind CSS, Zustand/Redux, Axios, React Router Dom"
-            files_to_gen = """1. frontend/package.json — react@18, react-dom@18, react-router-dom@6, typescript, tailwindcss@3, zustand, axios, lucide-react.
+            if phase == "config":
+                files_to_gen = """1. frontend/package.json — react@18, react-dom@18, react-router-dom@6, typescript, tailwindcss@3, zustand, axios, lucide-react.
 2. frontend/tsconfig.json
 3. frontend/vite.config.ts — proxy config
 4. frontend/index.html — entry html
 5. frontend/tailwind.config.js
 6. frontend/src/main.tsx — main bootstrap
-7. frontend/src/App.tsx — routing setup, navbar, sidebar, theme wrappers
-8. frontend/src/pages/Home.tsx — landing page
-9. frontend/src/pages/Login.tsx — login page
-10. frontend/src/pages/Register.tsx — signup page
-11. frontend/src/pages/Dashboard.tsx — dashboard stats
-12. FOR EACH ENTITY: frontend/src/pages/<Entity>Page.tsx — entity CRUD page
-13. frontend/src/utils/api.ts — axios client
-14. frontend/src/stores/useAuthStore.ts — auth store
+7. frontend/src/utils/api.ts — axios client
+8. frontend/src/stores/useAuthStore.ts — auth store
+9. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx"""
+            elif phase == "pages":
+                files_to_gen = """1. frontend/src/App.tsx — routing setup, navbar, sidebar, theme wrappers
+2. frontend/src/pages/Home.tsx — landing page
+3. frontend/src/pages/Login.tsx — login page
+4. frontend/src/pages/Register.tsx — signup page
+5. frontend/src/pages/Dashboard.tsx — dashboard stats
+6. FOR EACH ENTITY: frontend/src/pages/<Entity>Page.tsx — entity CRUD page"""
+            else:
+                files_to_gen = """1. frontend/package.json
+2. frontend/tsconfig.json
+3. frontend/vite.config.ts
+4. frontend/index.html
+5. frontend/tailwind.config.js
+6. frontend/src/main.tsx
+7. frontend/src/App.tsx
+8. frontend/src/pages/Home.tsx
+9. frontend/src/pages/Login.tsx
+10. frontend/src/pages/Register.tsx
+11. frontend/src/pages/Dashboard.tsx
+12. FOR EACH ENTITY: frontend/src/pages/<Entity>Page.tsx
+13. frontend/src/utils/api.ts
+14. frontend/src/stores/useAuthStore.ts
 15. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx"""
             
             rules = """- Use standard Vite React SPA routing.
@@ -435,13 +490,26 @@ Return ONLY valid JSON — no markdown wrapper:
 
         elif frontend_framework == "angular":
             tech = "Angular, TypeScript, CSS/SCSS, RxJS"
-            files_to_gen = """1. frontend/package.json — @angular/core, @angular/router, etc.
+            if phase == "config":
+                files_to_gen = """1. frontend/package.json — @angular/core, @angular/router, etc.
 2. frontend/angular.json — build configurations
 3. frontend/src/main.ts — angular bootstrap
 4. frontend/src/app/app.module.ts / app.config.ts
 5. frontend/src/app/app-routing.module.ts
+6. frontend/src/app/services/api.service.ts — Angular HttpClient service"""
+            elif phase == "pages":
+                files_to_gen = """1. frontend/src/app/app.component.ts & app.component.html
+2. frontend/src/app/components/login/login.component.ts & .html
+3. frontend/src/app/components/dashboard/dashboard.component.ts & .html
+4. FOR EACH ENTITY: frontend/src/app/components/<entity>/<entity>.component.ts & .html"""
+            else:
+                files_to_gen = """1. frontend/package.json
+2. frontend/angular.json
+3. frontend/src/main.ts
+4. frontend/src/app/app.module.ts / app.config.ts
+5. frontend/src/app/app-routing.module.ts
 6. frontend/src/app/app.component.ts & app.component.html
-7. frontend/src/app/services/api.service.ts — Angular HttpClient service
+7. frontend/src/app/services/api.service.ts
 8. frontend/src/app/components/login/login.component.ts & .html
 9. frontend/src/app/components/dashboard/dashboard.component.ts & .html
 10. FOR EACH ENTITY: frontend/src/app/components/<entity>/<entity>.component.ts & .html"""
@@ -451,16 +519,30 @@ Return ONLY valid JSON — no markdown wrapper:
 
         elif frontend_framework == "vue":
             tech = "Vue 3, TypeScript, Pinia, Vue Router, Tailwind CSS"
-            files_to_gen = """1. frontend/package.json — vue@3, vue-router@4, pinia, axios, tailwindcss.
+            if phase == "config":
+                files_to_gen = """1. frontend/package.json — vue@3, vue-router@4, pinia, axios, tailwindcss.
+2. frontend/vite.config.ts
+3. frontend/src/main.ts
+4. frontend/src/router/index.ts
+5. frontend/src/stores/auth.ts — Pinia auth store
+6. frontend/src/components/ui/Button.vue, Card.vue"""
+            elif phase == "pages":
+                files_to_gen = """1. frontend/src/App.vue
+2. frontend/src/views/Home.vue — landing view
+3. frontend/src/views/Login.vue — login form
+4. frontend/src/views/Dashboard.vue — dashboard
+5. FOR EACH ENTITY: frontend/src/views/<Entity>View.vue — CRUD view"""
+            else:
+                files_to_gen = """1. frontend/package.json
 2. frontend/vite.config.ts
 3. frontend/src/main.ts
 4. frontend/src/App.vue
 5. frontend/src/router/index.ts
-6. frontend/src/stores/auth.ts — Pinia auth store
-7. frontend/src/views/Home.vue — landing view
-8. frontend/src/views/Login.vue — login form
-9. frontend/src/views/Dashboard.vue — dashboard
-10. FOR EACH ENTITY: frontend/src/views/<Entity>View.vue — CRUD view
+6. frontend/src/stores/auth.ts
+7. frontend/src/views/Home.vue
+8. frontend/src/views/Login.vue
+9. frontend/src/views/Dashboard.vue
+10. FOR EACH ENTITY: frontend/src/views/<Entity>View.vue
 11. frontend/src/components/ui/Button.vue, Card.vue"""
             
             rules = """- Use Vue 3 Composition API with <script setup lang="ts">.
@@ -484,8 +566,28 @@ Implementation Plan: {doc_context['implementation_plan']}
 
 MINIMUM SCOPE REQUIREMENT: You MUST generate a production-ready frontend containing AT LEAST 5 major pages/modules/screens as described in the PRD (Dashboard, User Management, Analytics, Settings, Forms, etc.). Do not generate single-page toy apps. 
 """
+        rule_list = [
+            "Apply design system tokens consistently to guarantee visual cohesion.",
+            "NEVER truncate any component return statement. ALL components must be fully fleshed out.",
+            "Ensure all pages and routes defined in the PRD are fully coded and linked via Links."
+        ]
+        if gen_type == "frontend_only":
+            rule_list.append("FRONTEND ONLY SIMULATION: Since there is no custom backend API server in this scope, you MUST implement fully functional mockup services, simulated data, or LocalStorage sync inside your stores/API hooks/utility files to ensure CRUD operations and auth login/signup flows are fully interactive. The app must run and be fully interactive without requesting or needing a backend server.")
+        else:
+            rule_list.append("NO static/mock data — ALL data from API")
+            
+        rule_directives = "\n".join(f"- {r}" for r in rule_list)
 
-        return f"""Generate the COMPLETE frontend codebase for "{info['name']}" using {frontend_framework.upper()} tech stack.
+        if phase == "config":
+            task_desc = f"Generate the CONFIGURATION files, Tailwind/postCSS config, utility services, client store hooks, and reusable UI components of the frontend codebase for \"{info['name']}\" using {frontend_framework.upper()} tech stack."
+            rule_directives += "\n- Focus ONLY on generating setup, configurations, stores, helper functions, and base styled components. DO NOT generate individual page files or pages views yet."
+        elif phase == "pages":
+            task_desc = f"Generate the PAGES/VIEWS, layouts, and routing components of the frontend codebase for \"{info['name']}\" using {frontend_framework.upper()} tech stack."
+            rule_directives += "\n- Focus ONLY on generating application views, routing pages, forms, lists, and layout shells that import the UI components and stores designed in the configuration phase."
+        else:
+            task_desc = f"Generate the COMPLETE frontend codebase for \"{info['name']}\" using {frontend_framework.upper()} tech stack."
+
+        return f"""{task_desc}
 Description: {info['description']}
 {doc_section}
 TECH: {tech}
@@ -525,10 +627,7 @@ FILES TO GENERATE (COMPLETE code, NO placeholders or truncated components):
 
 CRITICAL RULES FOR PRODUCTION-READY FRONTEND:
 {rules}
-- Apply design system tokens consistently to guarantee visual cohesion.
-- NEVER truncate any component return statement. ALL components must be fully fleshed out.
-- NO static/mock data — ALL data from API
-- Ensure all pages and routes defined in the PRD are fully coded and linked via Links.
+{rule_directives}
 
 Return ONLY valid JSON:
 {{
@@ -627,6 +726,7 @@ CRITICAL RULES FOR PRODUCTION-READY INFRASTRUCTURE:
 - README must have WORKING quick-start commands and detailed API instructions.
 - shared/types must match backend Pydantic schemas field-for-field absolutely.
 - Tests must have REAL assertions (not just pass) covering the real generated API routes. Ensure every test implements full setup, execution, and teardown where applicable.
+- If DATABASE is mongodb, do NOT use or import SQLAlchemy or SQLite in backend/tests/conftest.py or other test files. Mock MongoDB or use Motor client fixtures, and only override the MongoDB client/db dependencies.
 - No '...', 'TBD', or omitted steps.
 
 Return ONLY valid JSON:
@@ -686,10 +786,13 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
 
     async def _run_phase(self, phase_name: str, prompt: str,
                          db: Any, project_id: str,
-                         progress: int, step: str) -> List[Dict]:
-        """Execute one synthesis phase via LLM."""
+                         progress: int | float, step: str) -> List[Dict]:
+        """Execute one synthesis phase via LLM with a 3-attempt self-healing feedback retry loop."""
         from app.services.workflow import broadcast_agent_progress
+        from app.core.logger import SarthiConsoleLogger
+        
         await broadcast_agent_progress(db, project_id, progress, step)
+        await SarthiConsoleLogger.log_agent_start(db, project_id, f"CodeSynthesizer_{phase_name}", f"Starting synthesis phase '{phase_name}'")
 
         system = (
             f"You are Sarthi's CodeSynthesizer — a world-class AI code compiler. "
@@ -704,34 +807,64 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
             "- Return ONLY valid JSON — absolutely no markdown code fences"
         )
 
-        try:
-            raw = await get_llm_completion(
-                agent_name=f"CodeSynthesizer_{phase_name}",
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.15,
-                max_tokens=100000,
-            )
-            data = parse_json_response(raw.strip())
-            files = data.get("codebase", [])
-            # Validate file structure
-            valid_files = []
-            for f in files:
-                if isinstance(f, dict) and f.get("path") and f.get("content"):
-                    if not f.get("name"):
-                        f["name"] = f["path"].split("/")[-1]
-                    if not f.get("language"):
-                        f["language"] = self._detect_language(f["path"])
-                    valid_files.append(f)
-            logger.info(f"[CodeSynthesizer] Phase '{phase_name}': {len(valid_files)} files generated")
-            for vf in valid_files:
-                logger.info(f"  📄 {vf['path']} ({len(vf.get('content',''))} chars)")
-            return valid_files
-        except Exception as e:
-            logger.error(f"[CodeSynthesizer] Phase '{phase_name}' FAILED: {e}")
-            return []
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                raw = await get_llm_completion(
+                    agent_name=f"CodeSynthesizer_{phase_name}",
+                    messages=messages,
+                    temperature=0.15,
+                    max_tokens=100000,
+                )
+                data = parse_json_response(raw.strip())
+                files = data.get("codebase", [])
+                
+                # Validate file structure
+                valid_files = []
+                for f in files:
+                    if isinstance(f, dict) and f.get("path") and f.get("content"):
+                        if not f.get("name"):
+                            f["name"] = f["path"].split("/")[-1]
+                        if not f.get("language"):
+                            f["language"] = self._detect_language(f["path"])
+                        valid_files.append(f)
+                        
+                logger.info(f"[CodeSynthesizer] Phase '{phase_name}': {len(valid_files)} files generated")
+                for vf in valid_files:
+                    logger.info(f"  📄 {vf['path']} ({len(vf.get('content',''))} chars)")
+                
+                await SarthiConsoleLogger.log_success(db, project_id, f"CodeSynthesizer_{phase_name}", f"Successfully synthesized {len(valid_files)} files for phase '{phase_name}'")
+                return valid_files
+
+            except Exception as e:
+                err_msg = f"Attempt {attempt + 1}/{max_attempts} failed for phase '{phase_name}': {str(e)}"
+                logger.warning(f"[CodeSynthesizer] {err_msg}")
+                await SarthiConsoleLogger.log_healing(db, project_id, f"CodeSynthesizer_{phase_name}", f"Warning: {err_msg}")
+                
+                if attempt < max_attempts - 1:
+                    # Capture assistant response or standard failure message
+                    raw_response = locals().get("raw", "No response returned due to request error")
+                    messages.append({"role": "assistant", "content": raw_response})
+                    
+                    correction_prompt = (
+                        f"Your previous JSON output was invalid and could not be parsed.\n"
+                        f"Error encountered: {type(e).__name__}: {str(e)}\n"
+                        f"Please carefully analyze your previous output and correct it. Make sure you output the complete and valid JSON with double quotes correctly closed and standard delimiters present. Do not truncate any files."
+                    )
+                    messages.append({"role": "user", "content": correction_prompt})
+                    
+                    # Update progress and UI
+                    retry_step = f"🩹 Healing: Retrying {phase_name} (Attempt {attempt + 2}/{max_attempts})..."
+                    await broadcast_agent_progress(db, project_id, progress, retry_step)
+                else:
+                    logger.error(f"[CodeSynthesizer] All {max_attempts} attempts failed for phase '{phase_name}'")
+                    await SarthiConsoleLogger.log_error(db, project_id, f"CodeSynthesizer_{phase_name}", f"All {max_attempts} attempts failed: {str(e)}")
+                    return []
 
     @staticmethod
     def _detect_language(path: str) -> str:
@@ -877,6 +1010,21 @@ Return ONLY the files you have repaired or created in the following JSON format:
   ]
 }}"""
 
+    @staticmethod
+    async def _store_intermediate(db: Any, project_id: str, files: List[Dict], phase: str) -> None:
+        """Store intermediate codebase files in MongoDB to enable resume capability."""
+        try:
+            logger.info(f"[CodeSynthesizer] Storing intermediate codebase ({len(files)} files) for phase '{phase}'")
+            await db.projects.update_one(
+                {"_id": project_id},
+                {"$set": {
+                    "synthesized_codebase": files,
+                    "last_synthesis_phase": phase
+                }}
+            )
+        except Exception as e:
+            logger.error(f"[CodeSynthesizer] Failed to store intermediate codebase: {e}")
+
     async def synthesize(self, project_doc: Dict, db: Any, project_id: str,
                          validation_errors: Optional[List[Dict]] = None,
                          existing_codebase: Optional[List[Dict]] = None) -> List[Dict]:
@@ -906,12 +1054,15 @@ Return ONLY the files you have repaired or created in the following JSON format:
         # ── Enforce minimum entities from features (Only if not frontend_only) ──
         if gen_type != "frontend_only":
             if not entities or len(entities) < 2:
+                from app.services.project_assembler import _pascal_case, _pluralize, _snake_case
                 for feat in info.get('features', [])[:8]:
                     if isinstance(feat, str):
-                        entity_name = feat.replace(' ', '').replace('-', '')
+                        entity_name = _pascal_case(feat)
+                        route_name = _pluralize(_snake_case(entity_name)).replace("_", "-")
                         if entity_name and entity_name not in [e['name'] for e in entities]:
                             entities.append({
                                 'name': entity_name,
+                                'route': route_name,
                                 'fields': [
                                     {'name': 'id', 'type': 'string', 'required': True, 'indexed': True},
                                     {'name': 'name', 'type': 'string', 'required': True, 'indexed': False},
@@ -964,15 +1115,29 @@ Return ONLY the files you have repaired or created in the following JSON format:
             all_files.extend(backend_files)
             await self._store_intermediate(db, project_id, all_files, "phase_backend")
 
-        # ── Phase 2: Frontend ──
-        frontend_files = []
+        # ── Phase 2A: Frontend Configuration & UI Components ──
+        frontend_config_files = []
         if gen_type not in ("backend_only", "microservice"):
-            frontend_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
-                                                          tokens, stores, backend_files, stack, doc_context)
-            frontend_files = await self._run_phase("Frontend", frontend_prompt, db, project_id, 74,
-                                                   "🎨 Synthesizing Frontend Code...")
-            all_files.extend(frontend_files)
-            await self._store_intermediate(db, project_id, all_files, "phase_frontend")
+            frontend_config_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
+                                                                 tokens, stores, backend_files, stack, doc_context, gen_type,
+                                                                 phase="config")
+            frontend_config_files = await self._run_phase("FrontendConfig", frontend_config_prompt, db, project_id, 70,
+                                                          "🎨 Synthesizing Frontend Configuration & UI Components...")
+            all_files.extend(frontend_config_files)
+            await self._store_intermediate(db, project_id, all_files, "phase_frontend_config")
+
+        # ── Phase 2B: Frontend Routing & Views ──
+        frontend_pages_files = []
+        if gen_type not in ("backend_only", "microservice"):
+            frontend_pages_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
+                                                                tokens, stores, backend_files, stack, doc_context, gen_type,
+                                                                phase="pages")
+            frontend_pages_files = await self._run_phase("FrontendPages", frontend_pages_prompt, db, project_id, 78,
+                                                         "🎨 Synthesizing Frontend Routing & Views...")
+            all_files.extend(frontend_pages_files)
+            await self._store_intermediate(db, project_id, all_files, "phase_frontend_pages")
+
+        frontend_files = frontend_config_files + frontend_pages_files
 
         # ── Phase 3: Infrastructure ──
         infra_prompt = self._build_infra_prompt(info, entities, db_type, backend_files, frontend_files, doc_context, gen_type)
@@ -1086,9 +1251,113 @@ Return ONLY the files you have repaired or created in the following JSON format:
                     "content": "fastapi>=0.104.0\nuvicorn[standard]>=0.24.0\nmotor>=3.3.0\npydantic>=2.5.0\npydantic-settings>=2.1.0\npython-jose[cryptography]>=3.3.0\npasslib[bcrypt]>=1.7.4\npython-multipart>=0.0.6\npython-dotenv>=1.0.0\nhttpx>=0.25.0\npytest>=7.4.0\npytest-asyncio>=0.21.0\n"
                 })
 
+            if gen_type != "frontend_only" and "backend/app/database.py" not in existing:
+                db_content = ""
+                if db_type == "mongodb":
+                    db_content = '''import os
+from motor.motor_asyncio import AsyncIOMotorClient
+
+client = None
+db = None
+
+async def connect_db():
+    global client, db
+    mongo_url = os.getenv("DATABASE_URL", "mongodb://localhost:27017")
+    client = AsyncIOMotorClient(mongo_url)
+    db = client.get_default_database()
+
+async def close_db():
+    global client
+    if client:
+        client.close()
+'''
+                else:
+                    db_content = '''async def connect_db():
+    pass
+
+async def close_db():
+    pass
+'''
+                boilerplate.append({
+                    "name": "database.py",
+                    "path": "backend/app/database.py",
+                    "language": "python",
+                    "content": db_content
+                })
+
+            if gen_type != "frontend_only" and "backend/app/api/auth.py" not in existing:
+                boilerplate.append({
+                    "name": "auth.py",
+                    "path": "backend/app/api/auth.py",
+                    "language": "python",
+                    "content": '''from fastapi import APIRouter
+from pydantic import BaseModel
+
+router = APIRouter()
+
+class AuthPayload(BaseModel):
+    email: str
+    password: str
+    name: str = None
+
+@router.post("/signup")
+async def signup(payload: AuthPayload):
+    return {"access_token": "dummy-token", "token_type": "bearer"}
+
+@router.post("/login")
+async def login(payload: AuthPayload):
+    return {"access_token": "dummy-token", "token_type": "bearer"}
+'''
+                })
+
+            if gen_type != "frontend_only":
+                if "backend/app/api/__init__.py" not in existing:
+                    boilerplate.append({
+                        "name": "__init__.py",
+                        "path": "backend/app/api/__init__.py",
+                        "language": "python",
+                        "content": ""
+                    })
+                if "backend/app/api/v1/__init__.py" not in existing:
+                    boilerplate.append({
+                        "name": "__init__.py",
+                        "path": "backend/app/api/v1/__init__.py",
+                        "language": "python",
+                        "content": ""
+                    })
+                for e in entities:
+                    route_name = e.get("route", e["name"].lower() + "s")
+                    module_name = route_name.replace("-", "_")
+                    ep_path = f"backend/app/api/v1/{module_name}.py"
+                    if ep_path not in existing:
+                        boilerplate.append({
+                            "name": f"{module_name}.py",
+                            "path": ep_path,
+                            "language": "python",
+                            "content": f'''from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/")
+async def get_{module_name}():
+    return {{"items": [{{"id": "smoke-id-123", "title": "Smoke item"}}]}}
+
+@router.post("/")
+async def create_{module_name}(data: dict):
+    return {{"item": {{"id": "smoke-id-123", **data}}}}
+'''
+                        })
+
             if gen_type != "frontend_only" and "backend/app/main.py" not in existing:
-                imports_models = "\n".join([f"from app.api.v1 import {n.lower()}s" for n in entity_names])
-                includes = "\n".join([f'    app.include_router({n.lower()}s.router, prefix="/api/v1/{n.lower()}s", tags=["{n}s"])' for n in entity_names])
+                imports_list = []
+                includes_list = []
+                for e in entities:
+                    route_name = e.get("route", e["name"].lower() + "s")
+                    module_name = route_name.replace("-", "_")
+                    imports_list.append(f"from app.api.v1 import {module_name}")
+                    includes_list.append(f'app.include_router({module_name}.router, prefix="/api/v1/{route_name}", tags=["{e["name"]}s"])')
+                imports_models = "\n".join(imports_list)
+                includes = "\n".join(includes_list)
                 boilerplate.append({
                     "name": "main.py",
                     "path": "backend/app/main.py",
@@ -1108,10 +1377,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="{info['name']}", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 {includes}
 
-@app.get("/api/health")
+@app.get("/api/v1/health")
 async def health():
     return {{"status": "healthy"}}
 '''

@@ -158,7 +158,11 @@ def assemble_project_codebase(
     """
     model = _build_project_model(project_doc)
     deterministic_files = _generate_deterministic_files(model)
-    merged_codebase = _merge_codebases(ai_codebase or [], deterministic_files)
+    merged_codebase = _merge_codebases(
+        ai_codebase or [], 
+        deterministic_files, 
+        model.get("generation_type", "full_stack")
+    )
     quality_report = validate_generated_codebase(merged_codebase, model)
     summary = _build_summary(model, quality_report)
 
@@ -550,25 +554,88 @@ def _generate_deterministic_files(model: Mapping[str, Any]) -> List[Dict[str, An
     ]
     
     gen_type = model.get("generation_type", "full_stack")
-    if stack["is_default"]:
-        if gen_type != "frontend_only":
+    
+    # ---- Dynamic Backend Setup ----
+    if gen_type != "frontend_only":
+        be = stack.get("backend", "fastapi")
+        if be == "fastapi":
             files.extend([
                 _file("backend/requirements.txt", "plaintext", _render_backend_requirements()),
                 _file("backend/app/__init__.py", "python", ""),
                 _file("backend/app/main.py", "python", _render_backend_main(model)),
                 _file("backend/tests/test_smoke.py", "python", _render_backend_tests(model)),
             ])
-        if gen_type not in ("backend_only", "microservice"):
+        elif be == "django":
             files.extend([
-                _file("frontend/package.json", "json", _render_frontend_package(model)),
+                _file("backend/requirements.txt", "plaintext", "django>=4.2.0\ndjangorestframework>=3.14.0\ndjango-cors-headers>=4.0.0\ngunicorn>=20.1.0\n"),
+                _file("backend/manage.py", "python", _render_django_manage()),
+                _file("backend/app/__init__.py", "python", ""),
+                _file("backend/app/settings.py", "python", _render_django_settings(model)),
+                _file("backend/app/urls.py", "python", _render_django_urls()),
+                _file("backend/app/wsgi.py", "python", _render_django_wsgi()),
+            ])
+        elif be == "flask":
+            files.extend([
+                _file("backend/requirements.txt", "plaintext", "Flask>=2.3.0\nFlask-Cors>=3.0.0\ngunicorn>=20.1.0\n"),
+                _file("backend/app.py", "python", _render_flask_app(model)),
+            ])
+        else:
+            files.extend([
+                _file("backend/requirements.txt", "plaintext", _render_backend_requirements()),
+                _file("backend/app/main.py", "python", _render_backend_main(model)),
+            ])
+
+    # ---- Dynamic Frontend Setup ----
+    if gen_type not in ("backend_only", "microservice"):
+        fe = stack.get("frontend", "nextjs")
+        if fe == "nextjs":
+            files.extend([
+                _file("frontend/package.json", "json", _render_frontend_package(model, "nextjs")),
                 _file("frontend/tsconfig.json", "json", _render_tsconfig()),
                 _file("frontend/next.config.js", "javascript", _render_next_config()),
+                _file("frontend/tailwind.config.ts", "typescript", _render_tailwind_config("nextjs")),
+                _file("frontend/postcss.config.js", "javascript", _render_postcss_config()),
                 _file("frontend/src/app/layout.tsx", "typescript", _render_layout(model)),
                 _file("frontend/src/app/page.tsx", "typescript", _render_frontend_page()),
                 _file("frontend/src/app/globals.css", "css", _render_globals_css(model)),
                 _file("frontend/src/components/EntityWorkspace.tsx", "typescript", _render_entity_workspace()),
                 _file("frontend/src/lib/api.ts", "typescript", _render_api_client()),
                 _file("frontend/src/lib/project.ts", "typescript", _render_project_contract(model)),
+            ])
+        elif fe == "react":
+            files.extend([
+                _file("frontend/package.json", "json", _render_frontend_package(model, "react")),
+                _file("frontend/tsconfig.json", "json", _render_tsconfig_react()),
+                _file("frontend/vite.config.ts", "typescript", _render_vite_config(model)),
+                _file("frontend/index.html", "html", _render_vite_html(model)),
+                _file("frontend/tailwind.config.js", "javascript", _render_tailwind_config("react")),
+                _file("frontend/postcss.config.js", "javascript", _render_postcss_config()),
+                _file("frontend/src/main.tsx", "typescript", _render_react_main()),
+                _file("frontend/src/App.tsx", "typescript", _render_react_app(model)),
+                _file("frontend/src/index.css", "css", _render_globals_css(model)),
+                _file("frontend/src/components/EntityWorkspace.tsx", "typescript", _render_entity_workspace()),
+                _file("frontend/src/lib/api.ts", "typescript", _render_api_client()),
+                _file("frontend/src/lib/project.ts", "typescript", _render_project_contract(model)),
+            ])
+        elif fe == "vue":
+            files.extend([
+                _file("frontend/package.json", "json", _render_frontend_package(model, "vue")),
+                _file("frontend/tsconfig.json", "json", _render_tsconfig_vue()),
+                _file("frontend/vite.config.ts", "typescript", _render_vite_config_vue(model)),
+                _file("frontend/index.html", "html", _render_vite_html_vue(model)),
+                _file("frontend/tailwind.config.js", "javascript", _render_tailwind_config("vue")),
+                _file("frontend/postcss.config.js", "javascript", _render_postcss_config()),
+                _file("frontend/src/main.ts", "typescript", _render_vue_main()),
+                _file("frontend/src/App.vue", "vue", _render_vue_app(model)),
+                _file("frontend/src/assets/main.css", "css", _render_globals_css(model)),
+                _file("frontend/src/components/EntityWorkspace.tsx", "typescript", _render_entity_workspace()),
+                _file("frontend/src/lib/api.ts", "typescript", _render_api_client()),
+                _file("frontend/src/lib/project.ts", "typescript", _render_project_contract(model)),
+            ])
+        else:
+            files.extend([
+                _file("frontend/package.json", "json", _render_frontend_package(model, "nextjs")),
+                _file("frontend/src/app/globals.css", "css", _render_globals_css(model)),
             ])
         
     quality_report = validate_generated_codebase(files, model)
@@ -583,18 +650,34 @@ def _generate_deterministic_files(model: Mapping[str, Any]) -> List[Dict[str, An
 def _merge_codebases(
     ai_codebase: Iterable[Mapping[str, Any]],
     deterministic_files: List[Dict[str, Any]],
+    gen_type: str = "full_stack",
 ) -> List[Dict[str, Any]]:
     merged: Dict[str, Dict[str, Any]] = {}
 
     # 1. First, lay down deterministic baseline (boilerplate)
     for file in deterministic_files:
-        merged[file["path"]] = file
+        path = _clean_path(file["path"])
+        
+        # Isolation safeguards: filter out files from irrelevant modules
+        if gen_type == "frontend_only" and (path.startswith("backend/") or path.startswith("backend\\")):
+            continue
+        if gen_type in ("backend_only", "microservice") and (path.startswith("frontend/") or path.startswith("frontend\\")):
+            continue
+            
+        merged[path] = file
 
     # 2. Then overlay AI-synthesized files — they take priority when non-empty
     for file in ai_codebase:
         path = _clean_path(str(file.get("path") or file.get("name") or ""))
         if not path:
             continue
+            
+        # Isolation safeguards: filter out files from irrelevant modules
+        if gen_type == "frontend_only" and (path.startswith("backend/") or path.startswith("backend\\")):
+            continue
+        if gen_type in ("backend_only", "microservice") and (path.startswith("frontend/") or path.startswith("frontend\\")):
+            continue
+            
         content = str(file.get("content") or "")
         # Only override deterministic file if synthesized content is substantial
         if path in merged and len(content.strip()) < 20:
@@ -881,8 +964,8 @@ def _render_backend_main(model: Mapping[str, Any]) -> str:
         }
         for entity in model.get("entities", [])
     }
-    registry_json = json.dumps(registry, indent=4)
-    feature_json = json.dumps(model.get("features", []), indent=4)
+    registry_repr = repr(registry)
+    feature_repr = repr(model.get("features", []))
     project_name = json.dumps(model["name"])
     description = json.dumps(model["description"])
     return f'''from datetime import datetime, timedelta, timezone
@@ -899,8 +982,8 @@ from pydantic import BaseModel, Field
 
 PROJECT_NAME = {project_name}
 PROJECT_DESCRIPTION = {description}
-FEATURES = {feature_json}
-ENTITY_REGISTRY: Dict[str, Dict[str, Any]] = {registry_json}
+FEATURES = {feature_repr}
+ENTITY_REGISTRY: Dict[str, Dict[str, Any]] = {registry_repr}
 
 JWT_SECRET = os.getenv("JWT_SECRET", "change-this-secret-before-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
@@ -1182,29 +1265,437 @@ def test_authenticated_crud_flow():
 '''
 
 
-def _render_frontend_package(model: Mapping[str, Any]) -> str:
+def _render_postcss_config() -> str:
+    return """module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+"""
+
+def _render_tailwind_config(framework: str) -> str:
+    content_paths = ""
+    if framework == "nextjs":
+        content_paths = '"./src/**/*.{js,ts,jsx,tsx}"'
+    else:
+        content_paths = '"./index.html", "./src/**/*.{js,ts,jsx,tsx,vue}"'
+        
+    return f"""/** @type {{import('tailwindcss').Config}} */
+module.exports = {{
+  content: [
+    {content_paths}
+  ],
+  theme: {{
+    extend: {{}},
+  }},
+  plugins: [],
+}};
+"""
+
+def _render_tsconfig_react() -> str:
+    return json.dumps({
+        "compilerOptions": {
+            "target": "ES2020",
+            "useDefineForClassFields": True,
+            "lib": ["DOM", "DOM.Iterable", "ES2020"],
+            "module": "ESNext",
+            "skipLibCheck": True,
+            "moduleResolution": "bundler",
+            "allowImportingTsExtensions": True,
+            "resolveJsonModule": True,
+            "isolatedModules": True,
+            "noEmit": True,
+            "jsx": "react-jsx",
+            "strict": True,
+            "noUnusedLocals": True,
+            "noUnusedParameters": True,
+            "noFallthroughCasesInSwitch": True,
+            "paths": {
+                "@/*": ["./src/*"]
+            }
+        },
+        "include": ["src"],
+        "exclude": ["node_modules"]
+    }, indent=2)
+
+def _render_tsconfig_vue() -> str:
+    return json.dumps({
+        "compilerOptions": {
+            "target": "ESNext",
+            "useDefineForClassFields": True,
+            "module": "ESNext",
+            "moduleResolution": "Node",
+            "strict": True,
+            "jsx": "preserve",
+            "resolveJsonModule": True,
+            "isolatedModules": True,
+            "esModuleInterop": True,
+            "lib": ["ESNext", "DOM"],
+            "skipLibCheck": True,
+            "paths": {
+                "@/*": ["./src/*"]
+            }
+        },
+        "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
+        "exclude": ["node_modules"]
+    }, indent=2)
+
+def _render_vite_config(model: Mapping[str, Any]) -> str:
+    return """import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+});
+"""
+
+def _render_vite_config_vue(model: Mapping[str, Any]) -> str:
+    return """import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+});
+"""
+
+def _render_vite_html(model: Mapping[str, Any]) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{model['name']}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+"""
+
+def _render_vite_html_vue(model: Mapping[str, Any]) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{model['name']}</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+"""
+
+def _render_react_main() -> str:
+    return """import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+"""
+
+def _render_react_app(model: Mapping[str, Any]) -> str:
+    return f"""import React from 'react';
+import {{ EntityWorkspace }} from './components/EntityWorkspace';
+import {{ PROJECT }} from './lib/project';
+
+function App() {{
+  return (
+    <main className="shell">
+      <section className="topbar">
+        <div>
+          <p className="eyebrow">Sarthi generated React application</p>
+          <h1>{{PROJECT.name}}</h1>
+          <p className="subtitle">{{PROJECT.description}}</p>
+        </div>
+        <div className="status">Connected Vite build</div>
+      </section>
+
+      <section className="featureRow">
+        {{PROJECT.features.map((feature) => (
+          <span key={{feature}}>{{feature}}</span>
+        ))}}
+      </section>
+
+      <EntityWorkspace />
+    </main>
+  );
+}}
+
+export default App;
+"""
+
+def _render_vue_main() -> str:
+    return """import { createApp } from 'vue';
+import App from './App.vue';
+import './assets/main.css';
+
+createApp(App).mount('#app');
+"""
+
+def _render_vue_app(model: Mapping[str, Any]) -> str:
+    return f"""<template>
+  <main class="shell">
+    <section class="topbar">
+      <div>
+        <p class="eyebrow">Sarthi generated Vue application</p>
+        <h1>{{ name }}</h1>
+        <p class="subtitle">{{ description }}</p>
+      </div>
+      <div class="status">Connected Vue build</div>
+    </section>
+
+    <section class="featureRow">
+      <span v-for="feature in features" :key="feature">{{ feature }}</span>
+    </section>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue';
+
+const name = ref('{model['name']}');
+const description = ref('{model['description']}');
+const features = ref({json.dumps(model.get('features', []))});
+</script>
+"""
+
+def _render_django_manage() -> str:
+    return """#!/usr/bin/env python
+import os
+import sys
+
+def main():
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    execute_from_command_line(sys.argv)
+
+if __name__ == '__main__':
+    main()
+"""
+
+def _render_django_settings(model: Mapping[str, Any]) -> str:
+    return f"""import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = 'django-insecure-key-for-sarthi-dev'
+DEBUG = True
+ALLOWED_HOSTS = ['*']
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'corsheaders',
+    'rest_framework',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'app.urls'
+WSGI_APPLICATION = 'app.wsgi.application'
+
+CORS_ALLOW_ALL_ORIGINS = True
+
+DATABASES = {{
+    'default': {{
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }}
+}}
+
+STATIC_URL = 'static/'
+"""
+
+def _render_django_urls() -> str:
+    return """from django.contrib import admin
+from django.urls import path
+from django.http import JsonResponse
+
+def smoke_test(request):
+    return JsonResponse({"status": "ok", "message": "Django server running"})
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', smoke_test),
+]
+"""
+
+def _render_django_wsgi() -> str:
+    return """import os
+from django.core.wsgi import get_wsgi_application
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')
+application = get_wsgi_application()
+"""
+
+def _render_flask_app(model: Mapping[str, Any]) -> str:
+    return f"""from flask import Flask, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+@app.route('/')
+def smoke_test():
+    return jsonify({{"status": "ok", "message": "Flask server running"}})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
+"""
+
+def _render_frontend_package(model: Mapping[str, Any], framework: str = "nextjs") -> str:
     package = {
         "name": f"{model['slug']}-frontend",
         "version": "1.0.0",
         "private": True,
-        "scripts": {
+        "scripts": {},
+        "dependencies": {},
+        "devDependencies": {}
+    }
+    
+    if framework == "nextjs":
+        package["scripts"] = {
             "dev": "next dev -H 0.0.0.0",
             "build": "next build",
             "start": "next start",
-            "typecheck": "tsc --noEmit",
-        },
-        "dependencies": {
+            "typecheck": "tsc --noEmit"
+        }
+        package["dependencies"] = {
             "next": "^14.2.0",
             "react": "^18.2.0",
             "react-dom": "^18.2.0",
-        },
-        "devDependencies": {
+            "lucide-react": "^0.300.0",
+            "clsx": "^2.1.0",
+            "tailwind-merge": "^2.2.0"
+        }
+        package["devDependencies"] = {
+            "tailwindcss": "^3.4.0",
+            "postcss": "^8.4.0",
+            "autoprefixer": "^10.4.0",
             "@types/node": "^20.11.0",
             "@types/react": "^18.2.0",
             "@types/react-dom": "^18.2.0",
+            "typescript": "^5.4.0"
+        }
+    elif framework == "react":
+        package["scripts"] = {
+            "dev": "vite --host 0.0.0.0",
+            "build": "tsc && vite build",
+            "preview": "vite preview"
+        }
+        package["dependencies"] = {
+            "react": "^18.2.0",
+            "react-dom": "^18.2.0",
+            "react-router-dom": "^6.22.0",
+            "lucide-react": "^0.300.0",
+            "clsx": "^2.1.0",
+            "tailwind-merge": "^2.2.0"
+        }
+        package["devDependencies"] = {
+            "vite": "^5.1.0",
+            "@vitejs/plugin-react": "^4.2.0",
+            "tailwindcss": "^3.4.0",
+            "postcss": "^8.4.0",
+            "autoprefixer": "^10.4.0",
+            "@types/react": "^18.2.0",
+            "@types/react-dom": "^18.2.0",
+            "typescript": "^5.4.0"
+        }
+    elif framework == "vue":
+        package["scripts"] = {
+            "dev": "vite --host 0.0.0.0",
+            "build": "vue-tsc && vite build",
+            "preview": "vite preview"
+        }
+        package["dependencies"] = {
+            "vue": "^3.4.0",
+            "vue-router": "^4.3.0",
+            "lucide-react": "^0.300.0"
+        }
+        package["devDependencies"] = {
+            "vite": "^5.1.0",
+            "@vitejs/plugin-vue": "^5.0.0",
+            "tailwindcss": "^3.4.0",
+            "postcss": "^8.4.0",
+            "autoprefixer": "^10.4.0",
             "typescript": "^5.4.0",
-        },
-    }
+            "vue-tsc": "^1.8.0"
+        }
+    else:
+        package["scripts"] = {
+            "dev": "next dev -H 0.0.0.0",
+            "build": "next build",
+            "start": "next start"
+        }
+        package["dependencies"] = {
+            "next": "^14.2.0",
+            "react": "^18.2.0",
+            "react-dom": "^18.2.0"
+        }
+
     return json.dumps(package, indent=2)
 
 
@@ -1295,7 +1786,11 @@ export default function HomePage() {
 
 def _render_globals_css(model: Mapping[str, Any]) -> str:
     palette = model.get("theme_palette", {})
-    return f""":root {{
+    return f"""@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {{
   --primary: {palette.get('primary', '#2563eb')};
   --secondary: {palette.get('secondary', '#14b8a6')};
   --background: {palette.get('background', '#f8fafc')};

@@ -1,4 +1,5 @@
 import inspect
+import asyncio
 from typing import Dict, Any, TypedDict, Optional, List
 from datetime import datetime, timezone
 import uuid
@@ -48,26 +49,130 @@ from app.agents.code_synthesizer import CodeSynthesizerAgent
 from app.agents.code_validator import CodeValidatorAgent
 from app.services.project_assembler import assemble_project_codebase
 
-async def broadcast_agent_progress(db: Any, project_id: str, progress: int, step: str) -> None:
+from typing import Dict, Any, TypedDict, Optional, List, Annotated
+
+def reduce_project_doc(left: Optional[Dict[str, Any]], right: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not left:
+        return right or {}
+    if not right:
+        return left
+    merged = dict(left)
+    for k, v in right.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = reduce_project_doc(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+def reduce_latest_output(left: Any, right: Any) -> Any:
+    if right is not None:
+        return right
+    return left
+
+async def broadcast_agent_progress(db: Any, project_id: str, progress: int | float, step: str) -> None:
+    # Fetch project_doc to determine generation_type and calculate completed fields
+    project_doc = await db.projects.find_one({"_id": project_id}) or {}
+    
+    gen_type = project_doc.get("generation_type", "full_stack")
+    
+    # Expected architecture / generation fields in database
+    expected_fields = ["requirements", "planning", "code_generation_plan"]
+    
+    if gen_type != "frontend_only":
+        expected_fields.extend([
+            "db_architecture", 
+            "database_model_generation",
+            "backend_architecture", 
+            "api_architecture", 
+            "api_implementation",
+            "backend_code_generation"
+        ])
+        
+    if gen_type not in ("backend_only", "microservice"):
+        expected_fields.extend([
+            "frontend_architecture", 
+            "theme_styling", 
+            "ui_component_generation",
+            "frontend_code_generation",
+            "state_management", 
+            "state_implementation"
+        ])
+        
+    expected_fields.extend([
+        "auth_architecture",
+        "realtime_architecture",
+        "devops_architecture",
+        "security_architecture",
+        "testing_architecture",
+        "validation_architecture",
+        "optimization_architecture",
+        "integration_generation",
+        "build_compilation",
+        "error_correction",
+        "project_export"
+    ])
+    
+    # Count completed fields
+    completed_fields = 0
+    for field in expected_fields:
+        val = project_doc.get(field)
+        if val:
+            if isinstance(val, list):
+                if len(val) > 0:
+                    completed_fields += 1
+            elif isinstance(val, dict):
+                if len(val) > 0:
+                    completed_fields += 1
+            else:
+                completed_fields += 1
+                
+    activity_ratio = completed_fields / max(1, len(expected_fields))
+    activity_progress = 5.0 + activity_ratio * 90.0
+    
+    # Mix passed progress with activity progress, keeping it monotonic
+    base_progress = max(float(progress), activity_progress)
+    
+    # Generate stable decimal part based on step and project_id to avoid jitter
+    import hashlib
+    h = hashlib.md5((project_id + step).encode()).hexdigest()
+    decimal_part = (int(h[:4], 16) % 90 + 10) / 100.0 # 0.10 to 0.99
+    
+    final_progress = float(int(base_progress)) + decimal_part
+    
+    # Cap progress appropriately
+    if progress >= 100:
+        final_progress = 100.0
+    else:
+        final_progress = min(99.95, final_progress)
+        
+    # Strictly monotonic check
+    current_progress = project_doc.get("progress", 0)
+    if current_progress is not None:
+        if final_progress < current_progress:
+            final_progress = current_progress
+            
+    # Update DB
     await db.projects.update_one(
         {"_id": project_id},
-        {"$set": {"progress": progress, "step": step}}
+        {"$set": {"progress": final_progress, "step": step}}
     )
+    
+    # Broadcast to websocket
     from app.services.ws_manager import manager
     await manager.broadcast_progress(
         project_id=project_id,
-        progress=progress,
+        progress=final_progress,
         step=step
     )
-    logger.info(f"Project {project_id} progress: {progress}% - {step}")
+    logger.info(f"Project {project_id} progress: {final_progress}% - {step}")
 
 class AppState(TypedDict):
     project_id: str
-    project_doc: Dict[str, Any]
+    project_doc: Annotated[Dict[str, Any], reduce_project_doc]
     current_index: int
     feedback: Optional[str]
     retry_count: int
-    latest_output: Any
+    latest_output: Annotated[Any, reduce_latest_output]
     
     # Sarthi 2.0 Orchestration State
     implementation_plan: Optional[Dict[str, Any]]
@@ -227,57 +332,83 @@ def enrich_project_doc_context(project_doc: Dict[str, Any]) -> Dict[str, Any]:
 
 async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any], agent_name: str) -> Any:
     """Executes a single agent node with verification and fallback retries."""
+    from app.agents.registry import should_run_agent, get_group_for_agent
+    gen_type = project_doc.get("generation_type", "full_stack")
+    if not should_run_agent(agent_name, gen_type):
+        logger.info(f"[{project_id}] Skipping agent {agent_name} (Group: {get_group_for_agent(agent_name)}) based on generation type {gen_type}.")
+        return None
+
     agent = get_agent_instance(agent_name)
     db_key = get_agent_db_key(agent_name)
     project_doc = enrich_project_doc_context(project_doc)
     
+    # Set tech stack and theme context variables for dynamic prompt adaptation
+    from app.services.llm_router import current_tech_stack, current_theme_palette, current_generation_type
+    tech_stack = project_doc.get("blueprint", {}).get("tech_stack") or project_doc.get("tech_stack")
+    theme_palette = project_doc.get("theme_palette")
+    
+    token_tech = current_tech_stack.set(tech_stack)
+    token_theme = current_theme_palette.set(theme_palette)
+    token_gen_type = current_generation_type.set(gen_type)
+    
     retry_count = 0
-    feedback = None
+    feedback_history = []
     result = None
     
-    while retry_count <= 3:
-        token = current_agent_feedback.set(feedback)
-        try:
-            if agent_name == "RequirementAnalyzerAgent":
-                blueprint = project_doc.get("blueprint") or project_doc.get("initial_prompt", {}) or {}
-                result = await agent.analyze(blueprint, project_doc.get("theme"))
-            elif agent_name == "PlannerAgent":
-                result = await agent.plan(project_doc.get("requirements", {}))
-            elif agent_name == "ResearchPlanningAgent":
-                result = await agent.generate_plan(
-                    project_doc.get("requirements", {}),
-                    project_doc.get("planning", {}),
-                    project_doc.get("codebase", [])
-                )
+    try:
+        while retry_count <= 3:
+            if feedback_history:
+                cumulative_feedback = "\n\n".join([f"Attempt {i+1} Issue:\n{fb}" for i, fb in enumerate(feedback_history)])
             else:
-                result = await call_agent_design(agent_name, agent, project_doc, feedback)
-        except IncompleteJSONError as e:
-            logger.warning(f"LangGraph caught IncompleteJSONError for {agent_name}")
-            result = e
-        except Exception as e:
-            logger.error(f"LangGraph caught generic error for {agent_name}: {e}")
-            result = {"_error": "GenericError", "message": str(e)}
-        finally:
-            current_agent_feedback.reset(token)
+                cumulative_feedback = None
+                
+            token = current_agent_feedback.set(cumulative_feedback)
+            try:
+                if agent_name == "RequirementAnalyzerAgent":
+                    blueprint = project_doc.get("blueprint") or project_doc.get("initial_prompt", {}) or {}
+                    result = await agent.analyze(blueprint, project_doc.get("theme"), gen_type)
+                elif agent_name == "PlannerAgent":
+                    result = await agent.plan(project_doc.get("requirements", {}))
+                elif agent_name == "ResearchPlanningAgent":
+                    result = await agent.generate_plan(
+                        project_doc.get("requirements", {}),
+                        project_doc.get("planning", {}),
+                        project_doc.get("codebase", []),
+                        gen_type
+                    )
+                else:
+                    result = await call_agent_design(agent_name, agent, project_doc, cumulative_feedback)
+            except IncompleteJSONError as e:
+                logger.warning(f"LangGraph caught IncompleteJSONError for {agent_name}")
+                result = e
+            except Exception as e:
+                logger.error(f"LangGraph caught generic error for {agent_name}: {e}")
+                result = {"_error": "GenericError", "message": str(e)}
+            finally:
+                current_agent_feedback.reset(token)
+                
+            verifier = VerifierAgent()
+            is_complete, new_feedback = await verifier.verify(agent_name, block_err := result)
             
-        verifier = VerifierAgent()
-        is_complete, new_feedback = await verifier.verify(agent_name, result)
-        
-        if is_complete:
-            if result:
-                await db.projects.update_one({"_id": project_id}, {"$set": {db_key: result}})
-                project_doc[db_key] = result
-            return result
-        else:
-            retry_count += 1
-            feedback = new_feedback
-            logger.warning(f"Verifier feedback for {agent_name} (retry {retry_count}): {feedback}")
-            
-    logger.error(f"Max retries reached for {agent_name}. Advancing anyway.")
-    if result:
-        await db.projects.update_one({"_id": project_id}, {"$set": {db_key: result}})
-        project_doc[db_key] = result
-    return result
+            if is_complete:
+                if result:
+                    await db.projects.update_one({"_id": project_id}, {"$set": {db_key: result}})
+                    project_doc[db_key] = result
+                return result
+            else:
+                retry_count += 1
+                feedback_history.append(new_feedback)
+                logger.warning(f"Verifier feedback for {agent_name} (retry {retry_count}): {new_feedback}")
+                
+        logger.error(f"Max retries reached for {agent_name}. Advancing anyway.")
+        if result:
+            await db.projects.update_one({"_id": project_id}, {"$set": {db_key: result}})
+            project_doc[db_key] = result
+        return result
+    finally:
+        current_tech_stack.reset(token_tech)
+        current_theme_palette.reset(token_theme)
+        current_generation_type.reset(token_gen_type)
 
 def get_db(state: AppState, config: Any = None) -> Any:
     if config and hasattr(config, "get") and config.get("configurable"):
@@ -435,9 +566,45 @@ async def frontend_workspace_node(state: AppState, config: Optional[RunnableConf
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
     await broadcast_agent_progress(db, project_id, 53, "Generating State Implementation...")
     await run_single_agent(db, project_id, project_doc, "StateImplementationAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
     await broadcast_agent_progress(db, project_id, 55, "Frontend Workspace Complete.")
     return {"project_doc": project_doc}
+
+async def architecture_design_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+    db = get_db(state, config)
+    project_id = state["project_id"]
+    project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+    
+    gen_type = project_doc.get("generation_type", "full_stack")
+    logger.info(f"[{project_id}] Running concurrent architecture design workspaces for generation_type: {gen_type}...")
+    
+    tasks = []
+    
+    if gen_type != "frontend_only":
+        async def run_db_backend():
+            # Run DB workspace sequentially
+            doc = await db.projects.find_one({"_id": project_id}) or project_doc
+            res_db = await db_workspace_node({"project_id": project_id, "project_doc": doc}, config)
+            
+            # Run Backend workspace sequentially after DB workspace
+            doc_next = await db.projects.find_one({"_id": project_id}) or res_db.get("project_doc") or project_doc
+            res_be = await backend_workspace_node({"project_id": project_id, "project_doc": doc_next}, config)
+            return res_be
+            
+        tasks.append(run_db_backend())
+        
+    if gen_type not in ("backend_only", "microservice"):
+        async def run_frontend():
+            doc = await db.projects.find_one({"_id": project_id}) or project_doc
+            return await frontend_workspace_node({"project_id": project_id, "project_doc": doc}, config)
+            
+        tasks.append(run_frontend())
+        
+    if tasks:
+        await asyncio.gather(*tasks)
+        
+    # Re-fetch the fully updated project document after parallel workspaces complete
+    final_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+    return {"project_doc": final_doc}
 
 async def ops_security_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
@@ -626,7 +793,7 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
         uncovered_entities = []
         for entity in db_entities:
             entity_lower = entity.lower().replace("_", "").replace("-", "")
-            has_endpoint = any(entity_lower in p for p in endpoint_paths if p)
+            has_endpoint = any(entity_lower in p.lower().replace("_", "").replace("-", "") for p in endpoint_paths if p)
             if not has_endpoint:
                 uncovered_entities.append(entity)
         if uncovered_entities:
@@ -924,26 +1091,18 @@ def route_after_planner(state: AppState) -> str:
         return "research_planning"
     return "agent_dispatcher"
 
-def route_dispatcher(state: AppState) -> str:
-    """Sequential architecture pipeline — each workspace sees upstream outputs."""
+def route_dispatcher(state: AppState) -> List[str]:
+    """Dynamically route and branch workspaces in parallel depending on generation_type."""
     project_doc = state.get("project_doc", {}) or {}
     gen_type = project_doc.get("generation_type", "full_stack")
+    
     if gen_type == "frontend_only":
-        return "frontend_workspace"
-    return "db_workspace"
-
-def route_after_db_workspace(state: AppState) -> str:
-    return "backend_workspace"
-
-def route_after_backend_workspace(state: AppState) -> str:
-    project_doc = state.get("project_doc", {}) or {}
-    gen_type = project_doc.get("generation_type", "full_stack")
-    if gen_type in ("backend_only", "microservice"):
-        return "ops_security_workspace"
-    return "frontend_workspace"
-
-def route_after_frontend_workspace(state: AppState) -> str:
-    return "ops_security_workspace"
+        return ["frontend_workspace"]
+    elif gen_type in ("backend_only", "microservice"):
+        return ["db_workspace"]
+    else:
+        # full_stack: execute DB/Backend branch and Frontend branch in parallel
+        return ["db_workspace", "frontend_workspace"]
 
 def route_after_verifier(state: AppState) -> str:
     from app.agents.context import MAX_CORRECTION_LOOPS
@@ -974,9 +1133,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("research_planning", research_planning_node)
     workflow.add_node("agent_dispatcher", agent_dispatcher_node)
     
-    workflow.add_node("db_workspace", db_workspace_node)
-    workflow.add_node("backend_workspace", backend_workspace_node)
-    workflow.add_node("frontend_workspace", frontend_workspace_node)
+    workflow.add_node("architecture_design", architecture_design_node)
     workflow.add_node("ops_security_workspace", ops_security_workspace_node)
     
     workflow.add_node("join_workspaces", join_workspaces_node)
@@ -1004,21 +1161,10 @@ def build_graph() -> StateGraph:
     workflow.add_edge("research_planning", "agent_dispatcher")
     
     # Sequential architecture workspaces — downstream agents always see upstream contracts
-    workflow.add_conditional_edges("agent_dispatcher", route_dispatcher, {
-        "db_workspace": "db_workspace",
-    })
-    workflow.add_conditional_edges("db_workspace", route_after_db_workspace, {
-        "backend_workspace": "backend_workspace",
-    })
-    workflow.add_conditional_edges("backend_workspace", route_after_backend_workspace, {
-        "frontend_workspace": "frontend_workspace",
-    })
-    workflow.add_conditional_edges("frontend_workspace", route_after_frontend_workspace, {
-        "ops_security_workspace": "ops_security_workspace",
-    })
-    workflow.add_edge("ops_security_workspace", "join_workspaces")
-    
-    workflow.add_edge("join_workspaces", "verifier_guardrail")
+    workflow.add_edge("agent_dispatcher", "architecture_design")
+    workflow.add_edge("architecture_design", "join_workspaces")
+    workflow.add_edge("join_workspaces", "ops_security_workspace")
+    workflow.add_edge("ops_security_workspace", "verifier_guardrail")
     
     workflow.add_conditional_edges("verifier_guardrail", route_after_verifier, {
         "code_gen_planner": "code_gen_planner",

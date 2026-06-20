@@ -29,7 +29,8 @@ class ResearchPlanningAgent:
         self,
         requirements: Dict[str, Any],
         planning: Dict[str, Any],
-        codebase: List[Dict[str, Any]]
+        codebase: List[Dict[str, Any]],
+        generation_type: str = "full_stack"
     ) -> Dict[str, Any]:
         """
         Generate a detailed implementation plan based on requirements, plan, and current files.
@@ -37,12 +38,13 @@ class ResearchPlanningAgent:
         agent_inputs = {
             "requirements": requirements,
             "planning": planning,
-            "codebase_summary": [{"name": f["name"], "path": f["path"]} for f in codebase]
+            "codebase_summary": [{"name": f["name"], "path": f["path"]} for f in codebase],
+            "generation_type": generation_type
         }
 
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
             logger.warning("No LLM API keys configured. Using fallback implementation plan.")
-            return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase), self.agent_name, agent_inputs)
+            return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase, generation_type), self.agent_name, agent_inputs)
 
         # Construct state dict for dynamic prompt generation
         state = {
@@ -50,26 +52,35 @@ class ResearchPlanningAgent:
             "planning": planning,
             "implementation_plan": {
                 "codebase_summary": [{"name": f["name"], "path": f["path"]} for f in codebase]
-            }
+            },
+            "generation_type": generation_type
         }
         system_prompt = generate_agent_prompt(self.agent_name, state)
 
         user_content = f"""
-Analyze the project requirements and current files list, then produce a file-by-file implementation plan.
+Analyze the project requirements, design theme styling, target audience, and current files list, then produce a highly dynamic file-by-file implementation plan for the target scope: '{generation_type}'.
 
 Requirements: {json.dumps(requirements, indent=2)}
 Planning: {json.dumps(planning, indent=2)}
 Current Files: {json.dumps(agent_inputs["codebase_summary"], indent=2)}
 
+Crucial Dynamic Design & Scope Constraints:
+1. Dynamic Theme Integration: Inspect the theme palette and styling details (`requirements.theme`). In the `plan_markdown` and file descriptions, explicitly mandate that UI components, layouts, and style pages apply this specific color theme (e.g. primary/secondary colors, background, dark/light settings) to achieve a cohesive, beautiful design.
+2. Target Audience Alignment: Inspect the `requirements.project_overview.target_audience`. Ensure the UI layouts, copy style, feature flow, and page spacing described in the plan are optimized specifically to match this audience's personas and preferences.
+3. Scope Constraint:
+   - The project is '{generation_type}'.
+   - If '{generation_type}' is 'frontend_only', your implementation plan MUST only create or modify frontend files (inside 'frontend/'). Do NOT propose backend files, databases, or main.py.
+   - If '{generation_type}' is 'backend_only' or 'microservice', your implementation plan MUST only create or modify backend/DB files (inside 'backend/'). Do NOT propose UI pages, React elements, or package.json files.
+
 Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
   "status": "success",
-  "plan_markdown": "string — A detailed Markdown document detailing the implementation steps (e.g. Database changes, backend routes, frontend UI updates, and verification checks)",
+  "plan_markdown": "string — A detailed Markdown document detailing the implementation steps (e.g. Database changes, backend routes, frontend UI updates with design theme settings, and verification checks)",
   "proposed_changes": [
     {{
       "path": "string — absolute or relative file path, e.g. 'backend/app/models.py'",
       "action": "string — 'create' or 'modify'",
-      "description": "string — description of what will be added or changed in this file"
+      "description": "string — description of what will be added or changed, highlighting how it applies styling and features dynamically"
     }}
   ]
 }}
@@ -88,14 +99,57 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
         except Exception as e:
             logger.error(f"Failed to run Research Planning Agent: {e}")
-            return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase), self.agent_name, agent_inputs)
+            return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase, generation_type), self.agent_name, agent_inputs)
 
-    def _get_fallback_plan(self, requirements: Dict[str, Any], planning: Dict[str, Any], codebase: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _get_fallback_plan(self, requirements: Dict[str, Any], planning: Dict[str, Any], codebase: List[Dict[str, Any]], generation_type: str = "full_stack") -> Dict[str, Any]:
         proj_name = requirements.get("project_overview", {}).get("name", "Project")
+        target_audience = requirements.get("project_overview", {}).get("target_audience", "General Users")
+        theme_info = requirements.get("theme", {})
+        design_style = theme_info.get("design_style", "Slate Minimal")
+        palette = theme_info.get("theme_palette", {})
+        palette_desc = f"Palette: {json.dumps(palette)}" if palette else "Standard colors"
         
-        plan_markdown = f"""# Implementation Plan: {proj_name}
+        if generation_type == "frontend_only":
+            plan_markdown = f"""# Implementation Plan: {proj_name} (Frontend Only)
+
+This implementation plan is compiled by Sarthi's Research & Planning Agent for a Frontend-Only workspace.
+
+## 🎨 Design & Styling Constraints (Dynamic)
+- **Theme**: {design_style} ({palette_desc})
+- **Target Audience & Personas**: {target_audience}
+
+## 🎨 Frontend UI & Components
+- **Layout**: Setup pages and navigation.
+- **UI Components**: Implement dashboard tiles, form editors, and tables using dynamic theme styling: {palette_desc}.
+"""
+            proposed_changes = [
+                {"path": "frontend/src/app/page.tsx", "action": "modify", "description": f"Develop main dashboard UI and workspace views matching theme '{design_style}' and targeting '{target_audience}'"}
+            ]
+        elif generation_type in ("backend_only", "microservice"):
+            plan_markdown = f"""# Implementation Plan: {proj_name} (Backend Only)
+
+This implementation plan is compiled by Sarthi's Research & Planning Agent for a Headless/Backend-Only workspace.
+
+## 🗄️ Database & Schema Changes
+- **Models**: Configure appropriate database model files (e.g. SQLAlchemy models or Motor collection schemes) based on derived entities.
+- **Relationships**: Define One-to-Many and Many-to-Many relationships among tables.
+
+## ⚙️ Backend & API endpoints
+- **API Routes**: Create route definitions for core feature operations (CRUD endpoints).
+- **Security**: Implement token-based authentication and endpoint security filters.
+"""
+            proposed_changes = [
+                {"path": "backend/app/models.py", "action": "modify" if codebase else "create", "description": "Configure core entity schema models"},
+                {"path": "backend/app/main.py", "action": "modify", "description": "Expose router endpoints and initialize middleware"}
+            ]
+        else:
+            plan_markdown = f"""# Implementation Plan: {proj_name}
 
 This implementation plan is compiled by Sarthi's Research & Planning Agent.
+
+## 🎨 Design & Styling Constraints (Dynamic)
+- **Theme**: {design_style} ({palette_desc})
+- **Target Audience & Personas**: {target_audience}
 
 ## 🗄️ Database & Schema Changes
 - **Models**: Configure appropriate database model files (e.g. SQLAlchemy models or Motor collection schemes) based on derived entities.
@@ -107,14 +161,13 @@ This implementation plan is compiled by Sarthi's Research & Planning Agent.
 
 ## 🎨 Frontend UI & Components
 - **Layout**: Setup pages and navigation.
-- **UI Components**: Implement dashboard tiles, form editors, and tables using Tailwind CSS styling.
+- **UI Components**: Implement dashboard tiles, form editors, and tables using Tailwind CSS styling matching theme '{design_style}'.
 """
-        
-        proposed_changes = [
-            {"path": "backend/app/models.py", "action": "modify" if codebase else "create", "description": "Configure core entity schema models"},
-            {"path": "backend/app/main.py", "action": "modify", "description": "Expose router endpoints and initialize middleware"},
-            {"path": "frontend/src/app/page.tsx", "action": "modify", "description": "Develop main dashboard UI and workspace views"}
-        ]
+            proposed_changes = [
+                {"path": "backend/app/models.py", "action": "modify" if codebase else "create", "description": "Configure core entity schema models"},
+                {"path": "backend/app/main.py", "action": "modify", "description": "Expose router endpoints and initialize middleware"},
+                {"path": "frontend/src/app/page.tsx", "action": "modify", "description": f"Develop main dashboard UI and workspace views matching theme '{design_style}' and targeting '{target_audience}'"}
+            ]
         
         return {
             "status": "success",

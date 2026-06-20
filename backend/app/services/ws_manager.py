@@ -79,7 +79,7 @@ class ConnectionManager:
     async def broadcast_progress(
         self,
         project_id: str,
-        progress: int,
+        progress: int | float,
         step: str,
         status: str = "generating",
     ):

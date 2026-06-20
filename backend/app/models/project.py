@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 class CodeFileSchema(BaseModel):
     name: str
@@ -37,7 +37,7 @@ class ProjectResponse(BaseModel):
     name: str
     category: str
     status: str  # "idle" | "generating" | "completed" | "failed" | "waiting_approval"
-    progress: int
+    progress: Union[int, float]
     step: str
     generation_type: Optional[str] = "full_stack"
     summary: str

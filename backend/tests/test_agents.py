@@ -27,7 +27,13 @@ async def main():
     print("\nTesting RequirementAnalyzerAgent...")
     try:
         agent = RequirementAnalyzerAgent()
-        result = await agent.analyze("I want to build a simple Todo app in Flask with MongoDB.")
+        blueprint = {
+            "name": "Todo App",
+            "idea": "I want to build a simple Todo app in Flask with MongoDB.",
+            "features": ["Create todo", "Update todo status", "Delete todo"],
+            "tech_stack": "Flask, MongoDB"
+        }
+        result = await agent.analyze(blueprint)
         import json
         print("Agent analysis result keys:", list(result.keys()))
         print("Handoff details:", result.get("agent_handoff", {}).get("agent"))

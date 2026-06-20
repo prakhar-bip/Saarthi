@@ -1,4 +1,10 @@
 import os
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import newrelic.agent
 
 # Initialize New Relic Agent if config exists and has a valid license key

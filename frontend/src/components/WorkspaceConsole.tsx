@@ -7,6 +7,32 @@ import { CategoryIcon, LockIllustration, SarthiLogo, WaveBackground, AiTypingWav
 import { Send, Sparkles, BookOpen, AlertCircle, ChevronDown, Cpu, ShieldAlert, PanelRight, ChevronLeft, ChevronRight, PanelLeft, RefreshCw, Pause, Play, Square, FolderPlus } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
+interface DynamicTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  value: string;
+}
+
+const DynamicTextarea: React.FC<DynamicTextareaProps> = ({ value, onChange, className, ...props }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={onChange}
+      className={className}
+      {...props}
+    />
+  );
+};
+
 const slideVariants = {
   enter: (direction: number) => ({
     x: direction > 0 ? 80 : -80,
@@ -394,7 +420,6 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
   const handleModalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modalName.trim() || !modalIdea.trim()) return;
-    if (!activeChatId) return;
 
     const blueprintData = {
       name: modalName.trim(),
@@ -406,7 +431,12 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     };
 
     try {
-      await updateChatSelectedProject(activeChatId, blueprintData);
+      if (!activeChatId) {
+        const cat = detectCategory(blueprintData.idea);
+        await createNewChat(cat, blueprintData.name, blueprintData);
+      } else {
+        await updateChatSelectedProject(activeChatId, blueprintData);
+      }
       setActiveProjectId(null);
       setShowRightPane(true);
       setShowCreateModal(false);
@@ -714,6 +744,44 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   </p>
                 </motion.div>
 
+                {/* Default Create Project Quick CTA option near the chatbox landing area */}
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.15, ease: "easeOut" }}
+                  className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!user) {
+                        handleLockClick();
+                        return;
+                      }
+                      setShowCreateModal(true);
+                    }}
+                    className="px-6 py-3 bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-950 text-white hover:to-indigo-900 text-xs font-bold rounded-xl shadow-lg border border-indigo-900/50 hover:shadow-xl transition-all cursor-pointer flex items-center gap-2 group relative overflow-hidden"
+                  >
+                    <FolderPlus className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
+                    <span>Create New Project</span>
+                    <span className="bg-amber-500/25 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">Manual & AI Wizard</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const inputEl = document.getElementById("chat-input-bar");
+                      if (inputEl) {
+                        inputEl.focus();
+                      }
+                    }}
+                    className="px-6 py-3 bg-white hover:bg-stone-50 text-indigo-950 text-xs font-bold rounded-xl shadow-md border border-stone-200/80 hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4 text-indigo-650 animate-pulse" />
+                    <span>Ask Sarthi AI Anything</span>
+                  </button>
+                </motion.div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-w-xl mx-auto pt-2">
                   {[
                     {
@@ -947,10 +1015,14 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       <footer className="p-4 border-t border-stone-200/60 bg-stone-50/40 backdrop-blur-md shrink-0 relative select-none transition-colors duration-300">
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
           {/* Create Project Helper / Tip Bar */}
-          {user && activeChatId && (
+          {user && (
             <div className="text-[10px] text-stone-500 font-medium flex items-center gap-1.5 px-1 pb-1">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
-              <span>Click <strong className="text-indigo-950 font-bold">Create Project</strong> to open the wizard, suggest details using AI, and configure your blueprint to build.</span>
+              {activeChatId ? (
+                <span>Click <strong className="text-indigo-950 font-bold">Create Project</strong> to open the wizard, generate details using AI, and configure your blueprint to build.</span>
+              ) : (
+                <span>No active project. Click <strong className="text-indigo-950 font-bold">Create Project</strong> to launch the builder wizard and spin up a new workspace.</span>
+              )}
             </div>
           )}
           
@@ -1011,7 +1083,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
             </div>
 
             {/* Create Project button */}
-            {user && activeChatId && (
+            {user && (
               <button
                 type="button"
                 onClick={() => setShowCreateModal(true)}
@@ -1069,7 +1141,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              className="relative w-full max-w-xl bg-white border border-stone-200/80 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden"
+              className="relative w-full max-w-4xl bg-white border border-stone-200/80 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[90vh] overflow-hidden"
             >
               {/* Header */}
               <div className="p-5 border-b border-stone-100 flex items-center justify-between">
@@ -1079,7 +1151,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-stone-850">Create New Project</h3>
-                    <p className="text-[10px] text-stone-500">Configure your project blueprint manually or use AI suggestions.</p>
+                    <p className="text-[10px] text-stone-500">Configure your project blueprint manually or use AI generation.</p>
                   </div>
                 </div>
                 <button
@@ -1091,189 +1163,204 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               </div>
 
               {/* Form Content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                {/* Generation Scope (Project Type Selection) */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                    1. Select Generation Scope
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
-                      { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
-                      { id: "backend_only", label: "Backend Only", desc: "API & Models" },
-                      { id: "microservice", label: "Microservice", desc: "API Service / Worker" }
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setModalGenType(item.id);
-                          if (item.id === "frontend_only") {
-                            setModalTechStack("Next.js, Tailwind CSS");
-                          } else if (item.id === "backend_only") {
-                            setModalTechStack("FastAPI, MongoDB");
-                          } else if (item.id === "microservice") {
-                            setModalTechStack("FastAPI, Docker, Redis");
-                          } else {
-                            setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
-                          }
-                        }}
-                        className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                          modalGenType === item.id
-                            ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm ring-1 ring-indigo-950/20"
-                            : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600"
-                        }`}
-                      >
-                        <span className="text-xs font-bold">{item.label}</span>
-                        <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-stone-100 my-1" />
-
-                {/* AI Suggestion Section */}
-                <div className="p-4 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" />
-                      2. Describe Project Idea
-                    </label>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <textarea
-                      placeholder="Describe your project idea in a sentence or two... (e.g. 'A payment validation microservice that consumes stripe webhook payloads, validates signature, and publishes to RabbitMQ')"
-                      value={modalPrompt}
-                      onChange={(e) => setModalPrompt(e.target.value)}
-                      rows={4}
-                      className="flex-1 bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium resize-none leading-relaxed"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSuggestProject}
-                      disabled={isSuggesting || !modalPrompt.trim()}
-                      className="px-5 py-3 sm:py-2 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shrink-0 cursor-pointer sm:self-stretch animate-pulse-subtle"
-                    >
-                      {isSuggesting ? (
-                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <Sparkles className="w-3.5 h-3.5" />
-                      )}
-                      <span>Suggest</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border-t border-stone-100 my-1" />
-
-                {/* Editable Fields */}
-                <form onSubmit={handleModalSubmit} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 'Habit Tracker Pro'"
-                      value={modalName}
-                      onChange={(e) => setModalName(e.target.value)}
-                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-semibold"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
-                    <textarea
-                      required
-                      rows={5}
-                      placeholder="Refined vision and description of the app..."
-                      value={modalIdea}
-                      onChange={(e) => setModalIdea(e.target.value)}
-                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Key Features</label>
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
+                  {/* Left Column: Selection & Prompt Trigger */}
+                  <div className="space-y-5">
                     <div className="space-y-2">
-                      {modalFeatures.map((f, idx) => (
-                        <input
-                          key={idx}
-                          type="text"
-                          placeholder={`Feature ${idx + 1} (e.g. 'Daily streak charts')`}
-                          value={f}
-                          onChange={(e) => {
-                            const updated = [...modalFeatures];
-                            updated[idx] = e.target.value;
-                            setModalFeatures(updated);
-                          }}
-                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium"
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                        1. Select Generation Scope
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
+                          { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
+                          { id: "backend_only", label: "Backend Only", desc: "API & Models" },
+                          { id: "microservice", label: "Microservice", desc: "API Service / Worker" }
+                        ].map((item) => {
+                          const isLocked = item.id !== "full_stack";
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              disabled={isLocked}
+                              title={isLocked ? "Coming Soon" : ""}
+                              onClick={() => {
+                                if (isLocked) return;
+                                setModalGenType(item.id);
+                                if (item.id === "frontend_only") {
+                                  setModalTechStack("Next.js, Tailwind CSS");
+                                } else if (item.id === "backend_only") {
+                                  setModalTechStack("FastAPI, MongoDB");
+                                } else if (item.id === "microservice") {
+                                  setModalTechStack("FastAPI, Docker, Redis");
+                                } else {
+                                  setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
+                                }
+                              }}
+                              className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
+                                isLocked
+                                  ? "border-stone-200 bg-stone-100/70 text-stone-400 opacity-60 cursor-not-allowed"
+                                  : modalGenType === item.id
+                                  ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm ring-1 ring-indigo-950/20 cursor-pointer"
+                                  : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600 cursor-pointer"
+                              }`}
+                            >
+                              <span className="text-xs font-bold flex items-center gap-1 justify-center w-full">
+                                {item.label}
+                                {isLocked && <span className="text-[7px] bg-stone-200 text-stone-600 px-1 py-0.2 rounded font-normal uppercase scale-90">Soon</span>}
+                              </span>
+                              <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-stone-100 my-2" />
+
+                    {/* AI Generation Section */}
+                    <div className="p-4 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" />
+                          2. Describe Project Idea
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        <DynamicTextarea
+                          placeholder="Describe your project idea in a sentence or two... (e.g. 'A payment validation microservice that consumes stripe webhook payloads, validates signature, and publishes to RabbitMQ')"
+                          value={modalPrompt}
+                          onChange={(e) => setModalPrompt(e.target.value)}
+                          rows={4}
+                          className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium resize-none leading-relaxed"
                         />
-                      ))}
+                        <button
+                          type="button"
+                          onClick={handleSuggestProject}
+                          disabled={isSuggesting || !modalPrompt.trim()}
+                          className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer animate-pulse-subtle"
+                        >
+                          {isSuggesting ? (
+                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>Generate</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Tech Stack</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="React, FastAPI, MongoDB"
-                      value={modalTechStack}
-                      onChange={(e) => setModalTechStack(e.target.value)}
-                      className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-semibold"
-                    />
-                  </div>
-
-                  {/* HITL Toggle Button */}
-                  <div className="flex items-center justify-between p-3.5 bg-indigo-50/40 border border-indigo-100/60 rounded-xl">
-                    <div className="flex flex-col text-left">
-                      <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">Review Planning Blueprint</span>
-                      <span className="text-[8px] text-stone-500 mt-0.5 leading-tight">Review file modification blueprint before building codebase</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setModalHitlEnabled(!modalHitlEnabled)}
-                      className="focus:outline-none cursor-pointer"
-                    >
-                      <svg width="36" height="20" viewBox="0 0 36 20" fill="none" className="transition-all duration-300">
-                        <rect
-                          width="36"
-                          height="20"
-                          rx="10"
-                          fill={modalHitlEnabled ? "#312e81" : "#e7e5e4"}
-                          className="transition-colors duration-300"
+                  {/* Right Column: Editable Fields */}
+                  <div className="md:border-l md:border-stone-100 md:pl-6 pt-4 md:pt-0">
+                    <form onSubmit={handleModalSubmit} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
+                        <DynamicTextarea
+                          required
+                          rows={1}
+                          placeholder="e.g. 'Habit Tracker Pro'"
+                          value={modalName}
+                          onChange={(e) => setModalName(e.target.value)}
+                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-semibold leading-normal"
                         />
-                        <circle
-                          cx={modalHitlEnabled ? "26" : "10"}
-                          cy="10"
-                          r="7"
-                          fill="white"
-                          className="transition-all duration-300"
-                        />
-                      </svg>
-                    </button>
-                  </div>
+                      </div>
 
-                  {/* Submit Actions */}
-                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateModal(false)}
-                      className="px-4 py-2 border border-stone-200 rounded-xl text-stone-600 hover:bg-stone-55 hover:text-stone-800 text-xs font-bold transition-all cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!modalName.trim() || !modalIdea.trim()}
-                      className="px-5 py-2 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
-                    >
-                      Confirm & Create Project
-                    </button>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
+                        <DynamicTextarea
+                          required
+                          rows={4}
+                          placeholder="Refined vision and description of the app..."
+                          value={modalIdea}
+                          onChange={(e) => setModalIdea(e.target.value)}
+                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Key Features</label>
+                        <div className="space-y-2">
+                          {modalFeatures.map((f, idx) => (
+                            <DynamicTextarea
+                              key={idx}
+                              rows={1}
+                              placeholder={`Feature ${idx + 1} (e.g. 'Daily streak charts')`}
+                              value={f}
+                              onChange={(e) => {
+                                const updated = [...modalFeatures];
+                                updated[idx] = e.target.value;
+                                setModalFeatures(updated);
+                              }}
+                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-normal"
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Tech Stack</label>
+                        <DynamicTextarea
+                          required
+                          rows={1}
+                          placeholder="React, FastAPI, MongoDB"
+                          value={modalTechStack}
+                          onChange={(e) => setModalTechStack(e.target.value)}
+                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-semibold leading-normal"
+                        />
+                      </div>
+
+                      {/* HITL Toggle Button */}
+                      <div className="flex items-center justify-between p-3 bg-indigo-50/40 border border-indigo-100/60 rounded-xl">
+                        <div className="flex flex-col text-left">
+                          <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">Review Planning Blueprint</span>
+                          <span className="text-[8px] text-stone-500 mt-0.5 leading-tight">Review file modification blueprint before building codebase</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setModalHitlEnabled(!modalHitlEnabled)}
+                          className="focus:outline-none cursor-pointer"
+                        >
+                          <svg width="36" height="20" viewBox="0 0 36 20" fill="none" className="transition-all duration-300">
+                            <rect
+                              width="36"
+                              height="20"
+                              rx="10"
+                              fill={modalHitlEnabled ? "#312e81" : "#e7e5e4"}
+                              className="transition-colors duration-300"
+                            />
+                            <circle
+                              cx={modalHitlEnabled ? "26" : "10"}
+                              cy="10"
+                              r="7"
+                              fill="white"
+                              className="transition-all duration-300"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Submit Actions */}
+                      <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateModal(false)}
+                          className="px-4 py-2 border border-stone-200 rounded-xl text-stone-600 hover:bg-stone-50 hover:text-stone-800 text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={!modalName.trim() || !modalIdea.trim()}
+                          className="px-5 py-2 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
+                        >
+                          Confirm & Create Project
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
+                </div>
               </div>
             </motion.div>
           </div>

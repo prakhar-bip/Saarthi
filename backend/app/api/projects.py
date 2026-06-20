@@ -1,6 +1,7 @@
 from loguru import logger
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 import io
@@ -171,17 +172,9 @@ def _map_project_doc(doc: dict) -> ProjectResponse:
         generation_type=doc.get("generation_type", "full_stack")
     )
 
-async def broadcast_agent_progress(db, project_id: str, progress: int, step: str) -> None:
-    await db.projects.update_one(
-        {"_id": project_id},
-        {"$set": {"progress": progress, "step": step}}
-    )
-    await manager.broadcast_progress(
-        project_id=project_id,
-        progress=progress,
-        step=step
-    )
-    logger.info(f"Project {project_id} compilation progress: {progress}% - {step}")
+async def broadcast_agent_progress(db, project_id: str, progress: int | float, step: str) -> None:
+    from app.services.workflow import broadcast_agent_progress as workflow_broadcast
+    await workflow_broadcast(db, project_id, progress, step)
 
 
 async def run_optimization_and_generation_planning(
@@ -765,6 +758,7 @@ from pydantic import BaseModel as PydanticBaseModel
 class GenerateDocumentsRequest(PydanticBaseModel):
     name: str
     prompt: str
+    generation_type: Optional[str] = "full_stack"
 
 @router.post("/generate-documents", response_model=ProjectResponse)
 async def generate_documents_endpoint(
@@ -786,7 +780,7 @@ async def generate_documents_endpoint(
     from app.services.ai import generate_prd_mrd_trd
     
     try:
-        docs = await generate_prd_mrd_trd(payload.name, payload.prompt)
+        docs = await generate_prd_mrd_trd(payload.name, payload.prompt, payload.generation_type)
     except Exception as e:
         logger.error(f"Failed to generate documents for project {payload.name}: {e}")
         raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
@@ -812,6 +806,7 @@ async def generate_documents_endpoint(
         "trd": docs.get("trd", ""),
         "hackathon_metadata": hackathon_metadata,
         "mcp_evidence": mcp_evidence,
+        "generation_type": payload.generation_type or "full_stack",
     }
     
     await db.projects.insert_one(new_project)
@@ -841,6 +836,14 @@ async def compile_project(
     detected_category = await auto_identify_category(bp_dict, chat_exists.get("messages", []))
     logger.info(f"Project category auto-identified as: {detected_category}")
 
+    # Format chat history for context
+    chat_messages = chat_exists.get("messages", [])
+    chat_history_str = ""
+    for msg in chat_messages:
+        sender = msg.get("sender", "user")
+        text = msg.get("text", "")
+        chat_history_str += f"{sender.capitalize()}: {text}\n"
+
     # Generate PRD, MRD, TRD documents first
     from app.services.ai import generate_prd_mrd_trd
     
@@ -860,7 +863,14 @@ async def compile_project(
     
     try:
         logger.info(f"Generating documents for project {payload.name} first...")
-        docs = await generate_prd_mrd_trd(payload.name, prompt_for_docs)
+        docs = await generate_prd_mrd_trd(
+            payload.name, 
+            prompt_for_docs, 
+            payload.generation_type,
+            theme=payload.theme,
+            theme_palette=payload.theme_palette.dict() if payload.theme_palette else None,
+            chat_history=chat_history_str
+        )
     except Exception as e:
         logger.error(f"Failed to generate documents during project init: {e}")
         docs = {"prd": f"# PRD\nFailed to generate documents: {str(e)}", "mrd": "", "trd": ""}
@@ -877,13 +887,19 @@ async def compile_project(
         from app.agents.research_planning_agent import ResearchPlanningAgent
         
         analyzer = RequirementAnalyzerAgent()
-        requirements = await analyzer.analyze(blueprint_payload or {}, payload.theme)
+        requirements = await analyzer.analyze(
+            blueprint_payload or {}, 
+            payload.theme, 
+            payload.theme_palette.dict() if payload.theme_palette else None,
+            chat_history_str,
+            payload.generation_type
+        )
         
         planner = PlannerAgent()
         planning = await planner.plan(requirements)
         
         researcher = ResearchPlanningAgent()
-        impl_plan = await researcher.generate_plan(requirements, planning, [])
+        impl_plan = await researcher.generate_plan(requirements, planning, [], payload.generation_type)
         
         logger.info("Successfully generated PRD/TRD/MRD-aligned implementation plan during project creation.")
     except Exception as plan_err:
@@ -1144,8 +1160,26 @@ async def regenerate_project_documents(
     
     prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}{custom_prompt}"
     
+    chat_history_str = ""
+    chat_id = project.get("chat_id")
+    if chat_id:
+        chat_doc = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
+        if chat_doc:
+            chat_messages = chat_doc.get("messages", [])
+            for msg in chat_messages:
+                sender = msg.get("sender", "user")
+                text = msg.get("text", "")
+                chat_history_str += f"{sender.capitalize()}: {text}\n"
+
     try:
-        docs = await generate_prd_mrd_trd(project["name"], prompt_for_docs)
+        docs = await generate_prd_mrd_trd(
+            project["name"], 
+            prompt_for_docs, 
+            project.get("generation_type", "full_stack"),
+            theme=project.get("theme"),
+            theme_palette=project.get("theme_palette"),
+            chat_history=chat_history_str
+        )
     except Exception as e:
         logger.error(f"Failed to regenerate documents for project {project_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Document regeneration failed: {str(e)}")

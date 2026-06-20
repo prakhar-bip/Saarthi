@@ -123,7 +123,89 @@ async def run_parallel_workflow_test():
     assert final_doc["quality_report"]["status"] == "passed", "Generated codebase should pass Sarthi quality gates."
     assert any(file["path"] == "backend/app/main.py" for file in final_doc["codebase"])
     assert any(file["path"] == "frontend/src/app/page.tsx" for file in final_doc["codebase"])
-    print("\nSUCCESS: Sarthi 2.0 Map-Reduce parallel workflow verified successfully!")
+    
+    # ──────────────────────────────────────────────────────────
+    # [Project 2] Frontend Only Workflow
+    # ──────────────────────────────────────────────────────────
+    print("\n==================================================")
+    print("Testing Frontend-Only Workflow...")
+    print("==================================================")
+    fe_proj_id = "test-fe-123"
+    fe_doc = {
+        "_id": fe_proj_id,
+        "name": "Frontend App",
+        "category": "frontend_only",
+        "status": "documents_ready",
+        "progress": 100,
+        "step": "Documents Generated",
+        "initial_prompt": {
+            "name": "Frontend App",
+            "idea": "A web interface.",
+            "features": ["User dashboard", "Auth forms", "Theme toggle"],
+            "tech_stack": "React, CSS"
+        },
+        "hitl_enabled": False,
+        "generation_type": "frontend_only",
+        "requirements": {
+            "status": "success",
+            "project_overview": {"name": "Frontend App", "type": "Frontend SPA"},
+            "tech_stack": {"frontend": ["React"]},
+        },
+        "planning": {
+            "status": "success",
+            "execution_strategy": {"project_type": "Frontend SPA"}
+        }
+    }
+    await db.projects.insert_one(fe_doc)
+    await compile_project_workflow(db, fe_proj_id, fe_doc)
+    final_fe_doc = db.projects.data[fe_proj_id]
+    print("Frontend-only status:", final_fe_doc["status"])
+    assert final_fe_doc["status"] == "completed"
+    assert not any(f["path"].startswith("backend/") for f in final_fe_doc["codebase"])
+    assert any(f["path"].startswith("frontend/") for f in final_fe_doc["codebase"])
+
+    # ──────────────────────────────────────────────────────────
+    # [Project 3] Backend Only Workflow
+    # ──────────────────────────────────────────────────────────
+    print("\n==================================================")
+    print("Testing Backend-Only Workflow...")
+    print("==================================================")
+    be_proj_id = "test-be-123"
+    be_doc = {
+        "_id": be_proj_id,
+        "name": "Backend App",
+        "category": "backend_only",
+        "status": "documents_ready",
+        "progress": 100,
+        "step": "Documents Generated",
+        "initial_prompt": {
+            "name": "Backend App",
+            "idea": "A REST API server.",
+            "features": ["REST endpoints", "Auth validation"],
+            "tech_stack": "FastAPI"
+        },
+        "hitl_enabled": False,
+        "generation_type": "backend_only",
+        "requirements": {
+            "status": "success",
+            "project_overview": {"name": "Backend App", "type": "Web API"},
+            "tech_stack": {"backend": ["FastAPI"]},
+            "database_requirements": {"required": True, "entities": ["User"]}
+        },
+        "planning": {
+            "status": "success",
+            "execution_strategy": {"project_type": "Web API"}
+        }
+    }
+    await db.projects.insert_one(be_doc)
+    await compile_project_workflow(db, be_proj_id, be_doc)
+    final_be_doc = db.projects.data[be_proj_id]
+    print("Backend-only status:", final_be_doc["status"])
+    assert final_be_doc["status"] == "completed"
+    assert any(f["path"].startswith("backend/") for f in final_be_doc["codebase"])
+    assert not any(f["path"].startswith("frontend/") for f in final_be_doc["codebase"])
+
+    print("\nSUCCESS: All Sarthi 2.0 dynamic options workflows verified successfully!")
 
 if __name__ == "__main__":
     asyncio.run(run_parallel_workflow_test())

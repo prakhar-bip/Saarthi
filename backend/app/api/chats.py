@@ -260,5 +260,13 @@ async def get_chat_themes(chat_id: str, prompt: str = None, current_user: dict =
             "tech_stack": "React, Tailwind, Node.js"
         }
         
-    themes = await generate_theme_suggestions(blueprint, custom_prompt=prompt)
+    # Format chat history for context
+    messages = chat.get("messages", [])
+    chat_history_str = ""
+    for msg in messages:
+        sender = msg.get("sender", "user")
+        text = msg.get("text", "")
+        chat_history_str += f"{sender.capitalize()}: {text}\n"
+        
+    themes = await generate_theme_suggestions(blueprint, custom_prompt=prompt, chat_history=chat_history_str)
     return themes

@@ -1601,23 +1601,31 @@ This will spin up:
         "codebase": inject_boilerplate_files(codebase, name, architecture_context)
     }
 
-async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None) -> List[Dict[str, Any]]:
+async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None, chat_history: str = None) -> List[Dict[str, Any]]:
     """
     Generate exactly 3 custom color/style themes for the selected project blueprint using Gemini / fallback LLM,
     or fall back to the structured category-specific lists.
     """
     if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
         logger.warning("No LLM keys configured. Falling back to local dynamic themes.")
-        return get_fallback_theme_suggestions(blueprint, custom_prompt)
+        return get_fallback_theme_suggestions(blueprint, custom_prompt, chat_history)
 
     custom_guideline = f"\nCRITICAL: The user has requested custom themes matching this preference: '{custom_prompt}'. Please generate themes that specifically match this style/preference (e.g. naming, descriptions, and color choices matching '{custom_prompt}')." if custom_prompt else ""
+    chat_context = f"\nReference Chat Conversation History (contains user preferences, target audience, specific features, and design discussions):\n{chat_history}" if chat_history else ""
 
     prompt = f"""
     You are Sarthi, an expert AI partner. Suggest exactly 3 custom design themes matching the styling requirements of this project blueprint:
     Blueprint Name: {blueprint.get('name')}
     Core Idea: {blueprint.get('idea')}
     Key Features: {', '.join(blueprint.get('features', []))}
-    Suggested Tech Stack: {blueprint.get('tech_stack')}{custom_guideline}
+    Suggested Tech Stack: {blueprint.get('tech_stack')}{custom_guideline}{chat_context}
+    
+    CRITICAL: Analyze the project's domain, target audience (inferred from the chat history and blueprint), and key features to suggest color palettes that are contextually relevant. Do NOT suggest random or generic colors.
+    For example:
+    - FinTech / Finance: Trustworthy blues, emerald greens, and high-quality stone/slate tones.
+    - Healthcare / Medicine: Sterile mint greens, calming teals, and clean soft background tones.
+    - Kids / Education / Gaming: Energetic sunsets, warm amber, playful rose/pink, and colorful accents.
+    - Developer tools / Technical utilities: High-contrast dark modes, terminal obsidian background, and neon highlights (emerald/purple).
     
     For each design theme, provide:
     1. name (Theme Name)
@@ -1632,7 +1640,7 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
          "border": "Hex color code",
          "is_dark": true/false
        }}
-     )
+      )
     
     Return your output ONLY as a valid JSON array of objects. Do not include markdown code block syntax (like ```json ... ```). Just return the raw JSON.
     The JSON must match this structure:
@@ -1678,10 +1686,10 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None)
             raise ValueError("Theme suggestion JSON structure was not an array of 3 themes")
     except Exception as e:
         logger.error(f"Error generating theme suggestions from LLM: {e}. Falling back.")
-        return get_fallback_theme_suggestions(blueprint, custom_prompt)
+        return get_fallback_theme_suggestions(blueprint, custom_prompt, chat_history)
 
 
-def get_fallback_theme_suggestions(blueprint: dict, custom_prompt: str = None) -> List[Dict[str, Any]]:
+def get_fallback_theme_suggestions(blueprint: dict, custom_prompt: str = None, chat_history: str = None) -> List[Dict[str, Any]]:
     name = blueprint.get("name", "Workspace Project")
     category = blueprint.get("category", "other").lower()
 
@@ -1941,90 +1949,360 @@ def get_fallback_theme_suggestions(blueprint: dict, custom_prompt: str = None) -
             }
         ]
 
-async def generate_prd_mrd_trd(project_name: str, prompt: str) -> Dict[str, str]:
+async def generate_prd_mrd_trd(
+    project_name: str,
+    prompt: str,
+    generation_type: str = "full_stack",
+    theme: str = None,
+    theme_palette: dict = None,
+    chat_history: str = None
+) -> Dict[str, str]:
     """
     Generate high-quality PRD, MRD, and TRD markdown files in parallel.
     """
     import asyncio
     
-    # 1. PRD Prompt
-    prd_system = (
-        "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
-        "in Markdown format for the proposed project."
+    # Construct context instructions for themes and chat history
+    context_directives = ""
+    if theme:
+        context_directives += f"\n- Confirmed Styling Theme Name: {theme}"
+    if theme_palette:
+        context_directives += (
+            f"\n- Confirmed Styling Color Palette: Primary={theme_palette.get('primary')}, "
+            f"Secondary={theme_palette.get('secondary')}, Background={theme_palette.get('background')}, "
+            f"Text={theme_palette.get('text')}, Border={theme_palette.get('border')}, DarkMode={theme_palette.get('is_dark')}"
+        )
+    if chat_history:
+        context_directives += f"\n- Reference Chat Conversation History (contains user preferences, target audience, specific features, and design discussions):\n{chat_history}"
+        
+    prompt = (
+        f"{prompt}\n\n"
+        f"STRICT SPECIFICATION GENERATION INSTRUCTIONS:\n"
+        f"1. You must align all UI/UX layouts, component descriptions, and visual/interactive styling recommendations in the document with the confirmed Theme and Color Palette:\n"
+        f"{context_directives}\n"
+        f"2. You must incorporate all specific user preferences, target audience demographics, functional constraints, and requirements discussed in the Chat Conversation History.\n"
+        f"3. Make sure the technical requirement decisions dynamically adapt to these parameters."
     )
-    prd_user = f"""
-    Project Name: {project_name}
-    Project Core Idea/Description: {prompt}
     
-    Write a detailed PRD containing the following sections:
-    # Product Requirement Document (PRD) - {project_name}
-    ## 1. Executive Summary & Objectives
-    What problem are we solving? What are the core goals and metrics of this product?
-    ## 2. Target Audience & User Personas
-    Who are the target users? Detail at least two user personas.
-    ## 3. Product Scope & Out of Scope
-    What are the minimum viable features (MVP)? What features are deferred to V2?
-    ## 4. Key Functional Features
-    Detail user flows, requirements, and specifications for each core feature.
-    ## 5. Non-Functional Requirements
-    Usability, accessibility, responsiveness, performance parameters.
-    ## 6. Success Metrics & Key Performance Indicators (KPIs)
-    What does success look like? What metrics should we track?
-    
-    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
-    """
+    if generation_type == "frontend_only":
+        # 1. PRD Prompt (Frontend Only)
+        prd_system = (
+            "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
+            "in Markdown format for the proposed FRONTEND ONLY project."
+        )
+        prd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed PRD containing the following sections:
+        # Product Requirement Document (PRD) - {project_name} (Frontend Only)
+        ## 1. Executive Summary & Objectives
+        What user-facing problem are we solving? What are the core client-side goals and frontend metrics of this product?
+        ## 2. Target Audience & User Personas
+        Who are the target client-side users? Detail at least two user personas.
+        ## 3. Product Scope & Out of Scope
+        What are the minimum viable frontend features (MVP)? What UI features are deferred to V2? NOTE: Server-side database management and custom API development are explicitly Out of Scope.
+        ## 4. Key Functional Features (Frontend)
+        Detail user flows, frontend client routing, mock data interactions, and UI component specifications for each core feature.
+        ## 5. Non-Functional Requirements (Frontend)
+        Usability, accessibility (WCAG compliance), responsive layouts (mobile, tablet, desktop), web performance parameters (Lighthouse scores, FCP, LCP).
+        ## 6. Success Metrics & Key Performance Indicators (KPIs)
+        What does frontend success look like? What user interaction/retention metrics should we track?
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
+        """
 
-    # 2. MRD Prompt
-    mrd_system = (
-        "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
-        "in Markdown format for the proposed project."
-    )
-    mrd_user = f"""
-    Project Name: {project_name}
-    Project Core Idea/Description: {prompt}
-    
-    Write a detailed MRD containing the following sections:
-    # Market Requirement Document (MRD) - {project_name}
-    ## 1. Market Opportunity & Size
-    Define the target addressable market (TAM), serviceable addressable market (SAM), and serviceable obtainable market (SOM).
-    ## 2. Competitor Landscape & Differentiation
-    Identify at least three competitors (direct and indirect). What is our unique selling proposition (USP)?
-    ## 3. Positioning & Messaging
-    How will we position the product in the market? Include key brand pillars.
-    ## 4. Go-To-Market (GTM) Strategy
-    What marketing channels, content strategies, and acquisition tactics will we employ?
-    ## 5. Pricing & Monetization Model
-    How will the product generate revenue? Describe subscription tiers or transaction models.
-    
-    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
-    """
+        # 2. MRD Prompt (Frontend Only)
+        mrd_system = (
+            "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
+            "in Markdown format for a Frontend-focused / Client-focused product."
+        )
+        mrd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed MRD containing the following sections:
+        # Market Requirement Document (MRD) - {project_name} (Frontend Only)
+        ## 1. Market Opportunity & Size
+        Define the target addressable market (TAM), serviceable addressable market (SAM), and serviceable obtainable market (SOM) for this user interface.
+        ## 2. Competitor Landscape & User Experience Differentiation
+        Identify at least three competitors (direct and indirect). What is our unique selling proposition (USP) regarding user experience, design, accessibility, and interaction design?
+        ## 3. Positioning & Messaging
+        How will we position the product in the market? Include key brand/design pillars.
+        ## 4. Go-To-Market (GTM) Strategy
+        What marketing channels, content strategies, and acquisition tactics for client-facing apps?
+        ## 5. Pricing & Monetization Model
+        How will the product generate revenue? Describe subscription tiers or client-side ad-integration/in-app purchase models.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
+        """
 
-    # 3. TRD Prompt
-    trd_system = (
-        "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
-        "in Markdown format for the proposed project."
-    )
-    trd_user = f"""
-    Project Name: {project_name}
-    Project Core Idea/Description: {prompt}
-    
-    Write a detailed TRD containing the following sections:
-    # Technical Requirement Document (TRD) - {project_name}
-    ## 1. Architectural Overview & System Design
-    Describe the high-level system architecture, client-server models, and design patterns.
-    ## 2. Tech Stack & Dependencies
-    What frontend libraries, backend frameworks, databases, and third-party APIs are required? Explain why.
-    ## 3. Database Schema & Data Models
-    Provide a detailed database schema. List entities, properties, data types, and relations.
-    ## 4. API Endpoints & Payload Contracts
-    Define REST/WebSocket routes (methods, paths, request bodies, response payloads).
-    ## 5. Security, Authentication & Compliance
-    JWT policies, rate limiting, encryption at rest/transit, GDPR/compliance notes.
-    ## 6. Deployment, Infrastructure & CI/CD
-    Docker configurations, cloud providers, caching layers (Redis), and pipeline steps.
-    
-    Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
-    """
+        # 3. TRD Prompt (Frontend Only)
+        trd_system = (
+            "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
+            "in Markdown format for a FRONTEND ONLY project."
+        )
+        trd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed TRD containing the following sections:
+        # Technical Requirement Document (TRD) - {project_name} (Frontend Only)
+        ## 1. Architectural Overview & Frontend System Design
+        Describe the high-level frontend architecture, state management patterns (Zustand/SWR/Redux), client-side routing, and folder structure.
+        ## 2. Tech Stack & Dependencies
+        What frontend libraries, frameworks (React/Next.js/Vite), styling tools (Tailwind/CSS modules), and client-side utilities are required? Explain why.
+        ## 3. Client State & Mock Data Models
+        Detail the client-side state schema and JSON structures for mock/local storage data models. NOTE: No database schemas or server-side DB models.
+        ## 4. Client Routing & Inter-component Communication
+        Define router paths, query parameters, page components, and context/props flow.
+        ## 5. Security & Client-Side Verification
+        Local storage safety, input sanitization, front-end auth logic/routing guards.
+        ## 6. Deployment & Build Pipeline
+        Static hosting configuration (Vercel/Netlify/S3), asset optimization, build optimization (tree shaking, code splitting), and CI/CD steps.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
+        """
+
+    elif generation_type == "backend_only":
+        # 1. PRD Prompt (Backend Only)
+        prd_system = (
+            "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
+            "in Markdown format for the proposed BACKEND ONLY (API-first/Headless) project."
+        )
+        prd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed PRD containing the following sections:
+        # Product Requirement Document (PRD) - {project_name} (Backend Only)
+        ## 1. Executive Summary & Objectives
+        What system-level or API-level problem are we solving? What are the core goals and metrics of this backend system?
+        ## 2. Target Audience & System Personas
+        Who are the target consumers (e.g., frontend developers, third-party systems, admin scripts)? Detail at least two personas.
+        ## 3. Product Scope & Out of Scope
+        What are the minimum viable backend APIs and services (MVP)? What features are deferred to V2? NOTE: UI development, frontend pages, layouts, and web styling are explicitly Out of Scope.
+        ## 4. Key Functional Features (Backend)
+        Detail system workflows, data processing logic, background jobs, and API functionalities.
+        ## 5. Non-Functional Requirements (Backend)
+        System scalability, latency parameters, uptime SLAs, rate limits, performance parameters, and data integrity constraints.
+        ## 6. Success Metrics & Key Performance Indicators (KPIs)
+        What does backend success look like? What backend performance metrics (API response times, error rates, server utilization) should we track?
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
+        """
+
+        # 2. MRD Prompt (Backend Only)
+        mrd_system = (
+            "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
+            "in Markdown format for a Backend/API-first/Headless product."
+        )
+        mrd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed MRD containing the following sections:
+        # Market Requirement Document (MRD) - {project_name} (Backend Only)
+        ## 1. Market Opportunity & Size
+        Define the target addressable market (TAM), serviceable addressable market (SAM), and serviceable obtainable market (SOM) for headless/API-first platforms or enterprise backends.
+        ## 2. Competitor Landscape & API-First Differentiation
+        Identify at least three competitors (direct and indirect). What is our unique selling proposition (USP) regarding system efficiency, reliability, API developer experience, or processing capabilities?
+        ## 3. Positioning & Messaging
+        How will we position this backend product? Include brand/developer pillars.
+        ## 4. Go-To-Market (GTM) Strategy & Developer Relations (DevRel)
+        What strategies will we use to acquire backend consumers? Documentation, developer kits, sandboxes, and API portals.
+        ## 5. Pricing & Monetization Model
+        How will the product generate revenue? Describe API usage pricing tiers (pay-per-request, rate-limited tiers, data volume limits).
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
+        """
+
+        # 3. TRD Prompt (Backend Only)
+        trd_system = (
+            "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
+            "in Markdown format for a BACKEND ONLY project."
+        )
+        trd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed TRD containing the following sections:
+        # Technical Requirement Document (TRD) - {project_name} (Backend Only)
+        ## 1. Architectural Overview & Backend Design
+        Describe the high-level server architecture, patterns (MVC, Repository, clean architecture), and database-server interaction.
+        ## 2. Tech Stack & Backend Dependencies
+        What backend frameworks (FastAPI/Express/Django), database engines, caching solutions (Redis), and third-party APIs are required? Explain why.
+        ## 3. Database Schema & Data Models
+        Provide a detailed database schema. List entities, properties, data types, migrations, index strategies, and relationships.
+        ## 4. API Endpoints & Payload Contracts
+        Define REST/WebSocket routes (methods, paths, request bodies, response payloads, error payloads, query params).
+        ## 5. Security, Authentication & Access Control
+        JWT validation, session management, OAuth2 scopes, rate limiting, hashing, encryption at rest/transit.
+        ## 6. Deployment, Infrastructure & CI/CD
+        Docker configurations, Dockerfiles, caching layers (Redis), cloud VM/serverless configs, and automated pipeline steps.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
+        """
+
+    elif generation_type == "microservice":
+        # 1. PRD Prompt (Microservice)
+        prd_system = (
+            "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
+            "in Markdown format for the proposed MICROSERVICE-based project."
+        )
+        prd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed PRD containing the following sections:
+        # Product Requirement Document (PRD) - {project_name} (Microservice Architecture)
+        ## 1. Executive Summary & Objectives
+        What distributed system-level problem are we solving? What are the core scalability goals of this product?
+        ## 2. Target Audience & System Personas
+        Who are the target consumers? Detail at least two personas (developers, devops engineers, internal clients).
+        ## 3. Product Scope & Out of Scope
+        What is the scope of the microservices MVP? What features or services are deferred to V2?
+        ## 4. Key Functional Features (Distributed Workflows)
+        Detail user/system workflows that span multiple microservices. Explain distributed transaction patterns.
+        ## 5. Non-Functional Requirements
+        High availability, fault tolerance (circuit breakers, retries), eventual consistency window, latency overhead, and inter-service latency.
+        ## 6. Success Metrics & Key Performance Indicators (KPIs)
+        What does success look like? What metrics (distributed trace times, service uptime, message queue lag, scaling speed) should we track?
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
+        """
+
+        # 2. MRD Prompt (Microservice)
+        mrd_system = (
+            "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
+            "in Markdown format for a Scalable Microservice Platform."
+        )
+        mrd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed MRD containing the following sections:
+        # Market Requirement Document (MRD) - {project_name} (Microservice Architecture)
+        ## 1. Market Opportunity & Size
+        TAM, SAM, SOM for highly scalable enterprise systems.
+        ## 2. Competitor Landscape & Cloud-Native Differentiation
+        Competitors, USP regarding extreme scalability, independence of service scaling, high availability, and modularity.
+        ## 3. Positioning & Messaging
+        How will we position this platform? Modularity, resiliency, speed.
+        ## 4. Go-To-Market (GTM) Strategy
+        B2B sales, open-source community plays, developer evangelism.
+        ## 5. Pricing & Monetization Model
+        Enterprise licensing, consumption-based pricing, resource-allocated plans.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
+        """
+
+        # 3. TRD Prompt (Microservice)
+        trd_system = (
+            "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
+            "in Markdown format for a MICROSERVICE architecture project."
+        )
+        trd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed TRD containing the following sections:
+        # Technical Requirement Document (TRD) - {project_name} (Microservice Architecture)
+        ## 1. Distributed Architectural Overview & Services Layout
+        Describe the service layout, communication boundaries, and architectural patterns (API Gateway, Event-driven, Database-per-service).
+        ## 2. Tech Stack, Message Brokers & Protocols
+        What technologies are chosen for each service? Explain message brokers (Kafka/RabbitMQ/Redis PubSub) and inter-service communication protocols (gRPC/HTTP REST).
+        ## 3. Databases per Service & Schema
+        Provide schemas for each individual service's database. Explain how data synchronization and eventual consistency are achieved.
+        ## 4. Inter-service APIs & Event Schemas
+        Define REST/gRPC endpoints and message queue topic structures/event payloads.
+        ## 5. Distributed Security, Auth & Service-to-Service Auth
+        Centralized OAuth2/JWT gateway verification, service-to-service auth (mTLS, API Keys).
+        ## 6. Infrastructure, Orchestration, CI/CD & Tracing
+        Kubernetes configurations, Helm charts, Docker Compose, distributed tracing (Jaeger/OpenTelemetry), and centralized logging.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
+        """
+
+    else:
+        # 1. PRD Prompt (Full Stack)
+        prd_system = (
+            "You are an expert Principal Product Manager. Your task is to generate a comprehensive, high-fidelity Product Requirement Document (PRD) "
+            "in Markdown format for the proposed project."
+        )
+        prd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed PRD containing the following sections:
+        # Product Requirement Document (PRD) - {project_name}
+        ## 1. Executive Summary & Objectives
+        What problem are we solving? What are the core goals and metrics of this product?
+        ## 2. Target Audience & User Personas
+        Who are the target users? Detail at least two user personas.
+        ## 3. Product Scope & Out of Scope
+        What are the minimum viable features (MVP)? What features are deferred to V2?
+        ## 4. Key Functional Features
+        Detail user flows, requirements, and specifications for each core feature.
+        ## 5. Non-Functional Requirements
+        Usability, accessibility, responsiveness, performance parameters.
+        ## 6. Success Metrics & Key Performance Indicators (KPIs)
+        What does success look like? What metrics should we track?
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Product Requirement Document'.
+        """
+
+        # 2. MRD Prompt (Full Stack)
+        mrd_system = (
+            "You are an expert Director of Product Marketing. Your task is to generate a comprehensive, high-fidelity Market Requirement Document (MRD) "
+            "in Markdown format for the proposed project."
+        )
+        mrd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed MRD containing the following sections:
+        # Market Requirement Document (MRD) - {project_name}
+        ## 1. Market Opportunity & Size
+        Define the target addressable market (TAM), serviceable addressable market (SAM), and serviceable obtainable market (SOM).
+        ## 2. Competitor Landscape & Differentiation
+        Identify at least three competitors (direct and indirect). What is our unique selling proposition (USP)?
+        ## 3. Positioning & Messaging
+        How will we position the product in the market? Include key brand pillars.
+        ## 4. Go-To-Market (GTM) Strategy
+        What marketing channels, content strategies, and acquisition tactics will we employ?
+        ## 5. Pricing & Monetization Model
+        How will the product generate revenue? Describe subscription tiers or transaction models.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Market Requirement Document'.
+        """
+
+        # 3. TRD Prompt (Full Stack)
+        trd_system = (
+            "You are a Principal Software Architect. Your task is to generate a comprehensive, high-fidelity Technical Requirement Document (TRD) "
+            "in Markdown format for the proposed project."
+        )
+        trd_user = f"""
+        Project Name: {project_name}
+        Project Core Idea/Description: {prompt}
+        
+        Write a detailed TRD containing the following sections:
+        # Technical Requirement Document (TRD) - {project_name}
+        ## 1. Architectural Overview & System Design
+        Describe the high-level system architecture, client-server models, and design patterns.
+        ## 2. Tech Stack & Dependencies
+        What frontend libraries, backend frameworks, databases, and third-party APIs are required? Explain why.
+        ## 3. Database Schema & Data Models
+        Provide a detailed database schema. List entities, properties, data types, and relations.
+        ## 4. API Endpoints & Payload Contracts
+        Define REST/WebSocket routes (methods, paths, request bodies, response payloads).
+        ## 5. Security, Authentication & Compliance
+        JWT policies, rate limiting, encryption at rest/transit, GDPR/compliance notes.
+        ## 6. Deployment, Infrastructure & CI/CD
+        Docker configurations, cloud providers, caching layers (Redis), and pipeline steps.
+        
+        Return ONLY the markdown document. Do not wrap in extra commentary or extra code blocks. Just start with '# Technical Requirement Document'.
+        """
 
     async def run_prd():
         try:

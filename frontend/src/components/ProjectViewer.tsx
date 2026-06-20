@@ -477,6 +477,7 @@ export const ProjectViewer: React.FC = () => {
   // Animated counter for progress percentage
   const progressCount = useMotionValue(0);
   const progressRounded = useTransform(progressCount, Math.round);
+  const progressDecimal = useTransform(progressCount, (v) => v >= 100 ? "100" : v.toFixed(2));
   useEffect(() => {
     if (!activeProj) return;
     const controls = animate(progressCount, activeProj.progress, { duration: 0.8, ease: "easeOut" });
@@ -1264,30 +1265,41 @@ export const ProjectViewer: React.FC = () => {
                       { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
                       { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
                       { id: "backend_only", label: "Backend Only", desc: "API & Models" }
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setCustomGenType(item.id);
-                          if (item.id === "frontend_only") {
-                            setCustomTechStack("Next.js, Tailwind CSS");
-                          } else if (item.id === "backend_only") {
-                            setCustomTechStack("FastAPI, MongoDB");
-                          } else {
-                            setCustomTechStack("React, Tailwind CSS, FastAPI, MongoDB");
-                          }
-                        }}
-                        className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                          customGenType === item.id
-                            ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm"
-                            : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600"
-                        }`}
-                      >
-                        <span className="text-xs font-bold">{item.label}</span>
-                        <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
-                      </button>
-                    ))}
+                    ].map((item) => {
+                      const isLocked = item.id !== "full_stack";
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={isLocked}
+                          title={isLocked ? "Coming Soon" : ""}
+                          onClick={() => {
+                            if (isLocked) return;
+                            setCustomGenType(item.id);
+                            if (item.id === "frontend_only") {
+                              setCustomTechStack("Next.js, Tailwind CSS");
+                            } else if (item.id === "backend_only") {
+                              setCustomTechStack("FastAPI, MongoDB");
+                            } else {
+                              setCustomTechStack("React, Tailwind CSS, FastAPI, MongoDB");
+                            }
+                          }}
+                          className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
+                            isLocked
+                              ? "border-stone-200 bg-stone-100/70 text-stone-400 opacity-60 cursor-not-allowed"
+                              : customGenType === item.id
+                              ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm cursor-pointer"
+                              : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600 cursor-pointer"
+                          }`}
+                        >
+                          <span className="text-xs font-bold flex items-center gap-1 justify-center w-full">
+                            {item.label}
+                            {isLocked && <span className="text-[7px] bg-stone-200 text-stone-600 px-1 py-0.2 rounded font-normal uppercase scale-90">Soon</span>}
+                          </span>
+                          <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1716,10 +1728,10 @@ export const ProjectViewer: React.FC = () => {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: "easeOut" }}
-              className="max-w-4xl w-full bg-white p-8 rounded-3xl border border-stone-200/60 shadow-lg relative overflow-hidden flex flex-col md:flex-row gap-8"
+              className="max-w-4xl w-full bg-stone-50/80 backdrop-blur-xl p-8 rounded-3xl border border-stone-200/50 shadow-2xl relative overflow-hidden flex flex-col md:flex-row gap-8 shadow-indigo-100/30"
             >
               {/* Top gradient bar */}
-              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 via-indigo-500 to-purple-600" />
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500" />
 
               {/* Left Column: Progress Circle and Timeline Milestones */}
               <div className="flex-1 md:w-5/12 flex flex-col justify-between">
@@ -1738,10 +1750,13 @@ export const ProjectViewer: React.FC = () => {
 
                   {/* Progress Ring with outer pulsing ring + rotating dashes */}
                   <div className="relative w-32 h-32 mx-auto mb-6 flex items-center justify-center">
+                    {/* Glowing background spot matching theme */}
+                    <div className="absolute w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500/10 via-purple-500/5 to-rose-500/10 blur-xl animate-pulse" />
+
                     {/* Outer pulsing ring */}
                     <motion.div
-                      className="absolute inset-0 rounded-full border-2 border-indigo-300/30"
-                      animate={{ scale: [1, 1.06, 1], opacity: [0.5, 0.2, 0.5] }}
+                      className="absolute inset-0 rounded-full border-2 border-indigo-500/20"
+                      animate={{ scale: [1, 1.06, 1], opacity: [0.5, 0.25, 0.5] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     />
 
@@ -1758,7 +1773,7 @@ export const ProjectViewer: React.FC = () => {
 
                     {/* Main progress ring */}
                     <svg className="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" r="40" stroke="#f5f5f4" strokeWidth="5" fill="transparent" />
+                      <circle cx="50" cy="50" r="40" stroke="rgba(224, 224, 224, 0.3)" strokeWidth="5" fill="transparent" />
                       <motion.circle
                         cx="50" cy="50" r="40"
                         stroke="url(#progress-grad-v2)"
@@ -1779,11 +1794,11 @@ export const ProjectViewer: React.FC = () => {
                     </svg>
 
                     {/* Center text */}
-                    <div className="absolute text-center">
-                      <span className="text-xl font-extrabold text-stone-800 font-display">
-                        {Math.round(activeProj.progress)}
-                      </span>
-                      <span className="text-[8px] text-stone-400 block font-semibold uppercase tracking-wider">%</span>
+                    <div className="absolute text-center flex flex-col items-center justify-center">
+                      <motion.span className="text-xl font-black text-stone-850 font-display tracking-tight drop-shadow-sm leading-none select-none">
+                        {progressDecimal}
+                      </motion.span>
+                      <span className="text-[8px] text-stone-400 block font-bold uppercase tracking-widest mt-0.5 select-none">%</span>
                     </div>
                   </div>
 
@@ -1906,23 +1921,68 @@ export const ProjectViewer: React.FC = () => {
                     {(compilationLogs[activeProj.id] && compilationLogs[activeProj.id].length > 0) ? (
                       compilationLogs[activeProj.id].map((log, idx) => {
                         let colorClass = "text-stone-300";
-                        if (log.level === "WARNING" || log.level === "WARN") colorClass = "text-amber-400";
-                        else if (log.level === "ERROR") colorClass = "text-rose-400";
-                        else if (log.level === "SUCCESS" || log.message.startsWith("✅") || log.message.startsWith("🎉") || log.message.includes("verified successfully")) colorClass = "text-emerald-400";
+                        let badgeStyle = "bg-cyan-950/40 text-cyan-400 border-cyan-800/30";
+                        let levelText = log.level || "INFO";
                         
+                        if (log.level === "WARNING" || log.level === "WARN") {
+                          colorClass = "text-amber-400/90";
+                          badgeStyle = "bg-amber-950/40 text-amber-400 border-amber-800/30";
+                          levelText = "WARN";
+                        } else if (log.level === "ERROR") {
+                          colorClass = "text-rose-400/90";
+                          badgeStyle = "bg-rose-950/40 text-rose-400 border-rose-800/30 animate-pulse";
+                          levelText = "ERROR";
+                        } else if (log.level === "SUCCESS" || log.message.startsWith("✅") || log.message.startsWith("🎉") || log.message.includes("verified successfully")) {
+                          colorClass = "text-emerald-400/90";
+                          badgeStyle = "bg-emerald-950/40 text-emerald-400 border-emerald-800/30 shadow-[0_0_8px_rgba(16,185,129,0.1)]";
+                          levelText = "SUCCESS";
+                        } else if (log.level === "HEAL" || log.message.startsWith("🩹") || log.message.includes("Healing")) {
+                          colorClass = "text-cyan-400/90";
+                          badgeStyle = "bg-indigo-950/40 text-indigo-400 border-indigo-800/30 shadow-[0_0_8px_rgba(99,102,241,0.1)]";
+                          levelText = "HEAL";
+                        } else {
+                          badgeStyle = "bg-cyan-950/40 text-cyan-400 border-cyan-800/30";
+                        }
+                        
+                        let message = log.message;
+                        let emoji = "";
+                        const emojiMatch = message.match(/^([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])\s*/);
+                        if (emojiMatch) {
+                          emoji = emojiMatch[1];
+                          message = message.substring(emojiMatch[0].length);
+                        }
+                        
+                        const shortSender = log.sender ? log.sender.replace("app.agents.", "").replace("app.services.", "") : "";
+
                         return (
                           <motion.div 
                             key={idx}
                             initial={{ opacity: 0, x: -4 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.2 }}
-                            className={`flex items-start gap-2 leading-relaxed ${colorClass}`}
+                            className="flex flex-col sm:flex-row sm:items-center gap-2 py-1 border-b border-stone-900/40 last:border-0 text-[13px]"
                           >
-                            <span className="text-stone-600 shrink-0">[{log.timestamp}]</span>
-                            {log.sender && (
-                              <span className="font-bold shrink-0 text-cyan-400/90">{log.sender.replace("app.agents.", "").replace("app.services.", "")}:</span>
-                            )}
-                            <span className="text-stone-200">{log.message}</span>
+                            <div className="flex items-center gap-1.5 shrink-0 select-none">
+                              <span className="text-stone-600 font-mono text-[11px]">[{log.timestamp}]</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${badgeStyle}`}>
+                                {levelText}
+                              </span>
+                              {shortSender && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-900/60 text-stone-400 border border-stone-800/50">
+                                  {shortSender}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-start gap-1.5 pl-2 sm:pl-0">
+                              {emoji && (
+                                <span className="text-[15px] filter drop-shadow-[0_0_3px_rgba(255,255,255,0.2)] shrink-0 select-none">
+                                  {emoji}
+                                </span>
+                              )}
+                              <span className={`text-stone-200 font-medium whitespace-pre-wrap break-all tracking-wide ${colorClass}`}>
+                                {message}
+                              </span>
+                            </div>
                           </motion.div>
                         );
                       })
