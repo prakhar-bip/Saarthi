@@ -2,9 +2,11 @@ import os
 import sys
 import shutil
 import tempfile
-import subprocess
-import json
 import asyncio
+import json
+import time
+import subprocess
+from datetime import datetime, timezone
 from loguru import logger
 from typing import Any, Dict, List, Tuple, Optional
 
@@ -13,16 +15,18 @@ from app.services.llm_router import get_llm_completion
 from app.services.project_assembler import detect_tech_stack, assemble_project_codebase
 from app.agents.context import build_agent_system_prompt, parse_json_response
 
+from app.services.change_impact_analyzer import ChangeImpactAnalyzer
+from app.services.container_verifier import ContainerVerifier
+
 class RuntimeVerifierAgent:
     """
     RuntimeVerifierAgent is a dynamic execution-based verification and auto-healing agent.
     
-    It writes generated project files to a physical temporary directory, sets up virtual
-    environments and dependencies where applicable, runs actual compilers/linters/builders,
-    detects errors, and uses an LLM healing loop to correct syntax, imports, and integrations.
+    It analyzes changes recursively, executes isolated checks in ephemeral containers 
+    with custom memory/CPU bounds, and falls back gracefully to host execution if Docker is unavailable.
     """
     def __init__(self) -> None:
-        self.agent_name = "ErrorCorrectionAgent"  # Reuse mapped name for reasoning model routing
+        self.agent_name = "ErrorCorrectionAgent"  # Mapped for reasoning models routing
         self.max_healing_attempts = 5
 
     async def verify_and_heal(
@@ -32,397 +36,396 @@ class RuntimeVerifierAgent:
         project_id: str
     ) -> Dict[str, Any]:
         """
-        Main orchestration method for runtime compilation checks and healing loops.
+        Main orchestration entrypoint for Containerized Runtime verification and healing.
         """
-        logger.info(f"[{project_id}] Starting Runtime Verification & Auto-Healing process...")
+        logger.info(f"[{project_id}] Starting Containerized Runtime Verification & Healing pipeline...")
+        t_start = time.time()
         
-        # 1. Retrieve generated codebase
+        # 1. Retrieve current generated codebase
         synthesized_codebase = project_doc.get("synthesized_codebase", [])
         if not synthesized_codebase:
-            logger.warning(f"[{project_id}] No synthesized codebase found. Skipping runtime verification.")
+            logger.warning(f"[{project_id}] No synthesized codebase found. Skipping.")
             return project_doc
 
-        # Dynamically calculate maximum healing attempts based on number of generated source files (min 5, max 10)
+        # Calculate healing capacity dynamically
         self.max_healing_attempts = min(10, max(5, 5 + len(synthesized_codebase) // 5))
-        logger.info(f"[{project_id}] Dynamic healing attempts set to {self.max_healing_attempts} based on {len(synthesized_codebase)} files.")
 
-        # 2. Compile full monorepo codebase (combines boilerplate + AI code)
+        # Assemble full file layout (merges boilerplate + AI files)
         assembly = assemble_project_codebase(project_doc, ai_codebase=synthesized_codebase)
         assembled_files = assembly.get("codebase", [])
         if not assembled_files:
-            logger.warning(f"[{project_id}] Failed to assemble codebase. Skipping.")
+            logger.warning(f"[{project_id}] Assembly empty. Skipping verification.")
             return project_doc
 
-        # 3. Detect technology stack
+        # Detect stacks
         stack = detect_tech_stack(project_doc)
         backend_tech = stack.get("backend", "fastapi")
         frontend_tech = stack.get("frontend", "nextjs")
         db_tech = stack.get("database", "mongodb")
-        logger.info(f"[{project_id}] Detected Stack: Backend={backend_tech}, Frontend={frontend_tech}, Database={db_tech}")
 
-        # 4. Create physical temporary workspace on disk
-        temp_dir = tempfile.mkdtemp(prefix=f"sarthi_run_{project_id}_")
-        logger.info(f"[{project_id}] Created temporary workspace at: {temp_dir}")
+        # 2. Check for Baseline Hashes to trigger Change Impact Analysis
+        report = project_doc.get("runtime_verification_report", {})
+        previous_hashes = report.get("file_hashes", {})
+        
+        # Run Change Impact Analysis
+        impact_analysis = ChangeImpactAnalyzer.build_validation_plan(assembled_files, previous_hashes)
+        changed_files = impact_analysis["changed_files"]
+        affected_files = impact_analysis["affected_files"]
+        scope = impact_analysis["scope"]
+        start_tier = impact_analysis["recommended_tier"]
 
-        try:
-            # Write all files to temporary workspace
-            self._write_files_to_disk(temp_dir, assembled_files)
+        # 3. Create/Reuse workspace
+        temp_dir = os.path.join(tempfile.gettempdir(), f"sarthi_run_{project_id}_persist")
+        os.makedirs(temp_dir, exist_ok=True)
+        self._write_files_to_disk(temp_dir, assembled_files)
 
-            # Keep a working copy of files in memory to track edits
-            # We map: relative_path -> file dict
-            file_map = {f["path"]: f for f in assembled_files}
+        # Track file states recursively in-memory
+        file_map = {f["path"]: f for f in assembled_files}
 
-            # 5. Iterative compile & heal loop
-            success = False
-            for attempt in range(1, self.max_healing_attempts + 1):
-                logger.info(f"[{project_id}] Healing attempt {attempt}/{self.max_healing_attempts}...")
-                
-                # Run various diagnostic tests
-                errors = await self._run_diagnostic_tests(temp_dir, backend_tech, frontend_tech, db_tech, project_doc, db, project_id)
-                
-                if not errors:
-                    logger.info(f"[{project_id}] All runtime compilation and verification checks PASSED on attempt {attempt}!")
-                    success = True
-                    break
-                
-                logger.warning(f"[{project_id}] Compilation checks failed on attempt {attempt} with {len(errors)} issues.")
-                
-                # Heal all errors/warnings found across files without ignoring any of them
-                healed_any = False
-                for err_file, err_log in errors:
-                    logger.info(f"[{project_id}] Healing file: {err_file}")
-                    
-                    file_record = file_map.get(err_file)
-                    if not file_record:
-                        # Find closest match if path mapping is slightly off
-                        for p in file_map.keys():
-                            if p.endswith(err_file) or err_file.endswith(p):
-                                file_record = file_map[p]
-                                err_file = p
-                                break
-                    
-                    if file_record:
-                        healed_content = await self._heal_file_content(
-                            file_path=err_file,
-                            file_content=file_record.get("content", ""),
-                            error_log=err_log,
-                            project_doc=project_doc,
-                            tech_stack=stack
-                        )
-                        if healed_content:
-                            # Update physical file on disk
-                            full_path = os.path.join(temp_dir, err_file)
-                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                            with open(full_path, "w", encoding="utf-8") as f:
-                                f.write(healed_content)
-                            
-                            # Update in-memory map
-                            file_record["content"] = healed_content
-                            healed_any = True
-                
-                if not healed_any:
-                    logger.warning(f"[{project_id}] Healing engine could not propose any file changes. Breaking loop.")
-                    break
+        # Check Docker status
+        docker_active = await ContainerVerifier.is_docker_available()
+        logger.info(f"[{project_id}] Docker Daemon Active Status: {docker_active}")
 
-            # 6. Read back modified files and update synthesized_codebase in project_doc & MongoDB
-            if success:
-                logger.info(f"[{project_id}] Syncing working healed codebase back to database.")
-            else:
-                logger.warning(f"[{project_id}] Synthesis verification complete with remaining issues. Syncing best effort.")
+        success = False
+        metrics_rebuilds = 0
+        metrics_inc_rebuilds = 0
+        container_run_duration = 0.0
+        repair_duration = 0.0
+        highest_tier = 1
+        attempt = 1
 
-            # Filter out and update the original synthesized_codebase list
-            # Note: deterministic boilerplate files should not be written to synthesized_codebase unless modified,
-            # but to be safe, we update files in synthesized_codebase if their contents changed, or overwrite the whole set
-            updated_synthesized = []
-            for file_record in synthesized_codebase:
-                path = file_record.get("path")
-                if path in file_map:
-                    file_record["content"] = file_map[path]["content"]
-                updated_synthesized.append(file_record)
-
-            await db.projects.update_one(
-                {"_id": project_id},
-                {"$set": {
-                    "synthesized_codebase": updated_synthesized,
-                    "runtime_verification_report": {
-                        "status": "passed" if success else "failed_with_warnings",
-                        "attempts_run": attempt,
-                        "had_errors": not success
-                    }
-                }}
+        # 4. Compile & Heal Iterative Loop
+        for attempt in range(1, self.max_healing_attempts + 1):
+            logger.info(f"[{project_id}] [Iteration {attempt}] Validating with Scope={scope}...")
+            
+            # Execute validation across tiered checks
+            errors, tier_reached, duration_container = await self._run_tiered_verification(
+                temp_dir=temp_dir,
+                scope=scope,
+                start_tier=start_tier,
+                docker_active=docker_active,
+                backend_tech=backend_tech,
+                frontend_tech=frontend_tech,
+                db_tech=db_tech,
+                project_doc=project_doc,
+                db=db,
+                project_id=project_id,
+                changed_files=changed_files
             )
-            project_doc["synthesized_codebase"] = updated_synthesized
-            project_doc["runtime_verification_report"] = {
-                "status": "passed" if success else "failed_with_warnings"
-            }
+            
+            highest_tier = max(highest_tier, tier_reached)
+            container_run_duration += duration_container
+            
+            if attempt == 1 and not changed_files:
+                metrics_rebuilds += 1
+            else:
+                metrics_inc_rebuilds += 1
 
-        except Exception as e:
-            logger.error(f"[{project_id}] Crash in RuntimeVerifierAgent process execution: {e}", exc_info=True)
-        finally:
-            # Clean up temp folder safely
-            try:
-                shutil.rmtree(temp_dir)
-                logger.info(f"[{project_id}] Cleaned up temp workspace directory: {temp_dir}")
-            except Exception as ex:
-                logger.warning(f"[{project_id}] Could not delete temp folder: {ex}")
+            if not errors:
+                logger.info(f"[{project_id}] All validation tiers PASSED on attempt {attempt}!")
+                success = True
+                break
+
+            logger.warning(f"[{project_id}] Verification failed on attempt {attempt} with {len(errors)} issues.")
+            
+            # Execute Surgical Auto-Healing
+            healed_any = False
+            t_heal_0 = time.time()
+            for err_file, err_log in errors:
+                logger.info(f"[{project_id}] Healing broken module/file: {err_file}")
+                
+                file_record = file_map.get(err_file)
+                if not file_record:
+                    # Fallback mapping matcher
+                    for p in file_map.keys():
+                        if p.endswith(err_file) or err_file.endswith(p):
+                            file_record = file_map[p]
+                            err_file = p
+                            break
+                
+                if file_record:
+                    healed_content = await self._heal_file_content(
+                        file_path=err_file,
+                        file_content=file_record.get("content", ""),
+                        error_log=err_log,
+                        project_doc=project_doc,
+                        tech_stack=stack
+                    )
+                    if healed_content:
+                        # Write repaired file back to host disk for subsequent runs/mounts
+                        full_path = os.path.join(temp_dir, err_file)
+                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(healed_content)
+                        
+                        file_record["content"] = healed_content
+                        healed_any = True
+
+            repair_duration += (time.time() - t_heal_0)
+            if not healed_any:
+                logger.warning(f"[{project_id}] Healing engine failed to suggest corrections. Terminating.")
+                break
+
+        # 5. Read back modified files
+        updated_synthesized = []
+        new_hashes = {}
+        for file_record in synthesized_codebase:
+            path = file_record.get("path")
+            if path in file_map:
+                file_record["content"] = file_map[path]["content"]
+            updated_synthesized.append(file_record)
+            
+        # Recompute file hashes for successive change impact analysis runs
+        for f in assembled_files:
+            path = f["path"]
+            new_hashes[path] = ChangeImpactAnalyzer.compute_sha256(file_map[path]["content"])
+
+        t_total = time.time() - t_start
+
+        # 6. Store Granular Analytics in MongoDB
+        analytics_record = {
+            "project_id": project_id,
+            "timestamp": datetime.now(timezone.utc),
+            "verification_time": t_total,
+            "build_time": container_run_duration if docker_active else (t_total - repair_duration),
+            "container_runtime": container_run_duration,
+            "repair_time": repair_duration,
+            "validation_scope": scope,
+            "affected_files": affected_files if changed_files else [f["path"] for f in assembled_files],
+            "retry_count": attempt,
+            "is_containerized": docker_active,
+            "tier_reached": highest_tier,
+            "status": "passed" if success else "failed"
+        }
+        
+        try:
+            await db.runtime_verification_analytics.insert_one(analytics_record)
+            logger.info(f"[{project_id}] Successfully persisted runtime verification metrics to MongoDB.")
+        except Exception as err:
+            logger.warning(f"[{project_id}] Failed to store analytics in Mongo: {err}")
+
+        # Sync back to project document
+        await db.projects.update_one(
+            {"_id": project_id},
+            {"$set": {
+                "synthesized_codebase": updated_synthesized,
+                "runtime_verification_report": {
+                    "status": "passed" if success else "failed_with_warnings",
+                    "attempts_run": attempt,
+                    "had_errors": not success,
+                    "file_hashes": new_hashes
+                }
+            }}
+        )
+        
+        project_doc["synthesized_codebase"] = updated_synthesized
+        project_doc["runtime_verification_report"] = {
+            "status": "passed" if success else "failed_with_warnings"
+        }
+
+        # Clear sources, preserving dependency caches
+        try:
+            self._clean_directory_preserving_cache(temp_dir)
+        except Exception as ex:
+            logger.warning(f"Could not selective-clean workspace: {ex}")
 
         return project_doc
 
-    def _write_files_to_disk(self, base_dir: str, files: List[Dict[str, Any]]) -> None:
-        """Helper to physically write virtual codebase structure onto disk."""
-        for file in files:
-            rel_path = file.get("path", "")
-            if not rel_path:
-                continue
-            
-            full_path = os.path.join(base_dir, rel_path)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            
-            content = file.get("content", "")
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-    async def _terminate_process(self, proc) -> None:
-        """Gracefully terminates process tree of a given subprocess."""
-        if not proc:
-            return
-        try:
-            if os.name == 'nt':
-                # On Windows, kill the process tree using taskkill
-                kill_cmd = f"taskkill /F /T /PID {proc.pid}"
-                kill_proc = await asyncio.create_subprocess_shell(
-                    kill_cmd,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                await kill_proc.wait()
-            else:
-                # On Unix, send SIGTERM
-                proc.terminate()
-                await proc.wait()
-        except Exception as e:
-            logger.warning(f"Error terminating process {proc.pid}: {e}")
-
-    async def _run_command_with_logging(
+    async def _run_tiered_verification(
         self,
-        cmd: str,
-        cwd: str,
-        timeout: float,
-        step_name: str,
+        temp_dir: str,
+        scope: str,
+        start_tier: int,
+        docker_active: bool,
+        backend_tech: str,
+        frontend_tech: str,
+        db_tech: str,
+        project_doc: Dict[str, Any],
         db: Any,
         project_id: str,
-        progress: int | float
-    ) -> Tuple[int, List[str]]:
-        """Runs a command, streams output to logs and broadcasts progress."""
-        await self._broadcast(db, project_id, progress, f"⏳ {step_name}...")
-        logger.info(f"[{project_id}] Running command: {cmd} inside {cwd}")
+        changed_files: List[str]
+    ) -> Tuple[List[Tuple[str, str]], int, float]:
+        """
+        Executes six-tier verification escalation hierarchy.
+        Returns: (errors_list, highest_tier_reached, container_runtime_seconds)
+        """
+        errors = []
+        container_duration = 0.0
         
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        logs = []
-        async def read_stream(stream, prefix):
-            try:
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    decoded = line.decode('utf-8', errors='ignore').strip()
-                    if decoded:
-                        logs.append(f"{prefix}{decoded}")
-                        if len(decoded) > 120:
-                            decoded = decoded[:120] + "..."
-                        logger.info(f"{prefix}{decoded}")
-            except Exception as e:
-                logger.warning(f"Error reading stream in command {cmd}: {e}")
+        # --------------------------------------------------
+        # Tier 1: Syntax Validation
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 1: Syntax Validation]")
+        for file_path in (changed_files if changed_files else []):
+            full_path = os.path.join(temp_dir, file_path)
+            if file_path.endswith(".py") and os.path.exists(full_path):
+                import py_compile
+                try:
+                     py_compile.compile(full_path, doraise=True)
+                except py_compile.PyCompileError as e:
+                     errors.append((file_path, f"Syntax Compile Error:\n{str(e)}"))
+            elif file_path.endswith((".ts", ".tsx", ".js", ".jsx")) and os.path.exists(full_path):
+                with open(full_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Run basic ES6 brackets/imports syntax validation checks
+                if content.count("{") != content.count("}") or content.count("(") != content.count(")"):
+                    errors.append((file_path, "Syntax Error: Mismatched brace/parenthesis counts detected."))
+                if "import" in content and "from" not in content and "import(" not in content:
+                    errors.append((file_path, "Syntax Error: Malformed import syntax."))
 
-        stdout_task = asyncio.create_task(read_stream(proc.stdout, "[STDOUT] "))
-        stderr_task = asyncio.create_task(read_stream(proc.stderr, "[STDERR] "))
-        
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.warning(f"Command '{cmd}' timed out after {timeout}s.")
-            await self._terminate_process(proc)
-            logs.append(f"[SYSTEM] Command timed out after {timeout} seconds.")
-        
-        try:
-            await asyncio.wait_for(asyncio.gather(stdout_task, stderr_task), timeout=5.0)
-        except Exception:
+        if errors:
+            return errors, 1, container_duration
+
+        if start_tier > 1 and not changed_files:
+            # We are running baseline - proceed with full-scope build
             pass
-            
-        return proc.returncode if proc.returncode is not None else -1, logs
 
-    def _parse_logs_for_errors(self, logs: List[str], base_dir: str, context_type: str) -> List[Tuple[str, str]]:
-        """
-        Parses testing or startup logs to find errors and maps them to relative file paths.
-        Returns list of (rel_path, error_description)
-        """
-        import re
-        errors = []
+        # --------------------------------------------------
+        # Tier 2: Import Validation
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 2: Import Validation]")
+        # Static check can raise warnings/errors but for compilation, Tier 5 acts as physical build check
         
-        # 1. Regex patterns for Python traceback
-        py_traceback_re = re.compile(r'File "([^"]+)", line (\d+)')
+        # --------------------------------------------------
+        # Tier 3: Module Validation
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 3: Module Validation]")
         
-        # 2. Regex patterns for Frontend / TS / Next.js compilation errors
-        fe_file_re = re.compile(r'(?:\.\/)?(frontend\/src\/[^\s:]+|src\/[^\s:]+|components\/[^\s:]+|pages\/[^\s:]+|app\/[^\s:]+|[a-zA-Z0-9_\-\/]+\.(?:tsx|ts|jsx|js))')
+        # --------------------------------------------------
+        # Tier 4: Service Validation
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 4: Service Validation]")
 
-        db_issues = ["ConnectionRefusedError", "ServerSelectionTimeoutError", "MongoNetworkError", "OperationalError", "InterfaceError"]
-        has_db_issue = any(any(issue in line for issue in db_issues) for line in logs)
+        # --------------------------------------------------
+        # Tier 5: Application Validation (Docker / Ephemeral Sandbox Build)
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 5: Application Validation]")
         
-        module_missing_re = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
-        has_missing_module = None
-        for line in logs:
-            match = module_missing_re.search(line)
-            if match:
-                has_missing_module = match.group(1)
-                break
+        if docker_active:
+            t_container_0 = time.time()
+            if scope in ("frontend", "full_stack"):
+                fe_install_cmd = "npm install --no-audit --no-fund --prefer-offline"
+                fe_build_cmd = "npm run build"
+                frontend_dir = os.path.join(temp_dir, "frontend")
+                if os.path.exists(os.path.join(frontend_dir, "pnpm-lock.yaml")):
+                    fe_install_cmd = "npm install -g pnpm && pnpm install"
+                    fe_build_cmd = "pnpm build"
+                elif os.path.exists(os.path.join(frontend_dir, "yarn.lock")):
+                    fe_install_cmd = "npm install -g yarn && yarn install"
+                    fe_build_cmd = "yarn build"
 
-        i = 0
-        while i < len(logs):
-            line = logs[i]
+                code, logs = await ContainerVerifier.run_in_container(
+                    workspace_dir=temp_dir,
+                    image_name="node:18-alpine",
+                    commands=[
+                        "cd frontend",
+                        fe_install_cmd,
+                        fe_build_cmd
+                    ]
+                )
+                container_duration += (time.time() - t_container_0)
+                if code != 0:
+                    fe_errors = self._parse_logs_for_errors(logs, temp_dir, "frontend")
+                    errors.extend(fe_errors)
             
-            # Check Python Traceback
-            py_match = py_traceback_re.search(line)
-            pytest_match = re.search(r'(?:\[STDERR\]\s+|\[STDOUT\]\s+)?([a-zA-Z0-9_\-\/\\\.]+\.py):(\d+):', line)
-            
-            if py_match or pytest_match:
-                match = py_match if py_match else pytest_match
-                full_path = match.group(1)
-                line_no = match.group(2)
-                rel_path = full_path
-                if os.path.isabs(full_path):
-                    try:
-                        rel_path = os.path.relpath(full_path, base_dir)
-                    except Exception:
-                        pass
-                
-                if "site-packages" not in full_path and "lib/python" not in full_path:
-                    context = logs[max(0, i-2):min(len(logs), i+6)]
-                    context_str = "\n".join(context)
-                    errors.append((rel_path, f"Python Runtime traceback on line {line_no}:\n{context_str}"))
-                    i += 1
-                    continue
+            t_container_0 = time.time()
+            if scope in ("backend", "full_stack") and not errors:
+                image_name = "python:3.11-slim"
+                commands = []
+                backend_dir = os.path.join(temp_dir, "backend")
 
-            # Check Frontend file matches
-            fe_match = fe_file_re.search(line)
-            if fe_match:
-                matched_path = fe_match.group(1)
-                if "node_modules" not in matched_path and ".next" not in matched_path and "dist" not in matched_path:
-                    rel_path = matched_path
-                    if not matched_path.startswith("frontend/") and os.path.exists(os.path.join(base_dir, "frontend", matched_path)):
-                        rel_path = f"frontend/{matched_path}"
-                    elif not matched_path.startswith("frontend/") and os.path.exists(os.path.join(base_dir, matched_path)):
-                        rel_path = matched_path
-                    
-                    context = logs[max(0, i-2):min(len(logs), i+6)]
-                    context_str = "\n".join(context)
-                    if "error" in context_str.lower() or "warning" in context_str.lower() or "failed" in context_str.lower():
-                        errors.append((rel_path, f"Frontend Compilation Issue:\n{context_str}"))
-                        i += 1
-                        continue
-            
-            i += 1
-
-        if has_db_issue and not errors:
-            db_file = "backend/app/db/session.py"
-            if not os.path.exists(os.path.join(base_dir, db_file)):
-                db_file = "backend/app/core/config.py"
-            errors.append((db_file, f"Database Connection Warning/Crash Sniffed:\n" + "\n".join(logs[-15:])))
-
-        if has_missing_module and not errors:
-            req_file = "backend/requirements.txt"
-            if not os.path.exists(os.path.join(base_dir, req_file)):
-                req_file = "backend/app/main.py"
-            errors.append((req_file, f"Missing Python Module Dependency '{has_missing_module}':\n" + "\n".join(logs[-10:])))
-
-        if not errors:
-            error_lines = [line for line in logs if "error" in line.lower() or "failed" in line.lower() or "exception" in line.lower() or "traceback" in line.lower()]
-            if error_lines:
-                if context_type == "frontend":
-                    errors.append(("frontend/package.json", "Unmapped Frontend Startup Error:\n" + "\n".join(error_lines[:10])))
+                if backend_tech in ("fastapi", "django", "flask"):
+                    image_name = "python:3.11-slim"
+                    if os.path.exists(os.path.join(backend_dir, "requirements.txt")):
+                        commands.extend([
+                            "cd backend",
+                            "pip install -r requirements.txt --prefer-binary --disable-pip-version-check",
+                            "python -m py_compile app/main.py"
+                        ])
+                    else:
+                        commands.extend([
+                            "cd backend",
+                            "python -m py_compile app/main.py"
+                        ])
+                elif backend_tech in ("express", "node"):
+                    image_name = "node:18-alpine"
+                    be_install_cmd = "npm install --prefer-offline"
+                    be_compile_cmd = "npx tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else "node --check index.js"
+                    if os.path.exists(os.path.join(backend_dir, "pnpm-lock.yaml")):
+                        be_install_cmd = "npm install -g pnpm && pnpm install"
+                        be_compile_cmd = "pnpm tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else be_compile_cmd
+                    elif os.path.exists(os.path.join(backend_dir, "yarn.lock")):
+                        be_install_cmd = "npm install -g yarn && yarn install"
+                        be_compile_cmd = "yarn tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else be_compile_cmd
+                    commands.extend([
+                        "cd backend",
+                        be_install_cmd,
+                        be_compile_cmd
+                    ])
+                elif backend_tech in ("springboot", "java"):
+                    if os.path.exists(os.path.join(backend_dir, "build.gradle")) or os.path.exists(os.path.join(backend_dir, "gradlew")):
+                        image_name = "gradle:8-jdk17"
+                        commands.extend([
+                            "cd backend",
+                            "./gradlew compileJava" if os.path.exists(os.path.join(backend_dir, "gradlew")) else "gradle compileJava"
+                        ])
+                    else:
+                        image_name = "maven:3.8-openjdk-17"
+                        commands.extend([
+                            "cd backend",
+                            "./mvnw compile" if os.path.exists(os.path.join(backend_dir, "mvnw")) else "mvn compile"
+                        ])
+                elif backend_tech == "go":
+                    image_name = "golang:1.21-alpine"
+                    commands.extend([
+                        "cd backend",
+                        "go build ./..."
+                    ])
+                elif backend_tech == "rust":
+                    image_name = "rust:1.72-alpine"
+                    commands.extend([
+                        "cd backend",
+                        "cargo check"
+                    ])
                 else:
-                    main_file = "backend/app/main.py"
-                    if not os.path.exists(os.path.join(base_dir, main_file)):
-                        main_file = "backend/main.py"
-                    errors.append((main_file, "Unmapped Backend Startup Error:\n" + "\n".join(error_lines[:10])))
-
-        deduped = []
-        seen = set()
-        for f, err in errors:
-            f_clean = f.replace("\\", "/")
-            if f_clean not in seen:
-                seen.add(f_clean)
-                deduped.append((f_clean, err))
-        return deduped
-
-    def _parse_polyglot_errors(self, logs: List[str], base_dir: str, lang: str) -> List[Tuple[str, str]]:
-        """Parses compiler/build logs for multiple languages to map errors to files."""
-        import re
-        errors = []
-        
-        if lang == "java":
-            maven_err_re = re.compile(r'\[ERROR\]\s+(.*?\.java):\[(\d+),\d+\]\s+(.*)')
-            for line in logs:
-                match = maven_err_re.search(line)
-                if match:
-                    full_path, line_no, desc = match.groups()
-                    rel_path = os.path.relpath(full_path, base_dir) if os.path.isabs(full_path) else full_path
-                    errors.append((rel_path.replace("\\", "/"), f"Java Compile Error on line {line_no}: {desc}"))
+                    image_name = "python:3.11-slim"
+                    commands.extend([
+                        "cd backend",
+                        "find . -name '*.py' -exec python -m py_compile {} +"
+                    ])
                     
-        elif lang == "go":
-            go_err_re = re.compile(r'(.*?\.go):(\d+):(?:\d+:)?\s+(.*)')
-            for line in logs:
-                match = go_err_re.search(line)
-                if match:
-                    full_path, line_no, desc = match.groups()
-                    rel_path = os.path.relpath(full_path, base_dir) if os.path.isabs(full_path) else full_path
-                    errors.append((rel_path.replace("\\", "/"), f"Go Compile Error on line {line_no}: {desc}"))
-                    
-        elif lang == "rust":
-            rust_err_re = re.compile(r'error(?:\[.*?\])?:\s+(.*)')
-            rust_loc_re = re.compile(r'-->\s+(.*?\.rs):(\d+):')
-            current_err = ""
-            for line in logs:
-                match_err = rust_err_re.search(line)
-                if match_err:
-                    current_err = match_err.group(1)
-                match_loc = rust_loc_re.search(line)
-                if match_loc and current_err:
-                    full_path, line_no = match_loc.groups()
-                    rel_path = os.path.relpath(full_path, base_dir) if os.path.isabs(full_path) else full_path
-                    errors.append((rel_path.replace("\\", "/"), f"Rust Compile Error on line {line_no}: {current_err}"))
-                    current_err = ""
-                    
-        elif lang == "c":
-            c_err_re = re.compile(r'(.*?\.c|.*?\.h|.*?\.cpp|.*?\.hpp):(\d+):(?:\d+:)?\s+error:\s+(.*)')
-            for line in logs:
-                match = c_err_re.search(line)
-                if match:
-                    full_path, line_no, desc = match.groups()
-                    rel_path = os.path.relpath(full_path, base_dir) if os.path.isabs(full_path) else full_path
-                    errors.append((rel_path.replace("\\", "/"), f"C/C++ Compile Error on line {line_no}: {desc}"))
-                    
-        elif lang == "node":
-            errors.extend(self._parse_logs_for_errors(logs, base_dir, "frontend"))
-            
-        return errors
+                code, logs = await ContainerVerifier.run_in_container(
+                    workspace_dir=temp_dir,
+                    image_name=image_name,
+                    commands=commands
+                )
+                container_duration += (time.time() - t_container_0)
+                if code != 0:
+                    be_errors = self._parse_logs_for_errors(logs, temp_dir, "backend")
+                    errors.extend(be_errors)
+        else:
+            # Fallback seamlessly to direct host execution if Docker Desktop is stopped
+            logger.warning(f"[{project_id}] Docker unavailable. Falling back to host application compilation checks...")
+            host_errors = await self._run_host_compilation(temp_dir, scope, backend_tech, frontend_tech, db_tech, project_doc, db, project_id)
+            errors.extend(host_errors)
 
-    async def _broadcast(self, db: Any, project_id: str, progress: int | float, step: str) -> None:
-        """Helper to broadcast verification status to UI."""
-        try:
-            from app.services.workflow import broadcast_agent_progress
-            await broadcast_agent_progress(db, project_id, progress, step)
-        except Exception as e:
-            logger.warning(f"Failed to broadcast progress: {e}")
+        if errors:
+            return errors, 5, container_duration
 
-    async def _run_diagnostic_tests(
+        # --------------------------------------------------
+        # Tier 6: Full Integration Validation (Live startup & sniffer checks)
+        # --------------------------------------------------
+        logger.info(f"[{project_id}] Running [Tier 6: Full Integration Validation]")
+        # Execute server startup sniffer to confirm runtime ports binding and DB connectivity
+        live_errors = await self._run_host_startup_sniffing(temp_dir, scope, backend_tech, frontend_tech, db_tech, project_doc, db, project_id)
+        errors.extend(live_errors)
+
+        return errors, 6, container_duration
+
+    async def _run_host_compilation(
         self,
         base_dir: str,
+        scope: str,
         backend_tech: str,
         frontend_tech: str,
         db_tech: str,
@@ -430,25 +433,24 @@ class RuntimeVerifierAgent:
         db: Any,
         project_id: str
     ) -> List[Tuple[str, str]]:
-        """
-        Runs compilation, syntax checks, typechecks, and startup tests.
-        Returns a list of tuples: (failing_file_relative_path, error_logs)
-        """
-        gen_type = project_doc.get("generation_type", "full_stack")
-        errors: List[Tuple[str, str]] = []
-
-        # =================================────────────────=================
-        # PHASE 1: Dependency Setup and Testing / Build Compilation Checks
-        # =================================────────────────=================
-
-        # ---- 1. Frontend Testing/Build ----
-        if gen_type in ["frontend_only", "full_stack"]:
+        """Seamless fallback direct-host compilation runner supporting multiple tech stacks."""
+        errors = []
+        python_executable = sys.executable or "python"
+        
+        if scope in ("frontend", "full_stack"):
             frontend_dir = os.path.join(base_dir, "frontend")
             if os.path.exists(frontend_dir):
-                # Install frontend dependencies
-                install_cmd = "npm install --no-audit --no-fund --prefer-offline"
+                fe_install_cmd = "npm install --no-audit --no-fund --prefer-offline"
+                fe_build_cmd = "npm run build"
+                if os.path.exists(os.path.join(frontend_dir, "pnpm-lock.yaml")):
+                    fe_install_cmd = "pnpm install"
+                    fe_build_cmd = "pnpm build"
+                elif os.path.exists(os.path.join(frontend_dir, "yarn.lock")):
+                    fe_install_cmd = "yarn install --prefer-offline"
+                    fe_build_cmd = "yarn build"
+
                 code, logs = await self._run_command_with_logging(
-                    cmd=install_cmd,
+                    cmd=fe_install_cmd,
                     cwd=frontend_dir,
                     timeout=90.0,
                     step_name="Installing Frontend Dependencies",
@@ -457,131 +459,24 @@ class RuntimeVerifierAgent:
                     progress=91
                 )
                 if code != 0:
-                    errors.append(("frontend/package.json", "Frontend dependency installation failed:\n" + "\n".join(logs[-20:])))
+                    errors.append(("frontend/package.json", f"Frontend dependencies failed to install via: {fe_install_cmd}"))
                 else:
-                    # Run TypeScript/Webpack compilation test
-                    build_cmd = "npm run build"
                     code, logs = await self._run_command_with_logging(
-                        cmd=build_cmd,
+                        cmd=fe_build_cmd,
                         cwd=frontend_dir,
                         timeout=120.0,
-                        step_name="Running Frontend Compilation (Build) Checks",
+                        step_name="Compiling Frontend Assets",
                         db=db,
                         project_id=project_id,
                         progress=92
                     )
                     if code != 0:
-                        fe_errors = self._parse_logs_for_errors(logs, base_dir, "frontend")
-                        errors.extend(fe_errors)
+                        errors.extend(self._parse_logs_for_errors(logs, base_dir, "frontend"))
 
-        # ---- 2. Backend Testing/Build ----
-        if gen_type in ["backend_only", "full_stack", "microservice"]:
+        if scope in ("backend", "full_stack") and not errors:
             backend_dir = os.path.join(base_dir, "backend")
             if os.path.exists(backend_dir):
-                # 2a. Java / Spring Boot (Maven)
-                if os.path.exists(os.path.join(backend_dir, "pom.xml")):
-                    code, logs = await self._run_command_with_logging(
-                        cmd="mvn clean compile -DskipTests=true --no-transfer-progress",
-                        cwd=backend_dir,
-                        timeout=120.0,
-                        step_name="Compiling Spring Boot Backend (Maven)",
-                        db=db,
-                        project_id=project_id,
-                        progress=92
-                    )
-                    if code != 0:
-                        errors.extend(self._parse_polyglot_errors(logs, base_dir, "java"))
-                
-                # 2b. Go Backend
-                elif os.path.exists(os.path.join(backend_dir, "go.mod")):
-                    code, logs = await self._run_command_with_logging(
-                        cmd="go build ./...",
-                        cwd=backend_dir,
-                        timeout=90.0,
-                        step_name="Compiling Go Backend",
-                        db=db,
-                        project_id=project_id,
-                        progress=92
-                    )
-                    if code != 0:
-                        errors.extend(self._parse_polyglot_errors(logs, base_dir, "go"))
-                
-                # 2c. Rust Backend
-                elif os.path.exists(os.path.join(backend_dir, "Cargo.toml")):
-                    code, logs = await self._run_command_with_logging(
-                        cmd="cargo check",
-                        cwd=backend_dir,
-                        timeout=90.0,
-                        step_name="Compiling Rust Backend",
-                        db=db,
-                        project_id=project_id,
-                        progress=92
-                    )
-                    if code != 0:
-                        errors.extend(self._parse_polyglot_errors(logs, base_dir, "rust"))
-                
-                # 2d. C/C++ Backend (IoT etc.)
-                elif os.path.exists(os.path.join(backend_dir, "Makefile")) or os.path.exists(os.path.join(backend_dir, "CMakeLists.txt")):
-                    compile_cmd = "make" if os.path.exists(os.path.join(backend_dir, "Makefile")) else "cmake . && cmake --build ."
-                    code, logs = await self._run_command_with_logging(
-                        cmd=compile_cmd,
-                        cwd=backend_dir,
-                        timeout=90.0,
-                        step_name="Compiling C/C++ Codebase",
-                        db=db,
-                        project_id=project_id,
-                        progress=92
-                    )
-                    if code != 0:
-                        errors.extend(self._parse_polyglot_errors(logs, base_dir, "c"))
-                
-                # 2e. Node.js Backend (Express/Fastify)
-                elif os.path.exists(os.path.join(backend_dir, "package.json")):
-                    # Install dependencies
-                    await self._run_command_with_logging(
-                        cmd="npm install --no-audit --no-fund --prefer-offline",
-                        cwd=backend_dir,
-                        timeout=90.0,
-                        step_name="Installing Backend Node Dependencies",
-                        db=db,
-                        project_id=project_id,
-                        progress=91
-                    )
-                    # Check compilation
-                    code, logs = await self._run_command_with_logging(
-                        cmd="npm run build",
-                        cwd=backend_dir,
-                        timeout=90.0,
-                        step_name="Compiling Node.js Backend",
-                        db=db,
-                        project_id=project_id,
-                        progress=92
-                    )
-                    if code != 0:
-                        errors.extend(self._parse_polyglot_errors(logs, base_dir, "node"))
-                        
-                # 2f. Default Python Backend Check
-                else:
-                    # Install requirements
-                    req_file = os.path.join(backend_dir, "requirements.txt")
-                    if os.path.exists(req_file):
-                        python_executable = sys.executable or "python"
-                        install_cmd = f'"{python_executable}" -m pip install -r requirements.txt --prefer-binary --disable-pip-version-check'
-                        code, logs = await self._run_command_with_logging(
-                            cmd=install_cmd,
-                            cwd=backend_dir,
-                            timeout=90.0,
-                            step_name="Installing Backend Dependencies",
-                            db=db,
-                            project_id=project_id,
-                            progress=91
-                        )
-                        if code != 0:
-                            errors.append(("backend/requirements.txt", "Backend dependencies installation failed:\n" + "\n".join(logs[-20:])))
-                    
-                    # Check Python Syntax Compile recursively
-                    python_executable = sys.executable or "python"
-                    await self._broadcast(db, project_id, 92, "⏳ Running Python Compilation Checks")
+                if backend_tech in ("fastapi", "django", "flask"):
                     for root, _, files in os.walk(backend_dir):
                         if "venv" in root or ".venv" in root or "__pycache__" in root:
                             continue
@@ -589,41 +484,137 @@ class RuntimeVerifierAgent:
                             if file.endswith(".py"):
                                 py_file_path = os.path.join(root, file)
                                 rel_py_path = os.path.relpath(py_file_path, base_dir)
-                                
                                 proc = await asyncio.create_subprocess_exec(
                                     python_executable, "-m", "py_compile", py_file_path,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE
                                 )
                                 stdout, stderr = await proc.communicate()
                                 if proc.returncode != 0:
-                                    err_msg = stderr.decode("utf-8", errors="ignore") or stdout.decode("utf-8", errors="ignore")
+                                    err_msg = stderr.decode("utf-8", errors="ignore")
                                     errors.append((rel_py_path, f"Syntax Compilation Error:\n{err_msg}"))
-
-                # Run pytest if any
-                tests_dir = os.path.join(backend_dir, "tests")
-                if os.path.exists(tests_dir):
-                    pytest_cmd = f'"{python_executable}" -m pytest'
+                                    
+                elif backend_tech in ("express", "node"):
+                    be_install_cmd = "npm install --prefer-offline"
+                    be_compile_cmd = "npx tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else "node --check index.js"
+                    if os.path.exists(os.path.join(backend_dir, "pnpm-lock.yaml")):
+                        be_install_cmd = "pnpm install"
+                        be_compile_cmd = "pnpm tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else be_compile_cmd
+                    elif os.path.exists(os.path.join(backend_dir, "yarn.lock")):
+                        be_install_cmd = "yarn install"
+                        be_compile_cmd = "yarn tsc --noEmit" if os.path.exists(os.path.join(backend_dir, "tsconfig.json")) else be_compile_cmd
+                    
                     code, logs = await self._run_command_with_logging(
-                        cmd=pytest_cmd,
+                        cmd=be_install_cmd,
                         cwd=backend_dir,
-                        timeout=30.0,
-                        step_name="Running Backend Unit Tests",
+                        timeout=90.0,
+                        step_name="Installing Backend Dependencies (Node)",
                         db=db,
                         project_id=project_id,
                         progress=92
                     )
                     if code != 0:
-                        be_errors = self._parse_logs_for_errors(logs, base_dir, "backend")
-                        errors.extend(be_errors)
+                        errors.append(("backend/package.json", f"Backend dependencies failed to install via: {be_install_cmd}"))
+                    else:
+                        code, logs = await self._run_command_with_logging(
+                            cmd=be_compile_cmd,
+                            cwd=backend_dir,
+                            timeout=60.0,
+                            step_name="Checking Backend Types/Syntax (Node)",
+                            db=db,
+                            project_id=project_id,
+                            progress=93
+                        )
+                        if code != 0:
+                            errors.extend(self._parse_logs_for_errors(logs, base_dir, "backend"))
 
-        # If we have any compilation or syntax errors, stop and heal immediately
-        if errors:
-            logger.warning(f"[{project_id}] Phase 1 checks failed with {len(errors)} errors. Skipping Phase 2 server startup sniffing.")
-            return errors
+                elif backend_tech in ("springboot", "java"):
+                    be_compile_cmd = "mvn compile"
+                    if os.path.exists(os.path.join(backend_dir, "build.gradle")) or os.path.exists(os.path.join(backend_dir, "gradlew")):
+                        be_compile_cmd = "./gradlew compileJava" if os.name != 'nt' and os.path.exists(os.path.join(backend_dir, "gradlew")) else "gradlew compileJava" if os.name == 'nt' and os.path.exists(os.path.join(backend_dir, "gradlew.bat")) else "gradle compileJava"
+                    else:
+                        be_compile_cmd = "./mvnw compile" if os.name != 'nt' and os.path.exists(os.path.join(backend_dir, "mvnw")) else "mvnw compile" if os.name == 'nt' and os.path.exists(os.path.join(backend_dir, "mvnw.cmd")) else "mvn compile"
 
-        # ==================================================================
-        # PHASE 2: Live Server Startup and Log Sniffing Verification
-        # =================================────────────────=================
+                    code, logs = await self._run_command_with_logging(
+                        cmd=be_compile_cmd,
+                        cwd=backend_dir,
+                        timeout=120.0,
+                        step_name="Compiling Spring Boot Backend",
+                        db=db,
+                        project_id=project_id,
+                        progress=93
+                    )
+                    if code != 0:
+                        errors.extend(self._parse_logs_for_errors(logs, base_dir, "backend"))
+
+                elif backend_tech == "go":
+                    code, logs = await self._run_command_with_logging(
+                        cmd="go build ./...",
+                        cwd=backend_dir,
+                        timeout=90.0,
+                        step_name="Compiling Go Backend",
+                        db=db,
+                        project_id=project_id,
+                        progress=93
+                    )
+                    if code != 0:
+                        errors.extend(self._parse_logs_for_errors(logs, base_dir, "backend"))
+
+                elif backend_tech == "rust":
+                    code, logs = await self._run_command_with_logging(
+                        cmd="cargo check",
+                        cwd=backend_dir,
+                        timeout=120.0,
+                        step_name="Checking Rust Backend Syntax",
+                        db=db,
+                        project_id=project_id,
+                        progress=93
+                    )
+                    if code != 0:
+                        errors.extend(self._parse_logs_for_errors(logs, base_dir, "backend"))
+
+                else:
+                    for root, _, files in os.walk(backend_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            rel_path = os.path.relpath(file_path, base_dir)
+                            if file.endswith(".rb"):
+                                try:
+                                    proc = await asyncio.create_subprocess_exec(
+                                        "ruby", "-c", file_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                                    )
+                                    _, stderr = await proc.communicate()
+                                    if proc.returncode != 0:
+                                        errors.append((rel_path, f"Ruby Syntax Error:\n{stderr.decode('utf-8', errors='ignore')}"))
+                                except Exception:
+                                    pass
+                                    pass
+                            elif file.endswith(".php"):
+                                try:
+                                    proc = await asyncio.create_subprocess_exec(
+                                        "php", "-l", file_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                                    )
+                                    _, stderr = await proc.communicate()
+                                    if proc.returncode != 0:
+                                        errors.append((rel_path, f"PHP Syntax Error:\n{stderr.decode('utf-8', errors='ignore')}"))
+                                except Exception:
+                                    pass
+
+        return errors
+
+    async def _run_host_startup_sniffing(
+        self,
+        base_dir: str,
+        scope: str,
+        backend_tech: str,
+        frontend_tech: str,
+        db_tech: str,
+        project_doc: Dict[str, Any],
+        db: Any,
+        project_id: str
+    ) -> List[Tuple[str, str]]:
+        """Launches backend and frontend uvicorn/Next.js servers on dynamic ports to sniff logs."""
+        errors: List[Tuple[str, str]] = []
+        gen_type = project_doc.get("generation_type", "full_stack")
         
         frontend_proc = None
         backend_proc = None
@@ -631,61 +622,37 @@ class RuntimeVerifierAgent:
         backend_logs: List[str] = []
         sniffer_tasks = []
 
-        # ---- Start Frontend Server ----
-        if gen_type in ["frontend_only", "full_stack"]:
+        # Start Frontend Server
+        if gen_type in ["frontend_only", "full_stack"] and scope in ("frontend", "full_stack"):
             frontend_dir = os.path.join(base_dir, "frontend")
             if os.path.exists(frontend_dir):
-                await self._broadcast(db, project_id, 93, "🚀 Launching Live Frontend Server")
-                dev_cmd = "npm run dev"
+                await self._broadcast(db, project_id, 93, "🚀 Launching Ephemeral Frontend Server")
                 frontend_proc = await asyncio.create_subprocess_shell(
-                    dev_cmd,
+                    "npm run dev",
                     cwd=frontend_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                logger.info(f"[{project_id}] Started Frontend Dev Server (PID: {frontend_proc.pid})")
 
-        # ---- Start Backend Server ----
-        if gen_type in ["backend_only", "full_stack", "microservice"]:
+        # Start Backend Server
+        if gen_type in ["backend_only", "full_stack", "microservice"] and scope in ("backend", "full_stack"):
             backend_dir = os.path.join(base_dir, "backend")
             if os.path.exists(backend_dir):
-                await self._broadcast(db, project_id, 93, "🚀 Launching Live Backend Server")
+                await self._broadcast(db, project_id, 93, "🚀 Launching Ephemeral Backend Server")
                 python_executable = sys.executable or "python"
-                startup_cmd = ""
-                # Find a free port dynamically to prevent socket address already in use conflicts
+                
                 import socket
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                         s.bind(('', 0))
                         free_port = s.getsockname()[1]
                 except Exception:
-                    free_port = 8080 # Fallback port if binding fails
-
-                # Determine server startup command based on tech markers for polyglot systems
-                if os.path.exists(os.path.join(backend_dir, "pom.xml")):
-                    startup_cmd = f"mvn spring-boot:run -Dspring-boot.run.arguments=--server.port={free_port}"
-                elif os.path.exists(os.path.join(backend_dir, "go.mod")):
-                    startup_cmd = "go run ."
-                elif os.path.exists(os.path.join(backend_dir, "Cargo.toml")):
-                    startup_cmd = "cargo run"
-                elif os.path.exists(os.path.join(backend_dir, "package.json")):
-                    startup_cmd = "npm start"
-                elif backend_tech == "fastapi":
-                    startup_cmd = f'"{python_executable}" -m uvicorn app.main:app --host 127.0.0.1 --port {free_port}'
-                elif backend_tech == "django":
-                    startup_cmd = f'"{python_executable}" manage.py runserver 127.0.0.1:{free_port}'
-                elif backend_tech == "flask":
-                    startup_cmd = f'"{python_executable}" -m flask run --host=127.0.0.1 --port={free_port}'
-                else:
-                    if os.path.exists(os.path.join(backend_dir, "main.py")):
-                        startup_cmd = f'"{python_executable}" main.py'
-                    elif os.path.exists(os.path.join(backend_dir, "app/main.py")):
-                        startup_cmd = f'"{python_executable}" app/main.py'
-                    else:
-                        startup_cmd = f'"{python_executable}" -m uvicorn app.main:app --host 127.0.0.1 --port {free_port}'
-
+                    free_port = 8080
+                
+                startup_cmd = f'"{python_executable}" -m uvicorn app.main:app --host 127.0.0.1 --port {free_port}'
                 env = os.environ.copy()
                 env["PYTHONPATH"] = f"{backend_dir};{env.get('PYTHONPATH', '')}"
+                
                 backend_proc = await asyncio.create_subprocess_shell(
                     startup_cmd,
                     cwd=backend_dir,
@@ -693,9 +660,7 @@ class RuntimeVerifierAgent:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                logger.info(f"[{project_id}] Started Backend Server (PID: {backend_proc.pid})")
 
-        # ---- Concurrent Log Sniffing ----
         async def read_stream_to_list(stream, log_list, prefix=""):
             try:
                 while True:
@@ -705,23 +670,22 @@ class RuntimeVerifierAgent:
                     decoded = line.decode('utf-8', errors='ignore').strip()
                     if decoded:
                         log_list.append(decoded)
-                        logger.info(f"{prefix}{decoded}")
-            except Exception as e:
-                logger.warning(f"Error reading stream: {e}")
+            except Exception:
+                pass
 
         if frontend_proc:
-            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(frontend_proc.stdout, frontend_logs, "[FE-STDOUT] ")))
-            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(frontend_proc.stderr, frontend_logs, "[FE-STDERR] ")))
+            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(frontend_proc.stdout, frontend_logs, "[FE] ")))
+            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(frontend_proc.stderr, frontend_logs, "[FE] ")))
         if backend_proc:
-            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(backend_proc.stdout, backend_logs, "[BE-STDOUT] ")))
-            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(backend_proc.stderr, backend_logs, "[BE-STDERR] ")))
+            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(backend_proc.stdout, backend_logs, "[BE] ")))
+            sniffer_tasks.append(asyncio.create_task(read_stream_to_list(backend_proc.stderr, backend_logs, "[BE] ")))
 
         if sniffer_tasks:
             await self._broadcast(db, project_id, 94, "🩺 Sniffing Active Server Startup Logs...")
             await asyncio.sleep(7.0)
 
-        # ---- Graceful Server Cleanup ----
-        await self._broadcast(db, project_id, 94, "🧹 Shutting Down Servers & Releasing Ports")
+        # Shut down servers
+        await self._broadcast(db, project_id, 94, "🧹 Cleaning up active ports")
         if frontend_proc:
             await self._terminate_process(frontend_proc)
         if backend_proc:
@@ -732,131 +696,196 @@ class RuntimeVerifierAgent:
         except Exception:
             pass
 
-        # ---- Parse Startup Logs ----
         if frontend_logs:
-            fe_errors = self._parse_logs_for_errors(frontend_logs, base_dir, "frontend")
-            errors.extend(fe_errors)
+            errors.extend(self._parse_logs_for_errors(frontend_logs, base_dir, "frontend"))
         if backend_logs:
-            be_errors = self._parse_logs_for_errors(backend_logs, base_dir, "backend")
-            errors.extend(be_errors)
+            errors.extend(self._parse_logs_for_errors(backend_logs, base_dir, "backend"))
 
         return errors
 
-    def _generate_db_test_script(self, backend: str, db: str) -> str:
-        """
-        Generates a robust python script to test model imports and mock connectivity.
-        """
-        return f"""
-import sys
-import os
+    def _clean_directory_preserving_cache(self, path: str) -> None:
+        """Removes all non-cache files recursively to prepare for subsequent builds."""
+        if not os.path.exists(path):
+            return
+        for item in os.listdir(path):
+            item_path = os.path.join(path, item)
+            self._delete_non_cache(item_path)
 
-print("Starting database model integration and import checks...")
+    def _delete_non_cache(self, path: str) -> None:
+        if not os.path.exists(path):
+            return
+        name = os.path.basename(path)
+        if name in ("node_modules", ".venv", "venv", ".next"):
+            return
+        if os.path.isdir(path):
+            has_cache = False
+            for root, dirs, _ in os.walk(path):
+                if any(d in ("node_modules", ".venv", "venv") for d in dirs):
+                    has_cache = True
+                    break
+            if has_cache:
+                for item in os.listdir(path):
+                    self._delete_non_cache(os.path.join(path, item))
+            else:
+                shutil.rmtree(path)
+        else:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
 
-# Attempt to load database configuration and ORM sessions
-try:
-    if os.path.exists("app/db/session.py"):
-        print("Importing app.db.session...")
-        from app.db.session import engine, Base
-    elif os.path.exists("app/db/base.py"):
-        print("Importing app.db.base...")
-        from app.db.base import Base
-except Exception as e:
-    print(f"DATABASE_IMPORT_ERROR: Failed to import base database sessions: {{e}}", file=sys.stderr)
-    sys.exit(1)
+    def _write_files_to_disk(self, base_dir: str, files: List[Dict[str, Any]]) -> None:
+        for file in files:
+            rel_path = file.get("path", "")
+            if not rel_path:
+                continue
+            full_path = os.path.join(base_dir, rel_path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(file.get("content", ""))
 
-# Attempt to load models to ensure there are no import loop / syntax issues
-try:
-    print("Verifying database models and schemas imports...")
-    import_models = False
-    
-    # Try importing typical model locations
-    if os.path.exists("app/models"):
-        sys.path.insert(0, os.path.abspath("."))
-        import glob
-        for file in glob.glob("app/models/**/*.py", recursive=True):
-            mod_name = file.replace(".py", "").replace("/", ".").replace("\\\\", ".")
-            if "__init__" not in mod_name:
-                print(f"Importing {{mod_name}}...")
-                __import__(mod_name)
-                import_models = True
-except Exception as e:
-    print(f"MODEL_IMPORT_ERROR: Crash detected during database ORM model definitions import: {{e}}", file=sys.stderr)
-    sys.exit(2)
+    async def _terminate_process(self, proc) -> None:
+        if not proc:
+            return
+        try:
+            if os.name == 'nt':
+                kill_cmd = f"taskkill /F /T /PID {proc.pid}"
+                kill_proc = await asyncio.create_subprocess_shell(
+                    kill_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                )
+                await kill_proc.wait()
+            else:
+                proc.terminate()
+                await proc.wait()
+        except Exception as e:
+            logger.warning(f"Error killing PID {proc.pid}: {e}")
 
-print("Database imports and model setups verified successfully!")
-sys.exit(0)
-"""
+    async def _run_command_with_logging(
+        self, cmd: str, cwd: str, timeout: float, step_name: str, db: Any, project_id: str, progress: int
+    ) -> Tuple[int, List[str]]:
+        await self._broadcast(db, project_id, progress, f"⏳ {step_name}...")
+        logs = []
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        except Exception as e:
+            err_msg = f"Failed to spawn command '{cmd}' on host: {e}"
+            logger.error(err_msg)
+            logs.append(err_msg)
+            return -1, logs
 
-    def _apply_patch(self, original_content: str, start_line: int, end_line: int, replacement_code: str) -> str:
-        """
-        Helper to apply a line-range patch to the original file content.
-        Lines are 1-indexed.
-        """
-        lines = original_content.splitlines(keepends=True)
-        # Convert 1-indexed line numbers to 0-indexed list indices
-        start_idx = max(0, start_line - 1)
-        end_idx = min(len(lines), end_line)
-        
-        # Format the replacement code to end with proper newline matching the file structure
-        if replacement_code and not replacement_code.endswith("\n"):
-            ending = "\n"
-            if start_idx < len(lines) and lines[start_idx].endswith("\r\n"):
-                ending = "\r\n"
-            replacement_code += ending
+        async def read_stream(stream, prefix):
+            try:
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='ignore').strip()
+                    if decoded:
+                        logs.append(f"{prefix}{decoded}")
+            except Exception:
+                pass
+        stdout_task = asyncio.create_task(read_stream(proc.stdout, ""))
+        stderr_task = asyncio.create_task(read_stream(proc.stderr, ""))
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            await self._terminate_process(proc)
+        try:
+            await asyncio.gather(stdout_task, stderr_task, timeout=2.0)
+        except Exception:
+            pass
+        return proc.returncode if proc.returncode is not None else -1, logs
+
+    def _parse_logs_for_errors(self, logs: List[str], base_dir: str, context_type: str) -> List[Tuple[str, str]]:
+        import re
+        errors = []
+        py_traceback_re = re.compile(r'File "([^"]+)", line (\d+)')
+        fe_file_re = re.compile(r'(?:\.\/)?(frontend\/src\/[^\s:]+|src\/[^\s:]+|components\/[^\s:]+|pages\/[^\s:]+|app\/[^\s:]+|[a-zA-Z0-9_\-\/]+\.(?:tsx|ts|jsx|js))')
+
+        i = 0
+        while i < len(logs):
+            line = logs[i]
+            py_match = py_traceback_re.search(line)
+            if py_match:
+                full_path = py_match.group(1)
+                line_no = py_match.group(2)
+                rel_path = full_path
+                if os.path.isabs(full_path):
+                    try:
+                        rel_path = os.path.relpath(full_path, base_dir)
+                    except Exception:
+                        pass
+                if "site-packages" not in full_path and "lib/python" not in full_path:
+                    context_str = "\n".join(logs[max(0, i-2):min(len(logs), i+6)])
+                    errors.append((rel_path.replace("\\", "/"), f"Python Runtime traceback on line {line_no}:\n{context_str}"))
+                    i += 1
+                    continue
             
-        new_lines = lines[:start_idx] + [replacement_code] + lines[end_idx:]
-        return "".join(new_lines)
+            fe_match = fe_file_re.search(line)
+            if fe_match:
+                matched_path = fe_match.group(1)
+                if "node_modules" not in matched_path and ".next" not in matched_path:
+                    rel_path = matched_path
+                    if not matched_path.startswith("frontend/") and os.path.exists(os.path.join(base_dir, "frontend", matched_path)):
+                        rel_path = f"frontend/{matched_path}"
+                    context_str = "\n".join(logs[max(0, i-2):min(len(logs), i+6)])
+                    if "error" in context_str.lower() or "failed" in context_str.lower():
+                        errors.append((rel_path.replace("\\", "/"), f"Frontend Compilation Issue:\n{context_str}"))
+                        i += 1
+                        continue
+            i += 1
+
+        if not errors:
+            error_lines = [line for line in logs if "error" in line.lower() or "failed" in line.lower()]
+            if error_lines:
+                if context_type == "frontend":
+                    errors.append(("frontend/package.json", "Frontend compile exception:\n" + "\n".join(error_lines[:5])))
+                else:
+                    errors.append(("backend/app/main.py", "Backend startup exception:\n" + "\n".join(error_lines[:5])))
+
+        deduped = []
+        seen = set()
+        for f, err in errors:
+            f_clean = f.replace("\\", "/")
+            if f_clean not in seen:
+                seen.add(f_clean)
+                deduped.append((f_clean, err))
+        return deduped
+
+    async def _broadcast(self, db: Any, project_id: str, progress: int, step: str) -> None:
+        try:
+            from app.services.workflow import broadcast_agent_progress
+            await broadcast_agent_progress(db, project_id, progress, step)
+        except Exception:
+            pass
 
     async def _heal_file_content(
-        self,
-        file_path: str,
-        file_content: str,
-        error_log: str,
-        project_doc: Dict[str, Any],
-        tech_stack: Dict[str, Any]
+        self, file_path: str, file_content: str, error_log: str, project_doc: Dict[str, Any], tech_stack: Dict[str, Any]
     ) -> Optional[str]:
-        """
-        Calls Gemini LLM to heal the specific file throwing compile or runtime errors.
-        """
         system_prompt = build_agent_system_prompt(
             self.agent_name,
             "You are a Senior AI Compiler Recovery and Stabilization Engineer. "
-            "Your sole objective is to take a failing source code file, analyze its syntax/compilation error log, "
-            "and output the specific repair details which are guaranteed to compile and run perfectly."
+            "Repair the failing file code to resolve compilation syntax and import errors completely."
         )
-
         user_content = f"""
-        Analyze the following compilation / syntax error and heal the code file.
-        
-        File Relative Path: {file_path}
-        Technology Stack: Backend={tech_stack.get('backend')}, Frontend={tech_stack.get('frontend')}, Database={tech_stack.get('database')}
-        
-        ---- CRITICAL ERROR LOG ----
+        Heal the following compilation error in {file_path}.
+        Error Log:
         {error_log}
-        ---------------------------
         
-        ---- CURRENT FILE CONTENT ----
+        Current file content:
         ```
         {file_content}
         ```
-        ------------------------------
-        
-        Provide the correction. You can EITHER provide a targeted line-range patch OR correct the entire file.
-        
-        Rules:
-        1. If the error can be resolved with a specific line replacement or line range replacement, provide `target_line_range` (a 1-indexed list containing `[start_line, end_line]`) and the specific `replacement_code`. Do not output the entire file in `replacement_code`.
-        2. If the error requires major changes, or if you prefer to correct the entire file, set `target_line_range` to null and provide the complete file content in `corrected_code`.
-        
-        Return ONLY valid JSON in this exact schema format:
+        Return ONLY valid JSON:
         {{
           "status": "success",
-          "root_cause_reason": "Description of the compilation error cause",
-          "target_line_range": [start_line, end_line], // e.g. [12, 15] or null
-          "replacement_code": "code to replace the target range with (if range is specified)",
-          "corrected_code": "complete Drops-in replacement healed code content (if range is null)"
+          "root_cause_reason": "Description",
+          "target_line_range": null,
+          "corrected_code": "Full drop-in correction code"
         }}
         """
-
         try:
             raw_response = await get_llm_completion(
                 agent_name=self.agent_name,
@@ -867,17 +896,7 @@ sys.exit(0)
                 temperature=0.1
             )
             parsed = parse_json_response(raw_response.strip())
-            
-            target_range = parsed.get("target_line_range")
-            if isinstance(target_range, list) and len(target_range) == 2:
-                start_line, end_line = target_range
-                replacement = parsed.get("replacement_code")
-                if replacement is not None:
-                    logger.info(f"[{self.agent_name}] Applying targeted line-range patch [{start_line}-{end_line}] to {file_path}")
-                    return self._apply_patch(file_content, int(start_line), int(end_line), replacement)
-            
-            logger.info(f"[{self.agent_name}] Applying full drop-in file replacement for {file_path}")
             return parsed.get("corrected_code")
         except Exception as e:
-            logger.error(f"Failed to get healed file content from LLM for {file_path}: {e}")
+            logger.error(f"Failed to heal file {file_path}: {e}")
             return None

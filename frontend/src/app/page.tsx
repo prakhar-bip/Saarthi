@@ -9,7 +9,7 @@ import { AboutContactDrawer } from "@/components/AboutContactDrawer";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { ChariotSplash } from "@/components/ChariotSplash";
 import { AnimatePresence, motion } from "framer-motion";
-import { PanelLeft, AlertTriangle, MessageSquare, FolderGit2, FolderPlus } from "lucide-react";
+import { PanelLeft, AlertTriangle, MessageSquare, FolderGit2, FolderPlus, Plus } from "lucide-react";
 import { WaveBackground, SarthiLogo } from "@/components/CustomSvgs";
 import { CommandMenu } from "@/components/CommandMenu";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -91,7 +91,21 @@ const SandboxWarningModal: React.FC = () => {
 };
 
 export default function Home() {
-  const { activeChatId, activeProjectId, showRightPane, showLeftPane, setShowLeftPane, projects, chats, showSpecsDocs } = useWorkspace();
+  const { 
+    activeChatId, 
+    activeProjectId, 
+    showLeftPane, 
+    setShowLeftPane, 
+    projects, 
+    chats, 
+    activeWorkspaceTab, 
+    setActiveWorkspaceTab, 
+    setShowAbout, 
+    setShowContact,
+    setShowFeedbackModal,
+    showSpecsDocs,
+    createNewChat
+  } = useWorkspace();
   const [showSplash, setShowSplash] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileTab, setMobileTab] = useState<"menu" | "chat" | "build">("chat");
@@ -279,11 +293,21 @@ export default function Home() {
                           <FolderPlus className="w-8 h-8" />
                         </div>
                         <div className="space-y-1">
-                          <h3 className="font-bold text-stone-850">No Compiled Codebase</h3>
+                          <h3 className="font-bold text-stone-850">No Active Project</h3>
                           <p className="text-xs text-stone-500 max-w-xs leading-relaxed font-semibold">
-                            Start a chat with Sarthi, specify your requirements, and click "Create Project" to compile and see the generated prototype files here.
+                            No active project found in this workspace. Let's create one.
                           </p>
                         </div>
+                        <button
+                          onClick={async () => {
+                            const newChatId = await createNewChat("other", "New Project");
+                            setActiveWorkspaceTab("workspace");
+                          }}
+                          className="px-6 py-2.5 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Start New Project</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -336,7 +360,7 @@ export default function Home() {
               />
 
               {/* Full-screen invisible drag overlay to ensure smooth drags over iframes/inputs */}
-              {(isDraggingLeft || isDraggingRight) && (
+              {isDraggingLeft && (
                 <div className="fixed inset-0 z-50 cursor-col-resize select-none pointer-events-auto" />
               )}
 
@@ -377,66 +401,118 @@ export default function Home() {
                 )}
               </AnimatePresence>
 
-              {/* Main Console Arena */}
-              <main className="flex-1 flex overflow-hidden relative">
-                {/* Global restore left pane button when minimized/hidden */}
-                {(!showLeftPane && shouldBeFullWidth) && (
-                  <motion.button
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.93 }}
-                    onClick={() => setShowLeftPane(true)}
-                    className="absolute top-[26px] left-6 z-50 p-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-950 transition-all shadow-sm flex items-center justify-center cursor-pointer"
-                    title="Expand Sidebar"
-                  >
-                    <PanelLeft className="w-4 h-4" />
-                  </motion.button>
-                )}
+              {/* Unified Center Panel Workspace (Right Panel completely removed) */}
+              <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+                {/* Unified Header with central tab switcher */}
+                <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
+                  <div className="flex items-center gap-2">
+                    {!showLeftPane && (
+                      <motion.button
+                        type="button"
+                        onClick={() => setShowLeftPane(true)}
+                        whileHover={{ scale: 1.06 }}
+                        whileTap={{ scale: 0.93 }}
+                        className="p-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-950 transition-all flex items-center justify-center cursor-pointer mr-2"
+                        title="Expand Sidebar"
+                      >
+                        <PanelLeft className="w-4 h-4" />
+                      </motion.button>
+                    )}
+                    <SarthiLogo className="text-2xl" />
+                  </div>
 
-                {/* Chat / Interaction Console (Center) */}
-                <WorkspaceConsole isMinimized={shouldBeFullWidth} />
-
-                {/* Dynamic Project Details / Compiling Board (Right pane) */}
-                <AnimatePresence initial={false}>
-                  {(activeProjectId || activeChatId) && showRightPane && (
-                    <motion.div
-                      initial={{ width: 0, opacity: 0 }}
-                      animate={shouldBeFullWidth ? { width: "100%", opacity: 1 } : { width: `${rightWidth}px`, opacity: 1 }}
-                      exit={{ width: 0, opacity: 0 }}
-                      transition={{ duration: isDraggingRight ? 0 : 0.4, ease: [0.4, 0, 0.2, 1] }}
-                      className={`${shouldBeFullWidth ? "w-full" : "border-l border-transparent"} h-full flex shrink-0 overflow-visible relative`}
-                      style={shouldBeFullWidth ? { flex: 1 } : {}}
+                  {/* Central Tab Switcher */}
+                  <div className="flex bg-stone-100/80 p-1 rounded-xl border border-stone-200/50">
+                    <button
+                      onClick={() => setActiveWorkspaceTab("chat")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        activeWorkspaceTab === "chat"
+                          ? "bg-white text-indigo-950 shadow-sm"
+                          : "text-stone-500 hover:text-stone-850"
+                      }`}
                     >
-                      {/* Right Resizer Handle (Only show if not finalized) */}
-                      {!shouldBeFullWidth && (
-                        <div
-                          onMouseDown={startResizeRight}
-                          onDoubleClick={() => {
-                            setRightWidth(550);
-                            localStorage.setItem("sidebar_right_width", "550");
-                          }}
-                          className="absolute top-0 left-[-3px] w-[6px] h-full cursor-col-resize z-50 group flex items-center justify-center"
-                        >
-                          {/* The vertical divider line */}
-                          <div className="w-[1px] h-full bg-transparent group-hover:bg-indigo-400 group-active:bg-indigo-600 transition-colors" />
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Chat
+                    </button>
+                    <button
+                      onClick={() => setActiveWorkspaceTab("workspace")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        activeWorkspaceTab === "workspace"
+                          ? "bg-white text-indigo-950 shadow-sm"
+                          : "text-stone-500 hover:text-stone-850"
+                      }`}
+                    >
+                      <FolderGit2 className="w-3.5 h-3.5" />
+                      Workspace
+                      {activeProj && activeProj.status === "generating" && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      )}
+                    </button>
+                  </div>
 
-                          {/* Visual grab handle */}
-                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-8 bg-stone-50 border border-stone-200 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity flex flex-col items-center justify-center gap-[2.5px] pointer-events-none z-50">
-                            <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                            <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
-                            <div className="w-1.5 h-[1.5px] bg-stone-400 rounded-full" />
+                  <div className="flex items-center gap-4 text-xs font-semibold text-stone-500">
+                    <motion.button
+                      onClick={() => setShowAbout(true)}
+                      whileHover={{ color: "#1c1917" }}
+                      className="hover:text-stone-800 transition-colors cursor-pointer"
+                    >
+                      About
+                    </motion.button>
+                    <span className="text-stone-300">/</span>
+                    <motion.button
+                      onClick={() => setShowContact(true)}
+                      whileHover={{ color: "#1c1917" }}
+                      className="hover:text-stone-800 transition-colors cursor-pointer"
+                    >
+                      Contact
+                    </motion.button>
+                    <span className="text-stone-300">/</span>
+                    <motion.button
+                      onClick={() => setShowFeedbackModal(true)}
+                      whileHover={{ color: "#1c1917" }}
+                      className="hover:text-indigo-900 text-indigo-650 font-bold transition-colors cursor-pointer"
+                    >
+                      Feedback
+                    </motion.button>
+                  </div>
+                </header>
+
+                <main className="flex-1 flex overflow-hidden relative">
+                  {activeWorkspaceTab === "chat" ? (
+                    <WorkspaceConsole 
+                      isMinimized={false} 
+                    />
+                  ) : (
+                    <div className="w-full h-full overflow-hidden flex flex-col bg-transparent">
+                      {(activeProj || activeChatId) ? (
+                        <ProjectViewer />
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center h-full bg-white/20 backdrop-blur-md space-y-4">
+                          <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-950 shadow-sm">
+                            <FolderPlus className="w-8 h-8" />
                           </div>
+                          <div className="space-y-1">
+                            <h3 className="font-bold text-stone-850">No Active Project</h3>
+                            <p className="text-xs text-stone-500 max-w-xs leading-relaxed font-semibold">
+                              No active project found in this workspace. Let's create one.
+                            </p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              const newChatId = await createNewChat("other", "New Project");
+                              setActiveWorkspaceTab("workspace");
+                            }}
+                            className="px-6 py-2.5 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Start New Project</span>
+                          </button>
                         </div>
                       )}
-
-                      <div className="w-full h-full overflow-hidden">
-                        <ProjectViewer />
-                      </div>
-                    </motion.div>
+                    </div>
                   )}
-                </AnimatePresence>
-              </main>
+                </main>
+              </div>
             </div>
           )}
 

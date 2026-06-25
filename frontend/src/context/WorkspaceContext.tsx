@@ -43,7 +43,7 @@ export interface Project {
   id: string;
   name: string;
   category: string;
-  status: "idle" | "generating" | "completed" | "failed" | "documents_ready" | "waiting_approval";
+  status: "idle" | "generating" | "completed" | "failed" | "documents_ready" | "waiting_approval" | "paused";
   progress: number;
   step: string;
   generation_type?: string;
@@ -87,6 +87,13 @@ export interface Project {
   hitl_approved?: boolean;
   implementation_plan?: any;
   validation_logs?: any[];
+  blueprint?: any;
+  api_contract_design?: any;
+  database_architecture?: any;
+  blueprint_planner?: any;
+  requirement_analyzer?: any;
+  theme?: string;
+  theme_palette?: any;
 }
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -136,6 +143,8 @@ interface WorkspaceContextType {
     generationType?: string
   ) => Promise<void>;
   compileProjectCodebase: (projectId: string, chatId: string) => Promise<void>;
+  pauseProjectCodebase: (projectId: string) => Promise<void>;
+  resumeProjectCodebase: (projectId: string) => Promise<void>;
   generateDocuments: (projectName: string, prompt: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newTitle: string) => Promise<void>;
@@ -154,6 +163,9 @@ interface WorkspaceContextType {
   setShowContact: (show: boolean) => void;
   
   isGeneratingProject: boolean;
+  setIsGeneratingProject: (generating: boolean) => void;
+  activeWorkspaceTab: "chat" | "workspace";
+  setActiveWorkspaceTab: (tab: "chat" | "workspace") => void;
 
   showRightPane: boolean;
   setShowRightPane: (show: boolean) => void;
@@ -198,6 +210,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
   
   const [isGeneratingProject, setIsGeneratingProject] = useState<boolean>(false);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"chat" | "workspace">("chat");
   const [showRightPane, setShowRightPane] = useState<boolean>(true);
   const [showLeftPane, setShowLeftPane] = useState<boolean>(true);
   const [showSpecsDocs, setShowSpecsDocs] = useState<boolean>(true);
@@ -928,7 +941,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               clearInterval(interval);
               delete activeIntervalsRef.current[projectId];
               setIsGeneratingProject(false);
-            } else if (updatedProj.status === "waiting_approval") {
+            } else if (updatedProj.status === "waiting_approval" || updatedProj.status === "paused") {
               setIsGeneratingProject(false);
             }
           }
@@ -995,6 +1008,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 }
               })
               .catch((err) => console.error("Failed to fetch project on waiting_approval:", err));
+            } else if (msg.status === "paused") {
+              setIsGeneratingProject(false);
             } else if (msg.status === "completed") {
               cleanupWatchers();
               setIsGeneratingProject(false);
@@ -1050,14 +1065,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   useEffect(() => {
-    const generatingProjects = projects.filter((p) => p.status === "generating");
-    if (generatingProjects.length > 0) {
+    const activeProjForChat = projects.find((p) => p.chat_id === activeChatId);
+    if (activeProjForChat && activeProjForChat.status === "generating") {
       setIsGeneratingProject(true);
-      generatingProjects.forEach((proj) => {
-        monitorProjectProgress(proj.id);
-      });
+      monitorProjectProgress(activeProjForChat.id);
+    } else {
+      setIsGeneratingProject(false);
     }
-  }, [projects]);
+  }, [projects, activeChatId]);
 
   const generateProject = useCallback(async (
     chatId: string,
@@ -1103,6 +1118,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setProjects((prev) => [newProj, ...prev]);
         setActiveProjectId(newProj.id);
         setShowSpecsDocs(true);
+        setActiveWorkspaceTab("workspace");
         setChats((prev) =>
           prev.map((c) =>
             c.id === chatId
@@ -1154,7 +1170,62 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error("Compile project codebase failed:", e);
       setIsGeneratingProject(false);
     }
-  }, [isGeneratingProject]);
+  }, [isGeneratingProject, monitorProjectProgress]);
+
+  const pauseProjectCodebase = useCallback(async (projectId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}/pause`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const updatedProj = await res.json();
+        setProjects((prev) =>
+          prev.map((p) => (p.id === projectId ? updatedProj : p))
+        );
+        setIsGeneratingProject(false);
+      }
+    } catch (e) {
+      console.error("Pause project failed:", e);
+    }
+  }, []);
+
+  const resumeProjectCodebase = useCallback(async (projectId: string) => {
+    if (isGeneratingProject) return;
+    setIsGeneratingProject(true);
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setIsGeneratingProject(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}/resume`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const updatedProj = await res.json();
+        setProjects((prev) =>
+          prev.map((p) => (p.id === projectId ? updatedProj : p))
+        );
+        monitorProjectProgress(projectId);
+      } else {
+        setIsGeneratingProject(false);
+      }
+    } catch (e) {
+      console.error("Resume project failed:", e);
+      setIsGeneratingProject(false);
+    }
+  }, [isGeneratingProject, monitorProjectProgress]);
 
   const generateDocuments = useCallback(async (projectName: string, prompt: string) => {
     if (isGeneratingProject) return;
@@ -1283,6 +1354,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setActiveProjectId,
     generateProject,
     compileProjectCodebase,
+    pauseProjectCodebase,
+    resumeProjectCodebase,
     generateDocuments,
     deleteProject,
     renameProject,
@@ -1298,6 +1371,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     showContact,
     setShowContact,
     isGeneratingProject,
+    setIsGeneratingProject,
+    activeWorkspaceTab,
+    setActiveWorkspaceTab,
     showRightPane,
     setShowRightPane,
     showLeftPane,
@@ -1333,6 +1409,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     activeProjectId,
     generateProject,
     compileProjectCodebase,
+    pauseProjectCodebase,
+    resumeProjectCodebase,
     generateDocuments,
     deleteProject,
     renameProject,
@@ -1344,6 +1422,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     showAbout,
     showContact,
     isGeneratingProject,
+    setIsGeneratingProject,
+    activeWorkspaceTab,
     showRightPane,
     showLeftPane,
     showSpecsDocs,

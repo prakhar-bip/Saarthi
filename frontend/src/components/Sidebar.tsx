@@ -31,24 +31,11 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
     setShowFeedbackModal
   } = useWorkspace();
 
-  const [activeTab, setActiveTab] = useState<"chats" | "projects">("chats");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileModalTab, setProfileModalTab] = useState<"profile" | "help">("profile");
-
-  useEffect(() => {
-    if (activeProjectId) {
-      setActiveTab("projects");
-    }
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    if (activeChatId && !activeProjectId) {
-      setActiveTab("chats");
-    }
-  }, [activeChatId, activeProjectId]);
 
   useEffect(() => {
     const handleOpenModal = (e: Event) => {
@@ -95,69 +82,14 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
         </div>
       </div>
 
-      {/* Main Tab Switcher */}
-      <div className="px-6 pt-6 pb-2">
-        <div className="flex bg-stone-100/50 p-1 rounded-xl transition-colors duration-300">
-          <button
-            onClick={() => {
-              setActiveTab("chats");
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("change-mobile-tab", { detail: "chat" }));
-              }
-            }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all relative ${activeTab === "chats" ? "text-stone-800" : "text-stone-500 hover:text-stone-700"
-              }`}
-          >
-            {activeTab === "chats" && (
-              <motion.div
-                layoutId="sidebar-tab"
-                className="absolute inset-0 bg-white rounded-lg shadow-sm border border-stone-200/40"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <MessageSquare className="w-3.5 h-3.5 relative z-10" />
-            <span className="relative z-10 mr-4">Chats</span>
-            {chats.length > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="absolute top-1 right-2.5 z-10 text-[8px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full min-w-[14px] text-center"
-              >
-                {chats.length}
-              </motion.span>
-            )}
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("projects");
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("change-mobile-tab", { detail: "build" }));
-              }
-            }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg transition-all relative ${activeTab === "projects" ? "text-stone-800" : "text-stone-500 hover:text-stone-700"
-              }`}
-          >
-            {activeTab === "projects" && (
-              <motion.div
-                layoutId="sidebar-tab"
-                className="absolute inset-0 bg-white rounded-lg shadow-sm border border-stone-200/40"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <FolderGit2 className="w-3.5 h-3.5 relative z-10" />
-            <span className="relative z-10 mr-4">Projects</span>
-            {projects.length > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="absolute top-1 right-2.5 z-10 text-[8px] font-bold bg-indigo-100 text-indigo-950 px-1.5 py-0.5 rounded-full min-w-[14px] text-center"
-              >
-                {projects.length}
-              </motion.span>
-            )}
-          </button>
+      {/* Workspace History Header */}
+      {!isCollapsed && (
+        <div className="px-6 pt-4 pb-2">
+          <h3 className="text-[10px] font-extrabold uppercase tracking-wider text-stone-400">
+            Workspace History
+          </h3>
         </div>
-      </div>
+      )}
 
       {/* History Lists */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
@@ -185,8 +117,8 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
           </motion.div>
         )}
 
-        {/* Authenticated — Chats */}
-        {user && activeTab === "chats" && (
+        {/* Authenticated — History */}
+        {user && (
           <div className="flex flex-col w-full h-full">
             <motion.button
               onClick={() => {
@@ -216,11 +148,13 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                   className="flex flex-col items-center py-8"
                 >
                   <EmptyStateIllustration className="w-28 h-24" />
-                  <p className="text-stone-400 text-xs mt-2">No active chats yet — start one above</p>
+                  <p className="text-stone-400 text-xs mt-2">No active history items yet</p>
                 </motion.div>
               ) : (
                 chats.map((c, idx) => {
-                  const isActive = activeChatId === c.id && !activeProjectId;
+                  const assocProject = projects.find((p) => p.chat_id === c.id || p.id === c.project_id);
+                  const isActive = activeChatId === c.id;
+                  const isCompiling = assocProject && assocProject.status === "generating";
                   return (
                     <motion.div
                       key={c.id}
@@ -235,13 +169,17 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                         }`}
                       onClick={() => {
                         setActiveChatId(c.id);
-                        setActiveProjectId(null);
+                        if (assocProject) {
+                          setActiveProjectId(assocProject.id);
+                        } else {
+                          setActiveProjectId(null);
+                        }
                         setShowRightPane(true);
                       }}
                     >
-                      <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
                         <motion.div
-                          className={`p-1.5 rounded-lg ${isActive ? "bg-indigo-100 text-indigo-950" : "bg-stone-100 text-stone-500"
+                          className={`p-1.5 rounded-lg shrink-0 ${isActive ? "bg-indigo-100 text-indigo-950" : "bg-stone-100 text-stone-500"
                             }`}
                           whileHover={{ rotate: [-3, 3, 0] }}
                           transition={{ duration: 0.3 }}
@@ -249,7 +187,7 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                           <CategoryIcon category={c.category} className="w-4 h-4" />
                         </motion.div>
                         {!isCollapsed && (
-                          <div className="overflow-hidden flex-1">
+                          <div className="overflow-hidden flex-1 min-w-0">
                             {editingId === c.id ? (
                               <input 
                                 type="text"
@@ -258,6 +196,9 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     renameChat(c.id, editValue);
+                                    if (assocProject) {
+                                      renameProject(assocProject.id, editValue);
+                                    }
                                     setEditingId(null);
                                   } else if (e.key === 'Escape') {
                                     setEditingId(null);
@@ -265,22 +206,67 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 autoFocus
-                                className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400"
+                                className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400 mb-1"
                               />
                             ) : (
-                              <p className="text-xs font-semibold truncate leading-tight" title={c.title}>{c.title}</p>
+                              <div className="flex flex-col min-w-0">
+                                <p className="text-xs font-semibold truncate leading-tight flex items-center gap-1.5" title={c.title}>
+                                  {c.title}
+                                  {assocProject && assocProject.status === "completed" && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Project Compiled" />
+                                  )}
+                                </p>
+                                {assocProject && assocProject.status !== "generating" && (
+                                  <div className="flex items-center gap-1 mt-0.5">
+                                    {assocProject.status === "waiting_approval" && (
+                                      <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1 py-0.25 rounded border border-amber-200">
+                                        Needs Approval
+                                      </span>
+                                    )}
+                                    {assocProject.status === "documents_ready" && (
+                                      <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1 py-0.25 rounded border border-blue-200">
+                                        Docs Ready
+                                      </span>
+                                    )}
+                                    {assocProject.status === "completed" && (
+                                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.25 rounded border border-emerald-250">
+                                        Compiled
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             )}
-                            <span className="text-[9px] text-stone-400 block mt-0.5">{c.created}</span>
+                            {isCompiling ? (
+                              <div className="mt-1">
+                                {/* Live progress bar strip */}
+                                <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden">
+                                  <motion.div
+                                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500"
+                                    animate={{ width: `${assocProject.progress}%` }}
+                                    transition={{ duration: 0.6, ease: "easeOut" }}
+                                  />
+                                </div>
+                                <span className="text-[9px] text-indigo-500 font-bold mt-1 block">
+                                  {typeof assocProject.progress === "number" ? assocProject.progress.toFixed(1) : Number(assocProject.progress || 0).toFixed(1)}% — Compiling
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[9px] text-stone-400 block mt-0.5">{c.created}</span>
+                            )}
                           </div>
                         )}
                       </div>
                       {!isCollapsed && (
-                        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
                           <motion.button
                             onClick={(e) => {
                               e.stopPropagation();
                               if (editingId === c.id) {
                                 renameChat(c.id, editValue);
+                                if (assocProject) {
+                                  renameProject(assocProject.id, editValue);
+                                }
                                 setEditingId(null);
                               } else {
                                 setEditingId(c.id);
@@ -312,132 +298,6 @@ export const Sidebar: React.FC<{ isCollapsed?: boolean }> = ({ isCollapsed = fal
               )}
             </AnimatePresence>
           </div>
-        )}
-
-        {/* Authenticated — Projects */}
-        {user && activeTab === "projects" && (
-          <AnimatePresence initial={false}>
-            {projects.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex flex-col items-center py-8"
-              >
-                <EmptyStateIllustration className="w-28 h-24" />
-                <p className="text-stone-400 text-xs mt-2">No projects compiled yet</p>
-              </motion.div>
-            ) : (
-              projects.map((p, idx) => {
-                const isActive = activeProjectId === p.id;
-                const isCompiling = p.status === "generating";
-                return (
-                  <motion.div
-                    key={p.id}
-                    initial={{ opacity: 0, x: -12 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -12 }}
-                    transition={{ delay: idx * 0.04, duration: 0.3 }}
-                    whileHover={{ x: 2 }}
-                    className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all ${isActive
-                      ? "bg-indigo-50/50 border border-indigo-100/50 text-indigo-900"
-                      : "hover:bg-stone-50/40 border border-transparent text-stone-600"
-                      }`}
-                    onClick={() => {
-                      if (!isGeneratingProject) {
-                        setActiveProjectId(p.id);
-                        if (p.chat_id) {
-                          setActiveChatId(p.chat_id);
-                        }
-                        setShowRightPane(true);
-                      }
-                    }}
-                  >
-                    <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
-                      <div
-                        className={`p-1.5 rounded-lg shrink-0 ${isActive ? "bg-indigo-100 text-indigo-950" : "bg-stone-100 text-stone-500"
-                          }`}
-                      >
-                        <CategoryIcon category={p.category} className="w-4 h-4" />
-                      </div>
-                      {!isCollapsed && (
-                        <div className="overflow-hidden flex-1 min-w-0">
-                          {editingId === p.id ? (
-                            <input 
-                              type="text"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  renameProject(p.id, editValue);
-                                  setEditingId(null);
-                                } else if (e.key === 'Escape') {
-                                  setEditingId(null);
-                                }
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              autoFocus
-                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:ring-1 focus:ring-amber-400 mb-1"
-                            />
-                          ) : (
-                            <p className="text-xs font-semibold truncate leading-tight" title={p.name}>{p.name}</p>
-                          )}
-                          {isCompiling ? (
-                            <div className="mt-1">
-                              {/* Live progress bar strip */}
-                              <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden">
-                                <motion.div
-                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500"
-                                  animate={{ width: `${p.progress}%` }}
-                                  transition={{ duration: 0.6, ease: "easeOut" }}
-                                />
-                              </div>
-                              <span className="text-[9px] text-indigo-500 font-bold mt-1 block">
-                                {typeof p.progress === "number" ? p.progress.toFixed(1) : Number(p.progress || 0).toFixed(1)}% — Compiling
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-[9px] text-stone-400 block mt-0.5">{p.created}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {!isCollapsed && (
-                      <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        <motion.button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (editingId === p.id) {
-                              renameProject(p.id, editValue);
-                              setEditingId(null);
-                            } else {
-                              setEditingId(p.id);
-                              setEditValue(p.name);
-                            }
-                          }}
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.85 }}
-                          className="p-1 rounded-md text-stone-400 hover:text-amber-500 hover:bg-indigo-50 transition-all cursor-pointer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </motion.button>
-                        <motion.button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteProject(p.id);
-                          }}
-                          whileHover={{ scale: 1.15 }}
-                          whileTap={{ scale: 0.85 }}
-                          className="p-1 rounded-md text-stone-400 hover:text-rose-500 hover:bg-rose-50 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </motion.button>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })
-            )}
-          </AnimatePresence>
         )}
       </div>
 

@@ -172,7 +172,7 @@ async def auto_identify_category(blueprint: dict, messages: List[Dict[str, str]]
             text = m.get("text", "")
             conv_text += f"{sender.capitalize()}: {text}\n"
 
-        blueprint_text = json.dumps(blueprint, indent=2)
+        blueprint_text = json.dumps(blueprint, indent=2, default=str)
 
         prompt = (
             "You are Sarthi's category classification assistant.\n"
@@ -651,11 +651,11 @@ async def generate_codebase(
 
     blueprint_prompt = ""
     if blueprint:
-        blueprint_prompt = f"\n\nConfirmed Project Blueprint (JSON):\n{json.dumps(blueprint, indent=2)}"
+        blueprint_prompt = f"\n\nConfirmed Project Blueprint (JSON):\n{json.dumps(blueprint, indent=2, default=str)}"
 
     theme_palette_prompt = ""
     if theme_palette:
-        theme_palette_prompt = f"\n\nSelected Theme Palette (JSON):\n{json.dumps(theme_palette, indent=2)}"
+        theme_palette_prompt = f"\n\nSelected Theme Palette (JSON):\n{json.dumps(theme_palette, indent=2, default=str)}"
 
     theme_prompt = f"\nThe user selected the design theme: '{theme}'. Please apply this theme's color palette, design styles, and dark/light configuration in the styling of the generated components using Tailwind CSS classes." if theme else ""
 
@@ -664,16 +664,16 @@ async def generate_codebase(
         compiled_context = build_compilation_context(architecture_context)
         architecture_context_prompt = (
             "\n\nConnected Sarthi Agent Architecture Context (compact JSON):\n"
-            f"{json.dumps(compiled_context, indent=2)}"
+            f"{json.dumps(compiled_context, indent=2, default=str)}"
         )
 
     hackathon_prompt = ""
     if hackathon_metadata:
-        hackathon_prompt = f"\n\nHackathon Metadata & Constraints:\n{json.dumps(hackathon_metadata, indent=2)}"
+        hackathon_prompt = f"\n\nHackathon Metadata & Constraints:\n{json.dumps(hackathon_metadata, indent=2, default=str)}"
 
     mcp_prompt = ""
     if mcp_evidence:
-        mcp_prompt = f"\n\nMCP Evidence Data:\n{json.dumps(mcp_evidence, indent=2)}"
+        mcp_prompt = f"\n\nMCP Evidence Data:\n{json.dumps(mcp_evidence, indent=2, default=str)}"
 
     db_name = "MongoDB"
     if architecture_context:
@@ -1235,7 +1235,7 @@ Each suggestion must represent a detailed blueprint that can flow cleanly throug
 For each suggestion, provide:
 1. name (Project Name)
 2. idea (A concise description of the application's vision - between 40 to 60 words)
-3. features (List of exactly 3 descriptive system features/modules, e.g., 'Real-time WebSocket dashboard with interactive SVG charts' - under 15 words each)
+3. features (List of descriptive system features/modules - generate as many as necessary to cover the project's requirements, minimum 3 - under 25 words each)
 4. tech_stack (Suggested Tech Stack, e.g. "React, Tailwind CSS, FastAPI, MongoDB")
 
 CRITICAL: Return your output ONLY as a valid JSON array of objects.
@@ -1379,28 +1379,25 @@ async def generate_single_project_suggestion(idea: str, generation_type: str = "
 
     prompt = f"""
 You are Sarthi, an expert AI partner. The user wants to build a project with this core idea: "{idea}".
-Create a detailed project blueprint matching this idea.
-
 {scope_guidance}
 
-Generate exactly:
-1. name (A catchy, professional Project Name)
-2. idea (A refined, professional description of the application's vision - between 40 to 60 words)
-3. features (List of exactly 3 descriptive system features/modules matching the selected scope - under 15 words each)
+Create a detailed project blueprint matching this idea. Generate exactly:
+1. name (A catchy, highly unique, innovative, and creative Project Name. Do NOT use generic names like 'Taskflow', 'Trackify', 'Personal Finance App', 'Travel Planner'. Brainstorm something distinct and premium.)
+2. idea (A refined, professional, and detailed description of the application's vision - between 40 to 60 words)
+3. features (List of highly detailed system features/modules matching the selected scope. Generate as many as necessary to cover the project's requirements, minimum 4. Each feature should have a detailed explanation of its function and value - under 25 words each.)
 4. tech_stack (Suggested Tech Stack, matching the selected scope, e.g. "React, Tailwind CSS, FastAPI, MongoDB" for full stack, "React, Tailwind CSS, Framer Motion" for frontend, "FastAPI, PostgreSQL, SQLAlchemy" for backend, "FastAPI, Redis, Celery, Docker" for microservice)
 
 CRITICAL: Return your output ONLY as a valid JSON object.
 - NO trailing commas.
 - Escape all quotes inside strings.
 - Do not wrap in markdown code blocks. Just raw JSON.
-The JSON must match this structure exactly:
+The JSON must match this structure:
 {{
   "name": "Project Name",
   "idea": "Refined core idea description...",
   "features": [
-    "Feature 1 description...",
-    "Feature 2 description...",
-    "Feature 3 description..."
+    "Feature description 1...",
+    "Feature description 2..."
   ],
   "tech_stack": "React, FastAPI, MongoDB"
 }}
@@ -1538,10 +1535,10 @@ def get_fallback_codebase(
     elif "warm" in theme_lower or "sunrise" in theme_lower or "orange" in theme_lower:
         theme_color = "orange"
 
-    blueprint_json_str = json.dumps(blueprint, indent=2) if blueprint else "None"
-    theme_palette_json_str = json.dumps(theme_palette, indent=2) if theme_palette else "None"
+    blueprint_json_str = json.dumps(blueprint, indent=2, default=str) if blueprint else "None"
+    theme_palette_json_str = json.dumps(theme_palette, indent=2, default=str) if theme_palette else "None"
     compiled_architecture_context = build_compilation_context(architecture_context or {}) if architecture_context else {}
-    architecture_context_json_str = json.dumps(compiled_architecture_context, indent=2) if compiled_architecture_context else "None"
+    architecture_context_json_str = json.dumps(compiled_architecture_context, indent=2, default=str) if compiled_architecture_context else "None"
 
     readme = {
         "name": "README.md",
@@ -1955,7 +1952,8 @@ async def generate_prd_mrd_trd(
     generation_type: str = "full_stack",
     theme: str = None,
     theme_palette: dict = None,
-    chat_history: str = None
+    chat_history: str = None,
+    exclude_prd_mrd: bool = False
 ) -> Dict[str, str]:
     """
     Generate high-quality PRD, MRD, and TRD markdown files in parallel.
@@ -2349,7 +2347,12 @@ async def generate_prd_mrd_trd(
             logger.error(f"TRD Generation failed: {e}")
             return f"# TRD - {project_name}\\n\\nFailed to generate Technical Requirement Document: {e}"
 
-    prd_doc, mrd_doc, trd_doc = await asyncio.gather(run_prd(), run_mrd(), run_trd())
+    if exclude_prd_mrd:
+        trd_doc = await run_trd()
+        prd_doc = ""
+        mrd_doc = ""
+    else:
+        prd_doc, mrd_doc, trd_doc = await asyncio.gather(run_prd(), run_mrd(), run_trd())
     
     def clean_doc(doc: str) -> str:
         d = doc.strip()

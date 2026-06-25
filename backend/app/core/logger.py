@@ -45,9 +45,10 @@ def ws_log_sink(message):
         return
 
     sender = record["name"]
-    # Filter: strictly allow record names starting with "app."
+    # Filter: strictly allow record names starting with "app.", "agents.", or "services."
     # and skip names containing "llm_router" or "ws_manager".
-    if not sender.startswith("app."):
+    is_app_module = sender.startswith("app.") or sender.startswith("agents.") or sender.startswith("services.")
+    if not is_app_module:
         return
     if "llm_router" in sender or "ws_manager" in sender:
         return

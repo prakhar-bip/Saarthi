@@ -15,7 +15,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "Sarthi",
-  description: "Sarthi is an advanced AI coding assistant inspired by divine guidance. Build complete prototypes, documents, and codebases seamlessly.",
+  description: "Sarthi is an advanced coding assistant inspired by divine guidance. Build complete prototypes, documents, and codebases seamlessly.",
 };
 
 export default function RootLayout({

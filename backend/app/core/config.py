@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from typing import List, Any
 
 
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # OpenRouter LLM Configurations
     OPENROUTER_API_KEY: str = Field(default="")
     OPENROUTER_BASE_URL: str = Field(default="https://openrouter.ai/api/v1")
-    OPENROUTER_MODEL: str = Field(default="openai/gpt-oss-120b:free")
+    OPENROUTER_MODEL: str = Field(default="meta-llama/llama-3.3-70b-instruct:free")
 
     # Groq LLM Configurations (Deprecated - kept for agent compatibility)
     GROQ_API_KEY: str = Field(default="")
@@ -86,6 +86,14 @@ class Settings(BaseSettings):
     GCP_PROJECT_ID: str = Field(default="project-e3e4dcb5-593d-4e61-9a8")
     GCP_LOCATION: str = Field(default="us-central1")
     USE_VERTEX_AI: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def adjust_vertex_ai(self) -> "Settings":
+        if self.ENVIRONMENT == "production":
+            self.USE_VERTEX_AI = True
+        else:
+            self.USE_VERTEX_AI = False
+        return self
 
 
 settings = Settings()

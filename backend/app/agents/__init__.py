@@ -25,6 +25,9 @@ from app.agents.integration_generator import IntegrationGenerationAgent
 from app.agents.build_compiler import BuildCompilationAgent
 from app.agents.error_correction import ErrorCorrectionAgent
 from app.agents.project_export import ProjectExportAgent
+from app.agents.entity_discovery import EntityDiscoveryAgent
+from app.agents.entity_generation_planner import EntityGenerationPlannerAgent
+from app.agents.entity_generators import BackendEntityGenerator, FrontendEntityGenerator
 
 __all__ = [
     "RequirementAnalyzerAgent",
@@ -54,4 +57,9 @@ __all__ = [
     "BuildCompilationAgent",
     "ErrorCorrectionAgent",
     "ProjectExportAgent",
+    "EntityDiscoveryAgent",
+    "EntityGenerationPlannerAgent",
+    "BackendEntityGenerator",
+    "FrontendEntityGenerator",
 ]
+

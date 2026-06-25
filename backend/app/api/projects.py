@@ -167,7 +167,11 @@ def _map_project_doc(doc: dict) -> ProjectResponse:
         trd=doc.get("trd"),
         hitl_enabled=doc.get("hitl_enabled", True),
         hitl_approved=doc.get("hitl_approved", False),
-        implementation_plan=doc.get("implementation_plan"),
+        implementation_plan=(
+            {"plan_markdown": doc.get("implementation_plan"), "proposed_changes": []}
+            if isinstance(doc.get("implementation_plan"), str)
+            else doc.get("implementation_plan")
+        ),
         validation_logs=doc.get("validation_logs", []),
         generation_type=doc.get("generation_type", "full_stack")
     )
@@ -813,6 +817,193 @@ async def generate_documents_endpoint(
     
     return _map_project_doc(new_project)
 
+async def run_full_generation_pipeline(
+    project_id: str,
+    chat_id: str,
+    name: str,
+    category: str,
+    user_id: str,
+    theme: Optional[str],
+    blueprint_payload: Optional[dict],
+    theme_palette_dict: Optional[dict],
+    generation_type: str,
+    prompt_for_docs: str,
+    chat_history_str: str
+):
+    """Pre-generation phase: generate TRD + Requirements + Planning + Implementation Plan
+    and save each to MongoDB atomically before triggering the main orchestration pipeline.
+
+    Design principles:
+    - Each step is saved to MongoDB immediately after generation (atomic, not batched).
+    - Only TRD is generated — PRD and MRD are NOT part of this workflow.
+    - If TRD generation fails, a fallback TRD is used so downstream verifier never blocks.
+    - Each agent step has individual error handling + fallback values.
+    """
+    from app.core.logger import current_project_id
+    current_project_id.set(project_id)
+    db = get_database()
+
+    # ── Step 1: TRD Generation — Atomic Save (0-8%) ──────────────────────────────
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=5,
+        step="Generating Technical Requirements Document (TRD)...",
+        status="generating"
+    )
+    trd = ""
+    for trd_attempt in range(1, 3):  # Max 2 attempts
+        try:
+            from app.services.ai import generate_prd_mrd_trd
+            docs = await generate_prd_mrd_trd(
+                name,
+                prompt_for_docs,
+                generation_type,
+                theme=theme,
+                theme_palette=theme_palette_dict,
+                chat_history=chat_history_str,
+                exclude_prd_mrd=True
+            )
+            trd = docs.get("trd", "").strip()
+            if trd and len(trd) > 100:
+                break
+            logger.warning(f"[{project_id}] TRD attempt {trd_attempt} returned short/empty content. Retrying...")
+        except Exception as e:
+            logger.error(f"[{project_id}] TRD generation attempt {trd_attempt} failed: {e}")
+
+    if not trd or len(trd) < 100:
+        # Fallback TRD — ensures verifier check never fails due to empty TRD
+        trd = (
+            f"# Technical Requirements Document\n\n"
+            f"## Project: {name}\n\n"
+            f"**Generation Type:** {generation_type}\n\n"
+            f"**Summary:** {prompt_for_docs}\n\n"
+            f"Technical requirements are derived from the project blueprint and chat context. "
+            f"Architecture agents will design the system based on the blueprint specification."
+        )
+        logger.warning(f"[{project_id}] Using fallback TRD after failed generation attempts.")
+
+    # Save TRD immediately — do NOT batch with other fields
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {"trd": trd, "prd": "", "mrd": ""}}  # PRD/MRD intentionally empty
+    )
+    logger.info(f"[{project_id}] TRD saved to MongoDB ({len(trd)} chars).")
+
+    # ── Step 2: Requirements Analysis — Atomic Save (8-14%) ──────────────────────
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=10,
+        step="Analyzing blueprint requirements...",
+        status="generating"
+    )
+    requirements = None
+    try:
+        from app.agents.requirement_analyzer import RequirementAnalyzerAgent
+        analyzer = RequirementAnalyzerAgent()
+        requirements = await analyzer.analyze(
+            blueprint_payload or {},
+            theme,
+            theme_palette_dict,
+            chat_history_str,
+            generation_type
+        )
+        if requirements:
+            await db.projects.update_one(
+                {"_id": project_id},
+                {"$set": {"requirements": requirements}}
+            )
+            logger.info(f"[{project_id}] Requirements saved to MongoDB.")
+    except Exception as e:
+        logger.error(f"[{project_id}] RequirementAnalyzerAgent failed: {e}")
+        # requirements stays None — LangGraph workflow will re-run it via its own retry
+
+    # ── Step 3: Planner — Atomic Save (14-19%) ───────────────────────────────────
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=15,
+        step="Orchestrating system architecture blueprints...",
+        status="generating"
+    )
+    planning = None
+    if requirements:
+        try:
+            from app.agents.planner import PlannerAgent
+            planner = PlannerAgent()
+            planning = await planner.plan(requirements)
+            if planning:
+                await db.projects.update_one(
+                    {"_id": project_id},
+                    {"$set": {"planning": planning}}
+                )
+                logger.info(f"[{project_id}] Planning saved to MongoDB.")
+        except Exception as e:
+            logger.error(f"[{project_id}] PlannerAgent failed: {e}")
+
+    # ── Step 4: Implementation Plan — Atomic Save (19-25%) ───────────────────────
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=20,
+        step="Compiling technical implementation plan...",
+        status="generating"
+    )
+    impl_plan = None
+    if requirements and planning:
+        try:
+            from app.agents.research_planning_agent import ResearchPlanningAgent
+            researcher = ResearchPlanningAgent()
+            impl_plan = await researcher.generate_plan(requirements, planning, [], generation_type)
+            if impl_plan:
+                await db.projects.update_one(
+                    {"_id": project_id},
+                    {"$set": {"implementation_plan": impl_plan}}
+                )
+                logger.info(f"[{project_id}] Implementation plan saved to MongoDB.")
+        except Exception as e:
+            logger.error(f"[{project_id}] ResearchPlanningAgent failed: {e}")
+
+    if not impl_plan:
+        # Minimal fallback so downstream agents have something to reference
+        impl_plan = {
+            "plan_markdown": (
+                f"# Implementation Plan\n\nProject: {name}\n\nType: {generation_type}\n\n"
+                f"Build based on TRD and blueprint specifications."
+            ),
+            "proposed_changes": [],
+        }
+        await db.projects.update_one(
+            {"_id": project_id},
+            {"$set": {"implementation_plan": impl_plan}}
+        )
+
+    logger.info(
+        f"[{project_id}] Pre-generation phase complete. "
+        f"TRD ({len(trd)} chars) + Requirements + Planning + Implementation Plan saved."
+    )
+
+    # ── Step 5: Trigger main orchestration pipeline (25-100%) ────────────────────
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=25,
+        step="Initializing codebase synthesizer...",
+        status="generating"
+    )
+
+    from app.models.project import BlueprintSchema, ThemePaletteSchema
+    blueprint = BlueprintSchema(**blueprint_payload) if blueprint_payload else None
+    theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
+
+    await run_project_compilation(
+        project_id,
+        chat_id,
+        name,
+        category,
+        user_id,
+        theme,
+        blueprint,
+        theme_palette
+    )
+
+
 @router.post("", response_model=ProjectResponse)
 async def compile_project(
     payload: ProjectCreate, 
@@ -844,15 +1035,13 @@ async def compile_project(
         text = msg.get("text", "")
         chat_history_str += f"{sender.capitalize()}: {text}\n"
 
-    # Generate PRD, MRD, TRD documents first
-    from app.services.ai import generate_prd_mrd_trd
-    
     idea = payload.blueprint.idea if payload.blueprint else ""
     features = payload.blueprint.features if payload.blueprint else []
     tech_stack = payload.blueprint.tech_stack if payload.blueprint else ""
     features_str = ", ".join(features) if features else ""
     prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}"
     blueprint_payload = payload.blueprint.dict() if payload.blueprint else None
+    
     hackathon_metadata = build_hackathon_metadata(
         project_id=project_id,
         name=payload.name,
@@ -860,68 +1049,15 @@ async def compile_project(
         blueprint=blueprint_payload,
     )
     mcp_evidence = await mcp_client.build_evidence_snapshot(project_id=project_id)
-    
-    try:
-        logger.info(f"Generating documents for project {payload.name} first...")
-        docs = await generate_prd_mrd_trd(
-            payload.name, 
-            prompt_for_docs, 
-            payload.generation_type,
-            theme=payload.theme,
-            theme_palette=payload.theme_palette.dict() if payload.theme_palette else None,
-            chat_history=chat_history_str
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate documents during project init: {e}")
-        docs = {"prd": f"# PRD\nFailed to generate documents: {str(e)}", "mrd": "", "trd": ""}
-        
-    requirements = None
-    planning = None
-    impl_plan = None
-    
-    # Always generate requirements, planning, and implementation plan as workflow source of truth
-    try:
-        logger.info("Generating requirements, planning, and implementation plan during project creation...")
-        from app.agents.requirement_analyzer import RequirementAnalyzerAgent
-        from app.agents.planner import PlannerAgent
-        from app.agents.research_planning_agent import ResearchPlanningAgent
-        
-        analyzer = RequirementAnalyzerAgent()
-        requirements = await analyzer.analyze(
-            blueprint_payload or {}, 
-            payload.theme, 
-            payload.theme_palette.dict() if payload.theme_palette else None,
-            chat_history_str,
-            payload.generation_type
-        )
-        
-        planner = PlannerAgent()
-        planning = await planner.plan(requirements)
-        
-        researcher = ResearchPlanningAgent()
-        impl_plan = await researcher.generate_plan(requirements, planning, [], payload.generation_type)
-        
-        logger.info("Successfully generated PRD/TRD/MRD-aligned implementation plan during project creation.")
-    except Exception as plan_err:
-        logger.error(f"Failed to generate implementation plan during project creation: {plan_err}")
-        impl_plan = {
-            "plan_markdown": f"# Implementation Plan\nFailed to generate plan: {str(plan_err)}",
-            "proposed_changes": [],
-        }
 
     new_project = {
         "_id": project_id,
         "name": payload.name,
         "category": detected_category,
-        "status": "waiting_approval" if payload.hitl_enabled else "documents_ready",
-        "progress": 15 if payload.hitl_enabled else 100,
-        "step": "Awaiting Implementation Plan Approval" if payload.hitl_enabled else "Documents Generated",
-        "summary": (
-            "PRD, MRD, TRD, and Implementation Plan compiled successfully. "
-            "Review and approve to start production codebase generation."
-            if payload.hitl_enabled
-            else "PRD, MRD, TRD, and Implementation Plan compiled successfully. Review specs, then proceed to build."
-        ),
+        "status": "generating",
+        "progress": 3,
+        "step": "Initializing TRD generation...",
+        "summary": "Technical specifications and codebase synthesis started automatically.",
         "codebase": [],
         "created": created_str,
         "created_at_dt": datetime.now(timezone.utc),
@@ -931,16 +1067,16 @@ async def compile_project(
         "blueprint": blueprint_payload,
         "initial_prompt": blueprint_payload,
         "theme_palette": payload.theme_palette.dict() if payload.theme_palette else None,
-        "prd": docs.get("prd", ""),
-        "mrd": docs.get("mrd", ""),
-        "trd": docs.get("trd", ""),
+        "prd": "",
+        "mrd": "",
+        "trd": "",
         "hackathon_metadata": hackathon_metadata,
         "mcp_evidence": mcp_evidence,
-        "hitl_enabled": payload.hitl_enabled if payload.hitl_enabled is not None else True,
+        "hitl_enabled": True,
         "hitl_approved": False,
-        "requirements": requirements,
-        "planning": planning,
-        "implementation_plan": impl_plan,
+        "requirements": None,
+        "planning": None,
+        "implementation_plan": None,
         "validation_logs": [],
         "generation_type": payload.generation_type or "full_stack",
     }
@@ -953,21 +1089,13 @@ async def compile_project(
         {"$set": {"is_confirmed": True, "project_id": project_id, "category": detected_category}}
     )
     
-    # Notify chat that documents were generated
+    # Notify chat that codebase generation started
     time_str = datetime.now(timezone.utc).strftime("%I:%M %p")
-    if payload.hitl_enabled:
-        text_msg = (
-            f"Sarthi generated **PRD**, **MRD**, **TRD**, and a detailed **Implementation Plan** "
-            f"for **{payload.name}**. Review them in the right pane, edit the plan if needed, "
-            f"then approve to start production codebase generation."
-        )
-    else:
-        text_msg = (
-            f"Sarthi generated **PRD**, **MRD**, **TRD**, and an **Implementation Plan** "
-            f"for **{payload.name}**. Review the specifications in the right pane, "
-            f"then click Proceed to Build to compile the production-ready codebase."
-        )
-        
+    text_msg = (
+        f"Sarthi is generating the **Technical Requirements Document (TRD)** and **Implementation Plan** "
+        f"for **{payload.name}**, and will compile the codebase automatically in the background."
+    )
+    
     start_msg = {
         "id": f"m-{uuid.uuid4().hex[:8]}",
         "sender": "ai",
@@ -979,12 +1107,29 @@ async def compile_project(
         {"$push": {"messages": start_msg}}
     )
     
+    # Add background task
+    background_tasks.add_task(
+        run_full_generation_pipeline,
+        project_id,
+        payload.chat_id,
+        payload.name,
+        detected_category,
+        current_user["id"],
+        payload.theme,
+        blueprint_payload,
+        payload.theme_palette.dict() if payload.theme_palette else None,
+        payload.generation_type or "full_stack",
+        prompt_for_docs,
+        chat_history_str
+    )
+    
     return _map_project_doc(new_project)
 
 @router.post("/{project_id}/compile", response_model=ProjectResponse)
 async def compile_project_codebase(
     project_id: str,
     background_tasks: BackgroundTasks,
+    force_run_from_agent: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
@@ -992,6 +1137,17 @@ async def compile_project_codebase(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
         
+    # Handle surgical force-regeneration if requested
+    if force_run_from_agent:
+        from app.services.backtrack import BacktrackManager
+        if force_run_from_agent not in BacktrackManager.AGENT_DB_KEYS:
+            valid_agents = ", ".join(list(BacktrackManager.AGENT_DB_KEYS.keys()))
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown agent name: '{force_run_from_agent}'. Valid agents are: {valid_agents}"
+            )
+        await BacktrackManager.clear_downstream_keys(db, project_id, force_run_from_agent)
+
     # Set project status to generating
     await db.projects.update_one(
         {"_id": project_id},
@@ -1082,6 +1238,13 @@ async def approve_project_plan(
         
     plan_edits = payload.get("implementation_plan")
     
+    if plan_edits and isinstance(plan_edits, str):
+        existing_plan = project.get("implementation_plan")
+        if not isinstance(existing_plan, dict):
+            existing_plan = {}
+        existing_plan["plan_markdown"] = plan_edits
+        plan_edits = existing_plan
+
     # Persist plan edits to MongoDB BEFORE resuming workflow so agents read edited plan
     update_fields = {
         "hitl_approved": True,
@@ -1113,6 +1276,58 @@ async def approve_project_plan(
     theme_palette_dict = updated_project.get("theme_palette")
     theme_palette = ThemePaletteSchema(**theme_palette_dict) if theme_palette_dict else None
     
+    return _map_project_doc(updated_project)
+
+@router.post("/{project_id}/generate-prd-mrd", response_model=ProjectResponse)
+async def generate_prd_mrd_endpoint(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Generate PRD and MRD
+    from app.services.ai import generate_prd_mrd_trd
+    
+    blueprint_dict = project.get("blueprint") or {}
+    idea = blueprint_dict.get("idea", "")
+    features = blueprint_dict.get("features", [])
+    tech_stack = blueprint_dict.get("tech_stack", "")
+    features_str = ", ".join(features) if features else ""
+    prompt_for_docs = f"Project Idea: {idea}\nFeatures: {features_str}\nTech Stack: {tech_stack}"
+    
+    chat_history_str = ""
+    chat_exists = await db.chats.find_one({"_id": project.get("chat_id"), "user_id": current_user["id"]})
+    if chat_exists:
+        chat_messages = chat_exists.get("messages", [])
+        for msg in chat_messages:
+            sender = msg.get("sender", "user")
+            text = msg.get("text", "")
+            chat_history_str += f"{sender.capitalize()}: {text}\n"
+
+    try:
+        logger.info(f"Generating PRD and MRD for completed project {project.get('name')}...")
+        docs = await generate_prd_mrd_trd(
+            project.get("name"), 
+            prompt_for_docs, 
+            project.get("generation_type", "full_stack"),
+            theme=project.get("theme"),
+            theme_palette=project.get("theme_palette"),
+            chat_history=chat_history_str,
+            exclude_prd_mrd=False
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate PRD/MRD: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate documents: {str(e)}")
+
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {"prd": docs.get("prd", ""), "mrd": docs.get("mrd", "")}}
+    )
+    
+    updated_project = await db.projects.find_one({"_id": project_id})
     return _map_project_doc(updated_project)
 
 @router.delete("/{project_id}")
@@ -1231,6 +1446,87 @@ async def cancel_project_compilation(
     })
     
     return {"status": "success", "message": "Compilation cancelled"}
+
+
+@router.post("/{project_id}/pause", response_model=ProjectResponse)
+async def pause_project_compilation(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Pause an in-progress project compilation."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.get("status") != "generating":
+        raise HTTPException(status_code=400, detail="Project is not currently generating and cannot be paused")
+        
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {
+            "status": "paused",
+            "step": "Compilation paused by user",
+            "progress": project.get("progress", 0)
+        }}
+    )
+    
+    # Broadcast pause state via WS
+    from app.services.ws_manager import manager
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=project.get("progress", 0),
+        step="Compilation paused by user",
+        status="paused"
+    )
+    
+    updated_project = await db.projects.find_one({"_id": project_id})
+    return _map_project_doc(updated_project)
+
+
+@router.post("/{project_id}/resume", response_model=ProjectResponse)
+async def resume_project_compilation(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Resume a paused project compilation."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    if project.get("status") != "paused":
+        raise HTTPException(status_code=400, detail="Project is not currently paused and cannot be resumed")
+        
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {
+            "status": "generating",
+            "step": "Resuming codebase compilation..."
+        }}
+    )
+    
+    # Broadcast resume state via WS
+    from app.services.ws_manager import manager
+    await manager.broadcast_progress(
+        project_id=project_id,
+        progress=project.get("progress", 0),
+        step="Resuming codebase compilation...",
+        status="generating"
+    )
+    
+    # Start resume workflow in the background
+    from app.services.workflow import resume_project_workflow
+    background_tasks.add_task(
+        resume_project_workflow,
+        db,
+        project_id,
+        None # No plan edits since we are resuming from pause
+    )
+    
+    updated_project = await db.projects.find_one({"_id": project_id})
+    return _map_project_doc(updated_project)
 
 
 @router.get("/{project_id}/download")

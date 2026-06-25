@@ -35,7 +35,7 @@ export const ChariotSplash: React.FC<ChariotSplashProps> = ({ onComplete }) => {
 
     // Update status text dynamically
     const statusTimeouts = [
-      setTimeout(() => setStatus("Igniting Sarthi AI engine..."), 600),
+      setTimeout(() => setStatus("Igniting Sarthi engine..."), 600),
       setTimeout(() => setStatus("Configuring domain environments..."), 1200),
       setTimeout(() => setStatus("Readying co-pilot console..."), 1900),
     ];

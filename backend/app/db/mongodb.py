@@ -81,7 +81,13 @@ async def connect_to_mongo():
     is_remote = not ("localhost" in configured_uri or "127.0.0.1" in configured_uri)
 
     logger.info(f"Connecting to MongoDB at: {configured_uri}")
-    db.client = AsyncIOMotorClient(configured_uri, serverSelectionTimeoutMS=3000)
+    db.client = AsyncIOMotorClient(
+        configured_uri,
+        serverSelectionTimeoutMS=3000,
+        maxIdleTimeMS=600000,
+        retryWrites=True,
+        retryReads=True
+    )
 
     try:
         await db.client.admin.command('ping')
@@ -104,7 +110,13 @@ async def connect_to_mongo():
         await asyncio.sleep(3)
         
         logger.info(f"Connecting to local fallback MongoDB at: {local_uri}")
-        db.client = AsyncIOMotorClient(local_uri, serverSelectionTimeoutMS=5000)
+        db.client = AsyncIOMotorClient(
+            local_uri,
+            serverSelectionTimeoutMS=5000,
+            maxIdleTimeMS=600000,
+            retryWrites=True,
+            retryReads=True
+        )
         try:
             await db.client.admin.command('ping')
             logger.info("Successfully connected to local fallback MongoDB.")
@@ -124,7 +136,12 @@ async def close_mongo_connection():
 def get_database():
     """Retrieve database instance."""
     if db.client is None:
-        db.client = AsyncIOMotorClient(settings.MONGODB_URI)
+        db.client = AsyncIOMotorClient(
+            settings.MONGODB_URI,
+            maxIdleTimeMS=600000,
+            retryWrites=True,
+            retryReads=True
+        )
     return db.client[settings.DATABASE_NAME]
 
 

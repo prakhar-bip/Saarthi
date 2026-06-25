@@ -532,3 +532,60 @@ class ErrorCorrectionAgent:
                 "important_notes_for_deployment_agents": notes_for_deployment,
             },
         }
+
+    async def heal(
+        self,
+        file_path: str,
+        error_log: str,
+        file_content: str,
+        backend: str,
+        frontend: str,
+        database: str,
+    ) -> Dict[str, Any]:
+        """Surgically heals a single code file that has syntax or compile errors."""
+        system_prompt = (
+            "You are Sarthi's Senior Surgical Healing Agent.\n"
+            "Your task is to fix syntax errors, malformed ES6 import statements, "
+            "or bracket mismatches in a single file. Do NOT change any business logic "
+            "unless absolutely necessary. Return the corrected, fully complete file content."
+        )
+        
+        user_prompt = f"""
+        File Path: {file_path}
+        Backend: {backend}
+        Frontend: {frontend}
+        Database: {database}
+        
+        Error Log:
+        {error_log}
+        
+        Current File Content:
+        ```
+        {file_content}
+        ```
+        
+        Analyze the error and the code. Fix the issue cleanly. Ensure no placeholders, stubs, or missing imports are left.
+        
+        Return ONLY valid JSON in this exact format:
+        {{
+          "corrected_code": "entire file content with the fix applied"
+        }}
+        """
+        
+        logger.info(f"[SurgicalHealing] Repairing file {file_path}...")
+        response = await get_llm_completion(
+            agent_name=self.agent_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1
+        )
+        
+        try:
+            parsed = parse_json_response(response)
+            return parsed
+        except Exception as e:
+            logger.error(f"[SurgicalHealing] Failed to parse repair response: {e}")
+            # Try to extract content or return original code
+            return {"corrected_code": file_content}

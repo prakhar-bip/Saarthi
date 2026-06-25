@@ -208,9 +208,8 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             ent_name = ent.get("entity_name", "Core") if isinstance(ent, dict) else ent
             ent_lower = ent_name.lower()
             
-            # Skip User if we already did Auth signup/login above
-            if ent_name == "User" and auth_req:
-                continue
+            # Allow standard CRUD endpoints for User to be generated as well
+
 
             endpoints.append({
                 "group_name": f"{ent_name} API",

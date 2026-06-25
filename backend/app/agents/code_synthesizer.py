@@ -207,7 +207,8 @@ class CodeSynthesizerAgent:
 
     def _build_backend_prompt(self, info: Dict, entities: List[Dict], rels: List[Dict],
                               endpoints: List[Dict], auth: Dict, db_type: str,
-                              stack: Dict[str, Any], doc_context: Optional[Dict] = None) -> str:
+                              stack: Dict[str, Any], doc_context: Optional[Dict] = None,
+                              phase_subset: str = "all") -> str:
         rels_text = "\n".join([f"  {r['from']} -> {r['to']} ({r['type']})" for r in rels]) or "  None"
         
         backend_framework = stack["backend"]
@@ -233,7 +234,22 @@ class CodeSynthesizerAgent:
                 entity_file_list += f"  - backend/app/api/v1/{ename}s.py — full CRUD routes for {e['name']} (GET list, GET by id, POST, PUT, DELETE)\n"
                 entity_file_list += f"  - backend/app/services/{ename}_service.py — {e['name']} business logic layer\n"
 
-            files_to_gen = f"""1. backend/requirements.txt — all deps with pinned versions
+            if phase_subset == "core":
+                files_to_gen = f"""1. backend/requirements.txt — all deps with pinned versions
+2. backend/app/__init__.py
+3. backend/app/main.py — FastAPI app, CORS, lifespan, include ALL routers matching the PRD
+4. backend/app/core/__init__.py
+5. backend/app/core/config.py — Pydantic BaseSettings, env vars
+6. backend/app/core/security.py — JWT create/verify, password hash/verify
+7. backend/app/database.py — DB connection setup + client
+8. backend/app/api/__init__.py
+9. backend/app/api/auth.py — /auth/signup, /auth/login, /auth/refresh, /auth/me
+10. backend/app/middleware/auth.py — get_current_user dependency"""
+            elif phase_subset == "entity":
+                files_to_gen = f"""PER-ENTITY FILES (generate ALL of these for EVERY entity mentioned in PRD/TRD, at minimum yielding 5 functional interconnected modules):
+{entity_file_list}"""
+            else:
+                files_to_gen = f"""1. backend/requirements.txt — all deps with pinned versions
 2. backend/app/__init__.py
 3. backend/app/main.py — FastAPI app, CORS, lifespan, include ALL routers matching the PRD
 4. backend/app/core/__init__.py
@@ -304,7 +320,17 @@ PER-ENTITY Java Classes (generate Entity, Repository, Service, Controller for ea
                 entity_files += f"  - backend/src/controllers/{ename}Controller.js — controller handlers\n"
                 entity_files += f"  - backend/src/routes/{ename}Routes.js — route declarations\n"
 
-            files_to_gen = f"""1. backend/package.json — express, mongoose/pg, jsonwebtoken, bcryptjs, cors, dotenv.
+            if phase_subset == "core":
+                files_to_gen = f"""1. backend/package.json — express, mongoose/pg, jsonwebtoken, bcryptjs, cors, dotenv.
+2. backend/src/index.js — express entrypoint with routing, middleware, server listener
+3. backend/src/config/db.js — database connection configuration
+4. backend/src/middleware/auth.js — JWT verification middleware
+5. backend/src/controllers/authController.js — authentication views (login/signup)"""
+            elif phase_subset == "entity":
+                files_to_gen = f"""PER-ENTITY Files:
+{entity_files}"""
+            else:
+                files_to_gen = f"""1. backend/package.json — express, mongoose/pg, jsonwebtoken, bcryptjs, cors, dotenv.
 2. backend/src/index.js — express entrypoint with routing, middleware, server listener
 3. backend/src/config/db.js — database connection configuration
 4. backend/src/middleware/auth.js — JWT verification middleware
@@ -408,13 +434,20 @@ Return ONLY valid JSON — no markdown wrapper:
 12. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx, Modal.tsx, Toast.tsx, Badge.tsx, Spinner.tsx — styled using design system tokens
 13. frontend/src/components/layout/Navbar.tsx, Sidebar.tsx — styled using layout and spacing tokens"""
             elif phase == "pages":
-                files_to_gen = """1. frontend/src/app/layout.tsx — root layout, metadata, font (match typography system), providers
-2. frontend/src/app/page.tsx — beautiful landing page with hero, features, CTA
-3. frontend/src/app/(auth)/login/page.tsx — login form with validation
-4. frontend/src/app/(auth)/register/page.tsx — register form
-5. frontend/src/app/dashboard/page.tsx — main dashboard with stats + entity summaries
-6. FOR EACH ENTITY: frontend/src/app/dashboard/<plural>/page.tsx — entity list + CRUD fully integrated with API
-7. FOR EACH ENTITY: frontend/src/components/<Entity>/<Entity>List.tsx, <Entity>Form.tsx"""
+                # Only request the specific pages passed in the chunk
+                page_files = ""
+                for p in pages:
+                    route = p['route']
+                    name = p['name']
+                    page_files += f"  - frontend/src/app{route}/page.tsx — {name} page\n"
+                    # Include simple component if it's an entity list/crud page
+                    if "dashboard" in route and route.count("/") >= 2:
+                        page_files += f"  - frontend/src/components/{name}/{name}List.tsx\n"
+                        page_files += f"  - frontend/src/components/{name}/{name}Form.tsx\n"
+
+                files_to_gen = f"""Generate EXACTLY the following frontend pages/components based on the provided list:
+{page_files}
+Make sure they are fully styled and connected to the backend API via SWR."""
             else:
                 files_to_gen = """1. frontend/package.json
 2. frontend/tsconfig.json
@@ -460,12 +493,14 @@ Return ONLY valid JSON — no markdown wrapper:
 8. frontend/src/stores/useAuthStore.ts — auth store
 9. frontend/src/components/ui/Button.tsx, Input.tsx, Card.tsx"""
             elif phase == "pages":
-                files_to_gen = """1. frontend/src/App.tsx — routing setup, navbar, sidebar, theme wrappers
-2. frontend/src/pages/Home.tsx — landing page
-3. frontend/src/pages/Login.tsx — login page
-4. frontend/src/pages/Register.tsx — signup page
-5. frontend/src/pages/Dashboard.tsx — dashboard stats
-6. FOR EACH ENTITY: frontend/src/pages/<Entity>Page.tsx — entity CRUD page"""
+                page_files = ""
+                for p in pages:
+                    name = p['name']
+                    page_files += f"  - frontend/src/pages/{name.replace(' ', '')}Page.tsx — {name} page\n"
+                
+                files_to_gen = f"""Generate EXACTLY the following frontend pages/components based on the provided list:
+{page_files}
+Make sure they are fully styled and functional."""
             else:
                 files_to_gen = """1. frontend/package.json
 2. frontend/tsconfig.json
@@ -847,16 +882,44 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                 await SarthiConsoleLogger.log_healing(db, project_id, f"CodeSynthesizer_{phase_name}", f"Warning: {err_msg}")
                 
                 if attempt < max_attempts - 1:
-                    # Capture assistant response or standard failure message
-                    raw_response = locals().get("raw", "No response returned due to request error")
-                    messages.append({"role": "assistant", "content": raw_response})
-                    
-                    correction_prompt = (
-                        f"Your previous JSON output was invalid and could not be parsed.\n"
-                        f"Error encountered: {type(e).__name__}: {str(e)}\n"
-                        f"Please carefully analyze your previous output and correct it. Make sure you output the complete and valid JSON with double quotes correctly closed and standard delimiters present. Do not truncate any files."
-                    )
-                    messages.append({"role": "user", "content": correction_prompt})
+                    # Avoid sending back huge broken raw response. Ask it to just try again with smaller scope.
+                    # Or tell it which files were already parsed if any.
+                    try:
+                        # Attempt to see if we extracted anything
+                        import json
+                        partial_data = {}
+                        if "raw" in locals() and locals()["raw"]:
+                            from app.agents.context import repair_json
+                            partial_data = json.loads(repair_json(locals()["raw"]))
+                        
+                        extracted_files = [f.get("path") for f in partial_data.get("codebase", []) if isinstance(f, dict) and f.get("path")]
+                        
+                        if extracted_files:
+                            correction_prompt = (
+                                f"Your previous JSON output was truncated (likely due to token limits). However, I successfully received these files:\n"
+                                f"{', '.join(extracted_files)}\n\n"
+                                f"Please generate ONLY the remaining missing files. Do not regenerate the files listed above. "
+                                f"Return ONLY valid JSON."
+                            )
+                        else:
+                            correction_prompt = (
+                                f"Your previous JSON output was invalid and could not be parsed.\n"
+                                f"Error encountered: {type(e).__name__}: {str(e)}\n"
+                                f"Please reduce the verbosity of comments and ensure you output the complete and valid JSON without truncating. "
+                                f"Return ONLY valid JSON."
+                            )
+                    except Exception:
+                        correction_prompt = (
+                            f"Your previous JSON output was invalid.\n"
+                            f"Please ensure you output complete valid JSON. Return ONLY valid JSON."
+                        )
+                        
+                    # We clear the history to avoid context window explosion and repetitive failure
+                    messages = [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                        {"role": "user", "content": correction_prompt}
+                    ]
                     
                     # Update progress and UI
                     retry_step = f"🩹 Healing: Retrying {phase_name} (Attempt {attempt + 2}/{max_attempts})..."
@@ -1109,9 +1172,20 @@ Return ONLY the files you have repaired or created in the following JSON format:
         # ── Phase 1: Backend ──
         backend_files = []
         if gen_type != "frontend_only":
-            backend_prompt = self._build_backend_prompt(info, entities, rels, endpoints, auth, db_type, stack, doc_context)
-            backend_files = await self._run_phase("Backend", backend_prompt, db, project_id, 62,
-                                                  "🔧 Synthesizing Backend Code...")
+            # 1. Generate Core Files
+            backend_prompt_core = self._build_backend_prompt(info, [], rels, endpoints, auth, db_type, stack, doc_context, phase_subset="core")
+            core_files = await self._run_phase("Backend_Core", backend_prompt_core, db, project_id, 60,
+                                                  "🔧 Synthesizing Backend Core...")
+            backend_files.extend(core_files)
+            
+            # 2. Generate Entities (Chunked)
+            for i, entity in enumerate(entities):
+                backend_prompt_entity = self._build_backend_prompt(info, [entity], rels, endpoints, auth, db_type, stack, doc_context, phase_subset="entity")
+                progress_step = 62 + int((i / max(1, len(entities))) * 6)
+                entity_files = await self._run_phase(f"Backend_Entity_{entity['name']}", backend_prompt_entity, db, project_id, progress_step,
+                                                      f"🔧 Synthesizing Backend Entity: {entity['name']}...")
+                backend_files.extend(entity_files)
+
             all_files.extend(backend_files)
             await self._store_intermediate(db, project_id, all_files, "phase_backend")
 
@@ -1129,11 +1203,17 @@ Return ONLY the files you have repaired or created in the following JSON format:
         # ── Phase 2B: Frontend Routing & Views ──
         frontend_pages_files = []
         if gen_type not in ("backend_only", "microservice"):
-            frontend_pages_prompt = self._build_frontend_prompt(info, entities, endpoints, pages,
-                                                                tokens, stores, backend_files, stack, doc_context, gen_type,
-                                                                phase="pages")
-            frontend_pages_files = await self._run_phase("FrontendPages", frontend_pages_prompt, db, project_id, 78,
-                                                         "🎨 Synthesizing Frontend Routing & Views...")
+            # Chunk pages 2 by 2
+            page_chunks = [pages[i:i+2] for i in range(0, len(pages), 2)]
+            for i, chunk in enumerate(page_chunks):
+                frontend_pages_prompt = self._build_frontend_prompt(info, entities, endpoints, chunk,
+                                                                    tokens, stores, backend_files, stack, doc_context, gen_type,
+                                                                    phase="pages")
+                progress_step = 76 + int((i / max(1, len(page_chunks))) * 6)
+                chunk_files = await self._run_phase(f"FrontendPages_Part_{i+1}", frontend_pages_prompt, db, project_id, progress_step,
+                                                             f"🎨 Synthesizing Frontend Routing & Views (Part {i+1}/{len(page_chunks)})...")
+                frontend_pages_files.extend(chunk_files)
+                
             all_files.extend(frontend_pages_files)
             await self._store_intermediate(db, project_id, all_files, "phase_frontend_pages")
 

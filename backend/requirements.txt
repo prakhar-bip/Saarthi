@@ -19,5 +19,6 @@ PyGithub>=2.3.0
 python-dotenv>=1.0.0
 mcp>=1.1.2
 loguru>=0.7.3
+json-repair>=0.30.0
 newrelic>=9.0.0
 

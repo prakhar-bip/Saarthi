@@ -135,12 +135,13 @@ def get_provider_client(provider: str) -> Any:
         )
     
     elif provider in ("google", "gemini"):
-        if settings.USE_VERTEX_AI and settings.GCP_PROJECT_ID:
-            return genai.Client(
-                vertexai=True,
-                project=settings.GCP_PROJECT_ID,
-                location=settings.GCP_LOCATION
-            )
+        if settings.USE_VERTEX_AI:
+            kwargs = {"vertexai": True}
+            if settings.GCP_PROJECT_ID:
+                kwargs["project"] = settings.GCP_PROJECT_ID
+            if settings.GCP_LOCATION:
+                kwargs["location"] = settings.GCP_LOCATION
+            return genai.Client(**kwargs)
         if not settings.GOOGLE_API_KEY:
             return None
         return genai.Client(api_key=settings.GOOGLE_API_KEY)
@@ -242,7 +243,7 @@ async def get_raw_llm_completion(
     else:  # development
         pref_provider = "openrouter"
         pref_model = settings.OPENROUTER_MODEL
-        fallback_sequence = []
+        fallback_sequence = ["gemini", "nvidia"]
     
     # Sequence of providers to try (preferred first, then cascade through fallbacks)
     seen = set()
@@ -399,7 +400,7 @@ async def stream_raw_llm_completion(
     else:  # development
         pref_provider = "openrouter"
         pref_model = settings.OPENROUTER_MODEL
-        fallback_sequence = ["nvidia"]
+        fallback_sequence = ["gemini", "nvidia"]
     
     seen = set()
     providers_to_try = []
@@ -538,6 +539,14 @@ async def get_llm_completion(
         user_prompt = "\n".join([m.get("content", "") for m in messages if m.get("role") == "user"])
     if not user_prompt:
         user_prompt = "Perform action according to instructions."
+
+    # Robust feedback injection before passing to ADK runner or direct API
+    if feedback:
+        feedback_str = f"\n\n--- IMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT ---\n{feedback}\nPlease ensure your JSON output is complete and not truncated."
+        if user_prompt and feedback_str not in user_prompt:
+            user_prompt += feedback_str
+        if system_instruction and feedback_str not in system_instruction:
+            system_instruction += feedback_str
 
     # 1. Primary path: Google Cloud ADK Agent Runner (Only for Gemini)
     if pref_provider in ("google", "gemini"):

@@ -144,13 +144,13 @@ def build_hackathon_files(
             "name": "MCP_EVIDENCE.json",
             "path": "sarthi-internal/MCP_EVIDENCE.json",
             "language": "json",
-            "content": json.dumps(evidence, indent=2),
+            "content": json.dumps(evidence, indent=2, default=str),
         },
         {
             "name": "HACKATHON_METADATA.json",
             "path": "sarthi-internal/HACKATHON_METADATA.json",
             "language": "json",
-            "content": json.dumps(metadata, indent=2),
+            "content": json.dumps(metadata, indent=2, default=str),
         },
     ]
 

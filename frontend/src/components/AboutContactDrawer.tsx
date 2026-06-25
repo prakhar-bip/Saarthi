@@ -78,7 +78,7 @@ export const AboutContactDrawer: React.FC = () => {
                   <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-indigo-950 border border-indigo-900/50 flex items-center justify-center text-2xl font-bold font-display text-amber-500 shadow-sm">
                     S
                   </div>
-                  <h4 className="text-md font-bold text-stone-800">Your Divine AI Charioteer</h4>
+                  <h4 className="text-md font-bold text-stone-800">Your Divine Charioteer</h4>
                   <p className="text-xs text-stone-400 mt-1">Sarthi (Sanskrit: सारथि) — The Guide & Steerer</p>
                 </div>
 

@@ -3,7 +3,7 @@ import os
 import sys
 
 # Ensure backend/app can be imported
-sys.path.append("c:/Users/prakh/OneDrive/Desktop/Sarthi/backend")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent
 from app.agents.planner import PlannerAgent

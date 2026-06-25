@@ -540,7 +540,7 @@ def _extract_endpoints(
 
 def _generate_deterministic_files(model: Mapping[str, Any]) -> List[Dict[str, Any]]:
     stack = detect_tech_stack(model)
-    contract_json = json.dumps(_public_contract(model), indent=2)
+    contract_json = json.dumps(_public_contract(model), indent=2, default=str)
     validation_placeholder = "# Validation Report\n\nGenerated after quality gates run.\n"
     
     files = [
@@ -578,6 +578,14 @@ def _generate_deterministic_files(model: Mapping[str, Any]) -> List[Dict[str, An
             files.extend([
                 _file("backend/requirements.txt", "plaintext", "Flask>=2.3.0\nFlask-Cors>=3.0.0\ngunicorn>=20.1.0\n"),
                 _file("backend/app.py", "python", _render_flask_app(model)),
+            ])
+        elif be == "express":
+            files.extend([
+                _file("backend/package.json", "json", _render_express_package(model)),
+            ])
+        elif be in ("springboot", "spring"):
+            files.extend([
+                _file("backend/pom.xml", "xml", _render_springboot_pom(model)),
             ])
         else:
             files.extend([
@@ -719,21 +727,21 @@ def _render_readme(model: Mapping[str, Any]) -> str:
         "flask": "Flask (Python)",
         "springboot": "Spring Boot (Java)",
         "express": "Express (Node.js)",
-    }.get(stack["backend"], f"{stack["backend"].capitalize()} Backend")
+    }.get(stack["backend"], f"{stack['backend'].capitalize()} Backend")
     
     frontend_desc = {
         "nextjs": "Next.js App Router (TypeScript)",
         "react": "React (TypeScript)",
         "angular": "Angular (TypeScript)",
         "vue": "Vue.js",
-    }.get(stack["frontend"], f"{stack["frontend"].capitalize()} Frontend")
+    }.get(stack["frontend"], f"{stack['frontend'].capitalize()} Frontend")
 
     db_desc = {
         "mongodb": "MongoDB",
         "postgresql": "PostgreSQL",
         "mysql": "MySQL",
         "sqlite": "SQLite",
-    }.get(stack["database"], f"{stack["database"].capitalize()} Database")
+    }.get(stack["database"], f"{stack['database'].capitalize()} Database")
     
     local_dev_instructions = ""
     if stack["is_default"]:
@@ -885,6 +893,8 @@ def _render_docker_compose(model: Mapping[str, Any]) -> str:
         cmd_line = '\n    command: python manage.py runserver 0.0.0.0:8000'
     elif stack["backend"] == "flask":
         cmd_line = '\n    command: flask run --host=0.0.0.0 --port=8000'
+    elif stack["backend"] == "express":
+        cmd_line = '\n    command: npm start'
 
     fe_cmd = 'sh -c "npm install && npm run dev"'
     if stack["frontend"] == "nextjs":
@@ -2168,7 +2178,7 @@ def _render_project_contract(model: Mapping[str, Any]) -> str:
   }}>;
 }};
 
-export const PROJECT = {json.dumps(public, indent=2)} as const;
+export const PROJECT = {json.dumps(public, indent=2, default=str)} as const;
 """
 
 
@@ -2386,3 +2396,84 @@ def _pluralize(value: str) -> str:
 
 def _escape_ts(value: Any) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _render_express_package(model: Mapping[str, Any]) -> str:
+    package = {
+        "name": f"{model['slug']}-backend",
+        "version": "1.0.0",
+        "private": True,
+        "main": "src/index.js",
+        "scripts": {
+            "start": "node src/index.js",
+            "dev": "nodemon src/index.js"
+        },
+        "dependencies": {
+            "express": "^4.19.0",
+            "cors": "^2.8.5",
+            "mongoose": "^8.2.0",
+            "dotenv": "^16.4.5"
+        },
+        "devDependencies": {
+            "nodemon": "^3.1.0"
+        }
+    }
+    return json.dumps(package, indent=2)
+
+
+def _render_springboot_pom(model: Mapping[str, Any]) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.saarthi</groupId>
+    <artifactId>{model['slug']}</artifactId>
+    <version>1.0.0</version>
+    <name>{model['name']}</name>
+    <description>{model['description']}</description>
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+"""
+

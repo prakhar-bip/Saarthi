@@ -1,6 +1,7 @@
 import json
 from collections.abc import Mapping
 from typing import Any, Dict, List
+from loguru import logger
 
 
 AGENT_PIPELINE: List[str] = [
@@ -145,10 +146,43 @@ class IncompleteJSONError(Exception):
         self.raw_response = raw_response
 
 def parse_json_response(raw_response: str) -> Dict[str, Any]:
+    cleaned = strip_json_code_fence(raw_response)
     try:
-        return json.loads(strip_json_code_fence(raw_response))
-    except json.JSONDecodeError as e:
-        raise IncompleteJSONError(f"JSONDecodeError: {e}", raw_response)
+        return json.loads(cleaned)
+    except json.JSONDecodeError as primary_err:
+        # Heuristic: Extract JSON block between the first '{' and last '}'
+        try:
+            start_idx = cleaned.find("{")
+            end_idx = cleaned.rfind("}")
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_candidate = cleaned[start_idx:end_idx+1]
+                try:
+                    return json.loads(json_candidate)
+                except json.JSONDecodeError:
+                    # Attempt json_repair on the candidate block
+                    from json_repair import repair_json  # type: ignore
+                    repaired = repair_json(json_candidate, return_objects=True)
+                    if isinstance(repaired, dict):
+                        logger.warning(
+                            "[parse_json_response] Primary JSON parse failed; successfully extracted and repaired candidate block from raw response."
+                        )
+                        return repaired
+        except Exception:
+            pass
+
+        # Fallback: attempt fuzzy repair on the entire response
+        try:
+            from json_repair import repair_json  # type: ignore
+            repaired = repair_json(cleaned, return_objects=True)
+            if isinstance(repaired, dict):
+                logger.warning(
+                    f"[parse_json_response] Primary JSON parse failed ({primary_err}); "
+                    "recovered via json_repair."
+                )
+                return repaired
+        except Exception:
+            pass
+        raise IncompleteJSONError(f"JSONDecodeError: {primary_err}", raw_response)
 
 
 def _names_from_items(items: Any, name_key: str) -> List[str]:
@@ -498,31 +532,28 @@ def get_json_schema(agent_role: str) -> str:
 # Correction Loop Circuit Breaker
 # ──────────────────────────────────────────────────────────────
 
-MAX_CORRECTION_LOOPS = 2  # Maximum number of verifier → agent_dispatcher correction loops
+# Correction loop is DISABLED — errors are fixed in-place within each agent's retry loop.
+# The verifier guardrail will always proceed to code_gen_planner, never loop back.
+MAX_CORRECTION_LOOPS = 0
 
 
 def build_document_context(state: dict) -> str:
-    """Extract PRD/TRD/MRD content and summarize for agent consumption."""
-    prd = state.get("prd", "") or ""
+    """Build document context for agents. TRD is the primary source of truth.
+    PRD/MRD are intentionally excluded — this workflow does not generate them."""
     trd = state.get("trd", "") or ""
-    mrd = state.get("mrd", "") or ""
     impl_plan = state.get("implementation_plan", {}) or {}
     
     doc_parts = []
-    if prd:
-        doc_parts.append(f"PRD (Product Requirements — binding source of truth):\n{prd[:5000]}")
     if trd:
-        doc_parts.append(f"TRD (Technical Requirements — drives architecture & codegen):\n{trd[:5000]}")
-    if mrd:
-        doc_parts.append(f"MRD (Market Requirements):\n{mrd[:4000]}")
+        doc_parts.append(f"TRD (Technical Requirements Document — primary source of truth for architecture & codegen):\n{trd[:6000]}")
     if impl_plan:
         plan_md = impl_plan.get("plan_markdown", "") if isinstance(impl_plan, dict) else ""
         if plan_md:
-            doc_parts.append(f"Implementation Plan (execution contract):\n{plan_md[:4000]}")
+            doc_parts.append(f"Implementation Plan (execution contract — follow this precisely):\n{plan_md[:5000]}")
     
     if doc_parts:
         return "\n\n".join(doc_parts)
-    return "No project documents available."
+    return "No project documents available. Proceed based on blueprint and requirements."
 
 
 def generate_agent_prompt(agent_role: str, state: dict) -> str:
@@ -542,6 +573,7 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     - Requirements Context: {requirements_context}
     - Implementation Plan: {plan_context}
     - Active Workspace State: {active_state_context}
+    {healing_instructions}
     
     OBJECTIVE & SCOPE:
     {task_objective}
@@ -550,7 +582,7 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     - Never write placeholders or mock codes.
     - Align database schemas with model entities exactly.
     - All JSON outputs must strictly conform to the schema outlined below.
-    - Features and entities MUST match those defined in the PRD, TRD, MRD, and Requirements.
+    - Features and entities MUST STRICTLY match the blueprint, TRD, and Implementation Plan.
     - Generate production-ready architecture — minimum 5 interconnected features/pages/modules.
     - Every route, entity, API endpoint, and component must trace back to the Implementation Plan.
     
@@ -558,6 +590,35 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
     {json_output_schema}
     """
     
+    healing_instructions = ""
+    active_healing_context = state.get("active_healing_context")
+    if active_healing_context:
+        responsible_agent = active_healing_context.get("responsible_agent")
+        error_msg = active_healing_context.get("error_msg")
+        failure_type = active_healing_context.get("failure_type")
+        recommended_action = active_healing_context.get("recommended_action")
+        triggered_agents = active_healing_context.get("triggered_agents") or []
+        
+        if agent_role == responsible_agent:
+            healing_instructions = f"""
+    ⚠️⚠️⚠️ CRITICAL: SELF-HEALING & ERROR RESOLUTION REQUIRED ⚠️⚠️⚠️
+    Your previous design/architecture generated a critical error during validation or compilation:
+    - FAILURE TYPE: {failure_type}
+    - ERROR DETECTED: {error_msg}
+    - DIAGNOSED CAUSE & REQUIRED CORRECTION: {recommended_action}
+    
+    You MUST surgically modify your previous design to completely resolve this error. Do NOT repeat the same mistake. Keep all other aspects of your design stable and aligned with the requirements and TRD.
+    """
+        elif agent_role in triggered_agents:
+            healing_instructions = f"""
+    🔗🔗🔗 IMPORTANT: UPSTREAM CONTRACT ADAPTATION & MODULATION INSTRUCTIONS 🔗🔗🔗
+    The upstream agent '{responsible_agent}' was re-run and modified its contract to resolve a critical validation/compilation error:
+    - UPSTREAM ERROR FIXED: {error_msg}
+    - UPSTREAM RESOLUTION: {recommended_action}
+    
+    As a downstream dependent agent being re-triggered, you MUST adapt and modulate your design schemas, routes, page parameters, state stores, component props, and/or database structures to align with these upstream fixes. Maintain complete architectural integrity and cross-contract consistency!
+    """
+
     gen_scope_text = "Full Stack Application Development"
     if generation_type == "frontend_only":
         gen_scope_text = "Frontend-Only development scope. Your designs must NOT assume or require custom backend codebase services, DB schemas, or API routes beyond standard third-party or mock API calls."
@@ -571,6 +632,7 @@ def generate_agent_prompt(agent_role: str, state: dict) -> str:
         requirements_context=json.dumps(state.get("requirements") or {})[:12000],
         plan_context=json.dumps(state.get("implementation_plan") or {})[:6000],
         active_state_context=json.dumps(state.get(get_required_state_keys(agent_role)) or {})[:12000],
+        healing_instructions=healing_instructions,
         task_objective=get_task_objective(agent_role),
         json_output_schema=get_json_schema(agent_role)
     )

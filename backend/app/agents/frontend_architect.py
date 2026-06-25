@@ -100,6 +100,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
     {{
       "page_name": "string — PascalCase page name, e.g. 'UserDashboard'",
       "purpose": "string — what this page shows/does",
+      "route": "string — URL path for this page, e.g. '/dashboard/users'",
       "protected": "boolean — requires authentication?",
       "related_modules": ["string — feature modules this page uses"]
     }}
@@ -204,6 +205,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             {
                 "page_name": "LandingPage",
                 "purpose": "Marketing splash page introducing Sarthi compiled elements.",
+                "route": "/",
                 "protected": False,
                 "related_modules": ["landing"]
             }
@@ -214,23 +216,26 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             pages.append({
                 "page_name": "LoginPage",
                 "purpose": "Accept user access credentials and issue token session.",
+                "route": "/login",
                 "protected": False,
                 "related_modules": ["auth"]
             })
             pages.append({
                 "page_name": "SignupPage",
                 "purpose": "Register and onboarding profiles details.",
+                "route": "/signup",
                 "protected": False,
                 "related_modules": ["auth"]
             })
             
         dashboard_modules = []
         for ent in entities:
-            ent_name = ent.get("entity_name", "Core")
+            ent_name = ent.get("entity_name", "Core") if isinstance(ent, dict) else ent
             ent_lower = ent_name.lower()
             pages.append({
                 "page_name": f"{ent_name}Dashboard",
                 "purpose": f"Manage and display list of {ent_name} elements.",
+                "route": f"/{ent_lower}s",
                 "protected": auth_req,
                 "related_modules": [ent_lower]
             })

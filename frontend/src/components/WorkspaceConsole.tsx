@@ -99,7 +99,8 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
     showLeftPane,
     setShowLeftPane,
     projects,
-    setShowFeedbackModal
+    setShowFeedbackModal,
+    setActiveWorkspaceTab
   } = useWorkspace();
 
   const activeChat = chats.find((c) => c.id === activeChatId);
@@ -567,73 +568,75 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
       <MorpankhBg />
 
       {/* Top Header */}
-      <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
-        <div className="flex items-center gap-2">
-          {!showLeftPane && !isMobile && (
-            <motion.button
-              type="button"
-              onClick={() => setShowLeftPane(true)}
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.93 }}
-              className="p-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-950 transition-all flex items-center justify-center cursor-pointer mr-2"
-              title="Expand Sidebar"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </motion.button>
-          )}
-          <SarthiLogo className="text-2xl" />
-        </div>
-
-        <div className="flex items-center gap-4 text-xs font-semibold text-stone-500">
-          <motion.button
-            onClick={() => setShowAbout(true)}
-            whileHover={{ color: "#1c1917" }}
-            className="hover:text-stone-800 transition-colors"
-          >
-            About
-          </motion.button>
-          <span className="text-stone-300">/</span>
-          <motion.button
-            onClick={() => setShowContact(true)}
-            whileHover={{ color: "#1c1917" }}
-            className="hover:text-stone-800 transition-colors"
-          >
-            Contact
-          </motion.button>
-          <span className="text-stone-300">/</span>
-          <motion.button
-            onClick={() => setShowFeedbackModal(true)}
-            whileHover={{ color: "#1c1917" }}
-            className="hover:text-indigo-900 text-indigo-650 font-bold transition-colors"
-          >
-            Feedback
-          </motion.button>
-
-
-          <div className="flex items-center gap-2 border-l border-stone-200/60 pl-4 ml-1">
-            {(activeProjectId || (activeChatId && activeChat?.selected_project)) && !isMobile && (
+      {isMobile && (
+        <header className="h-16 px-6 border-b border-stone-200/60 bg-white/30 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10 transition-colors duration-300 relative">
+          <div className="flex items-center gap-2">
+            {!showLeftPane && !isMobile && (
               <motion.button
                 type="button"
-                onClick={() => setShowRightPane(!showRightPane)}
+                onClick={() => setShowLeftPane(true)}
                 whileHover={{ scale: 1.06 }}
                 whileTap={{ scale: 0.93 }}
-                className={`p-1.5 rounded-lg border transition-all duration-300 flex items-center justify-center cursor-pointer ${showRightPane
-                  ? "border-stone-200 bg-stone-50 text-stone-500 hover:text-stone-800"
-                  : "border-indigo-200 bg-indigo-50/50 text-indigo-950"
-                  }`}
-                title={showRightPane ? "Collapse Project Panel" : "Expand Project Panel"}
+                className="p-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 text-indigo-950 transition-all flex items-center justify-center cursor-pointer mr-2"
+                title="Expand Sidebar"
               >
-                <motion.div
-                  animate={{ rotate: showRightPane ? 0 : 180 }}
-                  transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-                >
-                  <PanelRight className="w-4 h-4" />
-                </motion.div>
+                <PanelLeft className="w-4 h-4" />
               </motion.button>
             )}
+            <SarthiLogo className="text-2xl" />
           </div>
-        </div>
-      </header>
+
+          <div className="flex items-center gap-4 text-xs font-semibold text-stone-500">
+            <motion.button
+              onClick={() => setShowAbout(true)}
+              whileHover={{ color: "#1c1917" }}
+              className="hover:text-stone-800 transition-colors"
+            >
+              About
+            </motion.button>
+            <span className="text-stone-300">/</span>
+            <motion.button
+              onClick={() => setShowContact(true)}
+              whileHover={{ color: "#1c1917" }}
+              className="hover:text-stone-800 transition-colors"
+            >
+              Contact
+            </motion.button>
+            <span className="text-stone-300">/</span>
+            <motion.button
+              onClick={() => setShowFeedbackModal(true)}
+              whileHover={{ color: "#1c1917" }}
+              className="hover:text-indigo-900 text-indigo-650 font-bold transition-colors"
+            >
+              Feedback
+            </motion.button>
+
+
+            <div className="flex items-center gap-2 border-l border-stone-200/60 pl-4 ml-1">
+              {(activeProjectId || (activeChatId && activeChat?.selected_project)) && !isMobile && (
+                <motion.button
+                  type="button"
+                  onClick={() => setShowRightPane(!showRightPane)}
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.93 }}
+                  className={`p-1.5 rounded-lg border transition-all duration-300 flex items-center justify-center cursor-pointer ${showRightPane
+                    ? "border-stone-200 bg-stone-50 text-stone-500 hover:text-stone-800"
+                    : "border-indigo-200 bg-indigo-50/50 text-indigo-950"
+                    }`}
+                  title={showRightPane ? "Collapse Project Panel" : "Expand Project Panel"}
+                >
+                  <motion.div
+                    animate={{ rotate: showRightPane ? 0 : 180 }}
+                    transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    <PanelRight className="w-4 h-4" />
+                  </motion.div>
+                </motion.button>
+              )}
+            </div>
+          </div>
+        </header>
+      )}
 
       {/* Main Container Workspace */}
       <div className="flex-1 overflow-y-auto flex flex-col relative bg-transparent">
@@ -667,7 +670,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                 Unlock Workspace Co-Pilot
               </h3>
               <p className="text-xs text-stone-500 leading-relaxed max-w-sm mx-auto">
-                Sarthi is currently locked. Register or sign in with your email to launch project generation panels and interact with the AI co-pilot.
+                Sarthi is currently locked. Register or sign in with your email to launch project generation panels and interact with Sarthi.
               </p>
 
               {/* Shimmer CTA button */}
@@ -737,7 +740,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
                 >
                   <h1 className="text-3xl font-extrabold font-display text-stone-850 tracking-tight">
-                    Sarthi AI Workspace
+                    Sarthi Workspace
                   </h1>
                   <p className="text-xs text-stone-450 mt-2 max-w-md mx-auto leading-relaxed font-semibold">
                     Build action-taking agents with Gemini orchestration, MongoDB MCP evidence, PRD/MRD/TRD specs, and runnable Flask prototypes.
@@ -764,7 +767,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   >
                     <FolderPlus className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
                     <span>Create New Project</span>
-                    <span className="bg-amber-500/25 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">Manual & AI Wizard</span>
+                    <span className="bg-amber-500/25 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">Manual & Wizard</span>
                   </button>
 
                   <button
@@ -778,7 +781,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                     className="px-6 py-3 bg-white hover:bg-stone-50 text-indigo-950 text-xs font-bold rounded-xl shadow-md border border-stone-200/80 hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-2"
                   >
                     <Sparkles className="w-4 h-4 text-indigo-650 animate-pulse" />
-                    <span>Ask Sarthi AI Anything</span>
+                    <span>Ask Sarthi Anything</span>
                   </button>
                 </motion.div>
 
@@ -1019,7 +1022,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
             <div className="text-[10px] text-stone-500 font-medium flex items-center gap-1.5 px-1 pb-1">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
               {activeChatId ? (
-                <span>Click <strong className="text-indigo-950 font-bold">Create Project</strong> to open the wizard, generate details using AI, and configure your blueprint to build.</span>
+                <span>Click <strong className="text-indigo-950 font-bold">Create Project</strong> to open the wizard, generate details, and configure your blueprint to build.</span>
               ) : (
                 <span>No active project. Click <strong className="text-indigo-950 font-bold">Create Project</strong> to launch the builder wizard and spin up a new workspace.</span>
               )}
@@ -1080,13 +1083,36 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   {activeChat?.is_paused ? <Play className="w-4 h-4 text-emerald-600 animate-pulse" /> : <Pause className="w-4 h-4 text-amber-600" />}
                 </button>
               )}
+
+              {/* Idea Suggestion button inside chatbox */}
+              {user && (!activeChatId || !activeChat?.is_paused) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ideas = [
+                      "Build a real-time carbon footprint grid that tracks emissions.",
+                      "Create a spaced repetition quiz builder for medical students.",
+                      "Design a pitch draft generator for early-stage startups.",
+                      "Develop a seamless investment structure monitor with dynamic charts.",
+                      "Build a smart habit tracker with micro-interactions and dark mode."
+                    ];
+                    setCurrentInput(ideas[Math.floor(Math.random() * ideas.length)]);
+                  }}
+                  className={`absolute ${activeChatId && !aiTyping ? 'right-9' : 'right-2'} top-1/2 -translate-y-1/2 p-2 rounded-lg hover:bg-stone-200/60 transition-all cursor-pointer z-20 flex items-center justify-center`}
+                  title="Suggest an Idea"
+                >
+                  <Sparkles className="w-4 h-4 text-indigo-500" />
+                </button>
+              )}
             </div>
 
             {/* Create Project button */}
             {user && (
               <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
+                onClick={async () => {
+                  await createNewChat("other", "New Project");
+                  setActiveWorkspaceTab("workspace");
+                }}
                 className="p-2.5 sm:px-4 sm:py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
                 title="Create Project: Open the project creator wizard and describe your idea."
               >
@@ -1121,251 +1147,6 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
           </form>
         </div>
       </footer>
-
-      {/* Floating Create Project Modal */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowCreateModal(false)}
-              className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
-            />
-
-            {/* Modal Body */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              className="relative w-full max-w-4xl bg-white border border-stone-200/80 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[90vh] overflow-hidden"
-            >
-              {/* Header */}
-              <div className="p-5 border-b border-stone-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
-                    <FolderPlus className="w-4 h-4 text-indigo-950" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-stone-850">Create New Project</h3>
-                    <p className="text-[10px] text-stone-500">Configure your project blueprint manually or use AI generation.</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="p-1.5 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition-colors"
-                >
-                  <ChevronDown className="w-4 h-4 rotate-90" />
-                </button>
-              </div>
-
-              {/* Form Content */}
-              <div className="flex-1 overflow-y-auto p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
-                  {/* Left Column: Selection & Prompt Trigger */}
-                  <div className="space-y-5">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                        1. Select Generation Scope
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: "full_stack", label: "Full Stack", desc: "API + UI + DB" },
-                          { id: "frontend_only", label: "Frontend Only", desc: "UI Components" },
-                          { id: "backend_only", label: "Backend Only", desc: "API & Models" },
-                          { id: "microservice", label: "Microservice", desc: "API Service / Worker" }
-                        ].map((item) => {
-                          const isLocked = item.id !== "full_stack";
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              disabled={isLocked}
-                              title={isLocked ? "Coming Soon" : ""}
-                              onClick={() => {
-                                if (isLocked) return;
-                                setModalGenType(item.id);
-                                if (item.id === "frontend_only") {
-                                  setModalTechStack("Next.js, Tailwind CSS");
-                                } else if (item.id === "backend_only") {
-                                  setModalTechStack("FastAPI, MongoDB");
-                                } else if (item.id === "microservice") {
-                                  setModalTechStack("FastAPI, Docker, Redis");
-                                } else {
-                                  setModalTechStack("React, Tailwind CSS, FastAPI, MongoDB");
-                                }
-                              }}
-                              className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
-                                isLocked
-                                  ? "border-stone-200 bg-stone-100/70 text-stone-400 opacity-60 cursor-not-allowed"
-                                  : modalGenType === item.id
-                                  ? "border-indigo-950 bg-indigo-50/50 text-indigo-950 shadow-sm ring-1 ring-indigo-950/20 cursor-pointer"
-                                  : "border-stone-200 bg-stone-50 hover:bg-stone-100 text-stone-600 cursor-pointer"
-                              }`}
-                            >
-                              <span className="text-xs font-bold flex items-center gap-1 justify-center w-full">
-                                {item.label}
-                                {isLocked && <span className="text-[7px] bg-stone-200 text-stone-600 px-1 py-0.2 rounded font-normal uppercase scale-90">Soon</span>}
-                              </span>
-                              <span className="text-[8px] mt-0.5 opacity-80">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="border-t border-stone-100 my-2" />
-
-                    {/* AI Generation Section */}
-                    <div className="p-4 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" />
-                          2. Describe Project Idea
-                        </label>
-                      </div>
-                      <div className="flex flex-col gap-3">
-                        <DynamicTextarea
-                          placeholder="Describe your project idea in a sentence or two... (e.g. 'A payment validation microservice that consumes stripe webhook payloads, validates signature, and publishes to RabbitMQ')"
-                          value={modalPrompt}
-                          onChange={(e) => setModalPrompt(e.target.value)}
-                          rows={4}
-                          className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all font-medium resize-none leading-relaxed"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSuggestProject}
-                          disabled={isSuggesting || !modalPrompt.trim()}
-                          className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer animate-pulse-subtle"
-                        >
-                          {isSuggesting ? (
-                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5" />
-                          )}
-                          <span>Generate</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Editable Fields */}
-                  <div className="md:border-l md:border-stone-100 md:pl-6 pt-4 md:pt-0">
-                    <form onSubmit={handleModalSubmit} className="space-y-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Project Name</label>
-                        <DynamicTextarea
-                          required
-                          rows={1}
-                          placeholder="e.g. 'Habit Tracker Pro'"
-                          value={modalName}
-                          onChange={(e) => setModalName(e.target.value)}
-                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-semibold leading-normal"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Core Idea / Description</label>
-                        <DynamicTextarea
-                          required
-                          rows={4}
-                          placeholder="Refined vision and description of the app..."
-                          value={modalIdea}
-                          onChange={(e) => setModalIdea(e.target.value)}
-                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-relaxed"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Key Features</label>
-                        <div className="space-y-2">
-                          {modalFeatures.map((f, idx) => (
-                            <DynamicTextarea
-                              key={idx}
-                              rows={1}
-                              placeholder={`Feature ${idx + 1} (e.g. 'Daily streak charts')`}
-                              value={f}
-                              onChange={(e) => {
-                                const updated = [...modalFeatures];
-                                updated[idx] = e.target.value;
-                                setModalFeatures(updated);
-                              }}
-                              className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-medium leading-normal"
-                            />
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-stone-450">Tech Stack</label>
-                        <DynamicTextarea
-                          required
-                          rows={1}
-                          placeholder="React, FastAPI, MongoDB"
-                          value={modalTechStack}
-                          onChange={(e) => setModalTechStack(e.target.value)}
-                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-850 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none font-semibold leading-normal"
-                        />
-                      </div>
-
-                      {/* HITL Toggle Button */}
-                      <div className="flex items-center justify-between p-3 bg-indigo-50/40 border border-indigo-100/60 rounded-xl">
-                        <div className="flex flex-col text-left">
-                          <span className="text-[10px] font-bold text-indigo-950 uppercase tracking-wider">Review Planning Blueprint</span>
-                          <span className="text-[8px] text-stone-500 mt-0.5 leading-tight">Review file modification blueprint before building codebase</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setModalHitlEnabled(!modalHitlEnabled)}
-                          className="focus:outline-none cursor-pointer"
-                        >
-                          <svg width="36" height="20" viewBox="0 0 36 20" fill="none" className="transition-all duration-300">
-                            <rect
-                              width="36"
-                              height="20"
-                              rx="10"
-                              fill={modalHitlEnabled ? "#312e81" : "#e7e5e4"}
-                              className="transition-colors duration-300"
-                            />
-                            <circle
-                              cx={modalHitlEnabled ? "26" : "10"}
-                              cy="10"
-                              r="7"
-                              fill="white"
-                              className="transition-all duration-300"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Submit Actions */}
-                      <div className="flex items-center justify-end gap-3 pt-3 border-t border-stone-100">
-                        <button
-                          type="button"
-                          onClick={() => setShowCreateModal(false)}
-                          className="px-4 py-2 border border-stone-200 rounded-xl text-stone-600 hover:bg-stone-50 hover:text-stone-800 text-xs font-bold transition-all cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={!modalName.trim() || !modalIdea.trim()}
-                          className="px-5 py-2 bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold rounded-xl text-xs transition-all disabled:opacity-50 cursor-pointer shadow-md"
-                        >
-                          Confirm & Create Project
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

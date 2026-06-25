@@ -63,7 +63,7 @@ class ConnectionManager:
 
     async def broadcast_to_project(self, project_id: str, payload: dict):
         """Send a JSON payload to every socket subscribed to a project."""
-        message = json.dumps(payload)
+        message = json.dumps(payload, default=str)
         sockets = list(self._project_sockets.get(project_id, []))
         dead = []
         for ws in sockets:
