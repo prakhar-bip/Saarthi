@@ -89,6 +89,7 @@ class ProjectResponse(BaseModel):
     hitl_approved: Optional[bool] = True
     implementation_plan: Optional[Dict[str, Any]] = None
     validation_logs: Optional[List[Dict[str, Any]]] = []
+    compilation_logs: Optional[List[Dict[str, Any]]] = []
 
     class Config:
         from_attributes = True

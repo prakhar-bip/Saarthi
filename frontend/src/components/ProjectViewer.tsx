@@ -360,6 +360,7 @@ export const ProjectViewer: React.FC = () => {
     approveProjectPlan,
     updateProjectHitl,
     compilationLogs,
+    setCompilationLogs,
     showSpecsDocs,
     setShowSpecsDocs,
     createNewChat,
@@ -376,6 +377,7 @@ export const ProjectViewer: React.FC = () => {
   const [isEditingPlan, setIsEditingPlan] = useState<boolean>(false);
 
   const [completedTab, setCompletedTab] = useState<"files" | "vyuh">("files");
+  const [consoleTab, setConsoleTab] = useState<"terminal" | "backtrack">("terminal");
   const [hoveredVyuhNode, setHoveredVyuhNode] = useState<any | null>(null);
   const [selectedVyuhNode, setSelectedVyuhNode] = useState<any | null>(null);
 
@@ -668,6 +670,32 @@ export const ProjectViewer: React.FC = () => {
       }
     }
   }, [activeProj?.id, activeProj?.status, isGeneratingProject, compileProjectCodebase, approveProjectPlan]);
+
+  // Pre-fetch logs from database if not already loaded when activeProj is loaded/selected
+  useEffect(() => {
+    if (!activeProj) return;
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch(`${API_BASE}/api/projects/${activeProj.id}/logs`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.logs) {
+          setCompilationLogs((prev) => {
+            const currentLogs = prev[activeProj.id] || [];
+            if (currentLogs.length === 0 || data.logs.length > currentLogs.length) {
+              return {
+                ...prev,
+                [activeProj.id]: data.logs
+              };
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => console.error("Failed to pre-fetch logs:", err));
+  }, [activeProj?.id, setCompilationLogs]);
 
   const projLogs = activeProj ? (compilationLogs[activeProj.id] || []) : [];
   useEffect(() => {
@@ -1855,68 +1883,246 @@ export const ProjectViewer: React.FC = () => {
           <div className="flex-1 flex gap-4 min-w-0 h-full">
             
             {/* Terminal (Log Stream) */}
-            <div className="flex-1 bg-stone-950 text-stone-200 font-mono text-[10px] rounded-3xl border border-stone-900 shadow-2xl p-5 flex flex-col relative overflow-hidden text-left h-full min-w-0">
+            <div className="flex-1 bg-stone-950 text-stone-200 rounded-3xl border border-stone-900 shadow-2xl p-5 flex flex-col relative overflow-hidden text-left h-full min-w-0">
               {/* Terminal Header */}
               <div className="flex items-center justify-between border-b border-stone-900 pb-3 mb-3 shrink-0 select-none">
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1.5 mr-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
                   </div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-500 ml-1.5">Live Compiler Stream</span>
+                  
+                  {/* Tab buttons */}
+                  <button
+                    onClick={() => setConsoleTab("terminal")}
+                    className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded transition-all cursor-pointer ${
+                      consoleTab === "terminal" ? "bg-stone-900 text-stone-200 border border-stone-850" : "text-stone-500 hover:text-stone-400"
+                    }`}
+                  >
+                    Terminal Stream
+                  </button>
+                  <button
+                    onClick={() => setConsoleTab("backtrack")}
+                    className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+                      consoleTab === "backtrack" ? "bg-stone-900 text-stone-200 border border-stone-850" : "text-stone-500 hover:text-stone-400"
+                    }`}
+                  >
+                    Self-Healing & Backtracks
+                    {(((activeProj as any)?.validation_logs?.length || 0) > 0 || ((activeProj as any)?.backtrack_depth || 0) > 0) && (
+                      <span className="w-4 h-4 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center text-[8px] font-black">
+                        {((activeProj as any)?.validation_logs?.length || 0) + ((activeProj as any)?.backtrack_depth || 0)}
+                      </span>
+                    )}
+                  </button>
                 </div>
                 <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider bg-stone-900 px-2 py-0.5 rounded border border-stone-800">
                   WS Live Connection
                 </div>
               </div>
 
-              {/* Terminal Body */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar scroll-smooth min-h-0 select-text">
-                {projLogs.map((log, i) => {
-                  const level = (log.level || "INFO").toUpperCase();
-                  let badgeBg = "bg-stone-900 text-stone-400 border border-stone-800";
-                  let messageColor = "text-stone-300";
+              {consoleTab === "terminal" ? (
+                /* Terminal Body */
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar scroll-smooth min-h-0 select-text font-mono text-[10px]">
+                  {projLogs.map((log, i) => {
+                    const level = (log.level || "INFO").toUpperCase();
+                    let badgeBg = "bg-stone-900 text-stone-400 border border-stone-800";
+                    let messageColor = "text-stone-300";
 
-                  if (level === "SUCCESS") {
-                    badgeBg = "bg-emerald-950/40 text-emerald-400 border border-emerald-900/30";
-                    messageColor = "text-emerald-100/90 font-medium";
-                  } else if (level === "WARNING") {
-                    badgeBg = "bg-amber-950/40 text-amber-400 border border-amber-900/30";
-                    messageColor = "text-amber-100/90 font-medium";
-                  } else if (level === "HEAL") {
-                    badgeBg = "bg-cyan-950/40 text-cyan-400 border border-cyan-900/30";
-                    messageColor = "text-cyan-100/95 font-semibold";
-                  } else if (level === "ERROR") {
-                    badgeBg = "bg-rose-950/40 text-rose-400 border border-rose-900/30";
-                    messageColor = "text-rose-100/95 font-semibold";
-                  } else if (level === "INFO") {
-                    badgeBg = "bg-indigo-950/40 text-indigo-400 border border-indigo-900/30";
-                  }
+                    if (level === "SUCCESS") {
+                      badgeBg = "bg-emerald-950/40 text-emerald-400 border border-emerald-900/30";
+                      messageColor = "text-emerald-100/90 font-medium";
+                    } else if (level === "WARNING") {
+                      badgeBg = "bg-amber-950/40 text-amber-400 border border-amber-900/30";
+                      messageColor = "text-amber-100/90 font-medium";
+                    } else if (level === "HEAL") {
+                      badgeBg = "bg-cyan-950/40 text-cyan-400 border border-cyan-900/30";
+                      messageColor = "text-cyan-100/95 font-semibold";
+                    } else if (level === "ERROR") {
+                      badgeBg = "bg-rose-950/40 text-rose-400 border border-rose-900/30";
+                      messageColor = "text-rose-100/95 font-semibold";
+                    } else if (level === "INFO") {
+                      badgeBg = "bg-indigo-950/40 text-indigo-400 border border-indigo-900/30";
+                    }
 
-                  return (
-                    <div key={i} className="flex items-start gap-2 leading-normal">
-                      <span className="text-stone-600 shrink-0 select-none font-bold">{log.timestamp || "00:00:00"}</span>
-                      <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black tracking-wide uppercase shrink-0 ${badgeBg}`}>
-                        {level}
-                      </span>
-                      <span className="text-stone-500 shrink-0 font-semibold select-none">
-                        [{log.sender ? log.sender.split(".").pop() : "System"}]
-                      </span>
-                      <span className={`flex-1 select-text whitespace-pre-wrap break-all ${messageColor}`}>
-                        {log.message}
-                      </span>
+                    return (
+                      <div key={i} className="flex items-start gap-2 leading-normal">
+                        <span className="text-stone-600 shrink-0 select-none font-bold">{log.timestamp || "00:00:00"}</span>
+                        <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black tracking-wide uppercase shrink-0 ${badgeBg}`}>
+                          {level}
+                        </span>
+                        <span className="text-stone-500 shrink-0 font-semibold select-none">
+                          [{log.sender ? log.sender.split(".").pop() : "System"}]
+                        </span>
+                        <span className={`flex-1 select-text whitespace-pre-wrap break-all ${messageColor}`}>
+                          {log.message}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {projLogs.length === 0 && (
+                    <div className="flex-1 h-36 flex flex-col items-center justify-center text-stone-600 select-none animate-pulse space-y-1.5">
+                      <span className="text-[9px] uppercase font-bold tracking-widest text-stone-500">Awaiting stream...</span>
                     </div>
-                  );
-                })}
-
-                {projLogs.length === 0 && (
-                  <div className="flex-1 h-36 flex flex-col items-center justify-center text-stone-600 select-none animate-pulse space-y-1.5">
-                    <span className="text-[9px] uppercase font-bold tracking-widest text-stone-500">Awaiting stream...</span>
+                  )}
+                  <div ref={terminalEndRef} />
+                </div>
+              ) : (
+                /* Self-Healing Tracker Dashboard */
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar min-h-0 select-text font-sans text-xs">
+                  {/* Status Panel */}
+                  <div className="p-4 bg-stone-900/40 border border-stone-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] uppercase font-black text-stone-500 tracking-wider">Topological Healing Pipeline</div>
+                      <div className="text-xs font-bold text-white mt-1 flex items-center gap-2">
+                        {((activeProj as any)?.backtrack_depth || 0) > 0 ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                            <span>Healing Mode Active</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                            <span>Pipeline Standing Healthy</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-3 shrink-0">
+                      <div className="bg-stone-900 px-3 py-1 rounded-xl border border-stone-800 text-left">
+                        <div className="text-[8px] uppercase font-bold text-stone-500">Backtrack Depth</div>
+                        <div className="text-base font-black text-white font-mono mt-0.5">{((activeProj as any)?.backtrack_depth || 0)}<span className="text-stone-600 text-xs">/5</span></div>
+                      </div>
+                      <div className="bg-stone-900 px-3 py-1 rounded-xl border border-stone-800 text-left">
+                        <div className="text-[8px] uppercase font-bold text-stone-500 font-sans">Validation Issues</div>
+                        <div className="text-base font-black text-rose-400 font-mono mt-0.5">{((activeProj as any)?.validation_logs?.length || 0)}</div>
+                      </div>
+                    </div>
                   </div>
-                )}
-                <div ref={terminalEndRef} />
-              </div>
+
+                  {/* Active Healing Context */}
+                  {(activeProj as any)?.active_healing_context ? (
+                    <div className="p-4 bg-amber-950/20 border border-amber-900/30 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between border-b border-amber-950/40 pb-2">
+                        <span className="text-[10px] uppercase font-black text-amber-400 tracking-wider flex items-center gap-1.5">
+                          🩹 Active Self-Healing Target
+                        </span>
+                        <span className="text-[8px] font-mono text-stone-500">
+                          {(activeProj as any).active_healing_context.timestamp ? new Date((activeProj as any).active_healing_context.timestamp).toLocaleTimeString() : ""}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs leading-normal">
+                        <div>
+                          <div className="text-[9px] uppercase font-bold text-stone-500">Failing Architect Agent</div>
+                          <div className="font-semibold text-white mt-0.5">{(activeProj as any).active_healing_context.responsible_agent || "Unknown"}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] uppercase font-bold text-stone-500">Failure Signature</div>
+                          <div className="font-semibold text-amber-300 mt-0.5">{(activeProj as any).active_healing_context.failure_type || "Generic Failure"}</div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] uppercase font-bold text-stone-500">Recommended Healing Action</div>
+                        <p className="text-stone-300 mt-0.5 leading-normal">{(activeProj as any).active_healing_context.recommended_action}</p>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] uppercase font-bold text-stone-500">Triggered Codebase Downstream (Regenerating)</div>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {((activeProj as any).active_healing_context.triggered_agents || []).map((agent: string) => (
+                            <span key={agent} className={`px-1.5 py-0.5 rounded text-[8px] font-bold font-mono tracking-wide ${
+                              agent === (activeProj as any).active_healing_context.responsible_agent 
+                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" 
+                                : "bg-stone-900 text-stone-400 border border-stone-850"
+                            }`}>
+                              {agent.replace("Agent", "")}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-stone-950/60 rounded-xl border border-amber-950/30 font-mono text-[9px] text-rose-350/90 whitespace-pre-wrap break-all leading-relaxed">
+                        <span className="text-[8px] uppercase font-bold text-stone-500 block mb-1">Underlying Guardrail Log:</span>
+                        {(activeProj as any).active_healing_context.error_msg}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Specific Validation Errors / Warnings */}
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase font-black text-stone-500 tracking-wider px-1">Guardrail Validation Logs</div>
+                    
+                    {!activeProj?.validation_logs || activeProj.validation_logs.length === 0 ? (
+                      <div className="text-center py-6 text-stone-500 border border-dashed border-stone-900 rounded-2xl select-none">
+                        No active validation issues detected. Code checks passed successfully.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                        {activeProj.validation_logs.map((log: any, idx: number) => {
+                          const isError = log.severity === "error";
+                          return (
+                            <div 
+                              key={idx} 
+                              className={`p-2.5 rounded-xl border flex items-start gap-2.5 text-[11px] leading-normal ${
+                                isError 
+                                  ? "bg-rose-950/10 border-rose-900/30 text-rose-200" 
+                                  : "bg-amber-950/10 border-amber-900/30 text-amber-200"
+                              }`}
+                            >
+                              <span className={`px-1.5 py-0.2 rounded text-[7px] font-black uppercase font-mono tracking-wider shrink-0 mt-0.5 ${
+                                isError ? "bg-rose-900/30 text-rose-400 border border-rose-800/30" : "bg-amber-900/30 text-amber-400 border border-amber-850/30"
+                              }`}>
+                                {log.severity || "warning"}
+                              </span>
+                              <div className="flex-1 min-w-0 text-left">
+                                <span className="text-[9px] uppercase font-bold text-stone-500 block">{log.module || "General"}</span>
+                                <p className="text-stone-300 mt-0.5 select-text font-semibold">{log.error}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Backtrack History Timeline */}
+                  {(activeProj as any)?.backtrack_history && (activeProj as any).backtrack_history.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="text-[10px] uppercase font-black text-stone-500 tracking-wider px-1">Healing Run History ({(activeProj as any).backtrack_history.length})</div>
+                      <div className="space-y-2">
+                        {(activeProj as any).backtrack_history.map((hist: any, idx: number) => (
+                          <div key={idx} className="p-3 bg-stone-900/20 border border-stone-800 rounded-xl flex items-start gap-3 text-left">
+                            <div className="w-5 h-5 rounded-full bg-stone-900 border border-stone-800 flex items-center justify-center text-[9px] font-bold text-stone-400 shrink-0 font-mono">
+                              #{idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0 text-[11px] leading-normal">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-white">Backtrack Cycle Triggered</span>
+                                <span className="text-[9px] text-stone-500 font-mono">
+                                  {hist.timestamp ? new Date(hist.timestamp).toLocaleTimeString() : ""}
+                                </span>
+                              </div>
+                              <p className="text-stone-400 mt-1">
+                                Regenerated <span className="text-amber-400 font-bold">{hist.responsible_agent}</span> and downstream dependent modules.
+                              </p>
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {(hist.triggered_agents || []).map((ag: string) => (
+                                  <span key={ag} className="px-1 rounded text-[7px] font-mono bg-stone-950 text-stone-500 border border-stone-800">
+                                    {ag.replace("Agent", "")}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Live Generated Files Checklist Panel */}

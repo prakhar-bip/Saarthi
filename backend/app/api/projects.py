@@ -173,6 +173,7 @@ def _map_project_doc(doc: dict) -> ProjectResponse:
             else doc.get("implementation_plan")
         ),
         validation_logs=doc.get("validation_logs", []),
+        compilation_logs=doc.get("compilation_logs", []),
         generation_type=doc.get("generation_type", "full_stack")
     )
 
@@ -1125,6 +1126,19 @@ async def compile_project(
     
     return _map_project_doc(new_project)
 
+@router.get("/{project_id}/logs")
+async def get_project_compilation_logs(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": project_id, "user_id": current_user["id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    logs = project.get("compilation_logs", [])
+    return {"status": "success", "logs": logs}
+
 @router.post("/{project_id}/compile", response_model=ProjectResponse)
 async def compile_project_codebase(
     project_id: str,
@@ -1156,7 +1170,8 @@ async def compile_project_codebase(
                 "status": "generating",
                 "progress": 5,
                 "step": "Initializing Sarthi AI engine...",
-                "codebase": []
+                "codebase": [],
+                "compilation_logs": []
             }
         }
     )

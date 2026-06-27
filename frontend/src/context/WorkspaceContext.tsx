@@ -87,6 +87,9 @@ export interface Project {
   hitl_approved?: boolean;
   implementation_plan?: any;
   validation_logs?: any[];
+  backtrack_history?: any[];
+  healing_history?: any[];
+  active_healing_context?: any;
   blueprint?: any;
   api_contract_design?: any;
   database_architecture?: any;
@@ -890,6 +893,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return;
     }
 
+    // Pre-fetch initial logs from database
+    fetch(`${API_BASE}/api/projects/${projectId}/logs`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.logs) {
+          setCompilationLogs((prev) => ({
+            ...prev,
+            [projectId]: data.logs
+          }));
+        }
+      })
+      .catch((err) => console.error("Failed to fetch initial project logs:", err));
+
     let ws: WebSocket | null = null;
 
     const cleanupWatchers = () => {
@@ -917,6 +935,21 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           return;
         }
         try {
+          // Poll logs from the DB
+          fetch(`${API_BASE}/api/projects/${projectId}/logs`, {
+            headers: { "Authorization": `Bearer ${currentToken}` }
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+              if (data && data.logs) {
+                setCompilationLogs((prev) => ({
+                  ...prev,
+                  [projectId]: data.logs
+                }));
+              }
+            })
+            .catch((err) => console.error("Polling logs failed:", err));
+
           const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
             headers: { "Authorization": `Bearer ${currentToken}` }
           });
@@ -988,6 +1021,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                       progress: msg.progress ?? p.progress,
                       step: msg.step ?? p.step,
                       status: msg.status ?? p.status,
+                      validation_logs: msg.validation_logs ?? p.validation_logs,
+                      active_healing_context: msg.active_healing_context ?? p.active_healing_context,
+                      backtrack_history: msg.backtrack_history ?? p.backtrack_history,
                     }
                   : p
               )

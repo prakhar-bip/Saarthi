@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 DEPENDENCY_MAP = {
     "RequirementAnalyzerAgent": [],
     "PlannerAgent": ["requirements"],
-    "ResearchPlanningAgent": ["requirements", "planning"],
+    "ResearchPlanningAgent": ["requirements", "planning", "codebase"],
     "DatabaseArchitectureAgent": ["requirements", "planning"],
     "DatabaseModelGenerationAgent": ["requirements", "planning", "db_architecture"],
     "BackendArchitectureAgent": ["requirements", "planning", "db_architecture"],
@@ -136,12 +136,17 @@ def build_context_for_level(agent_name: str, project_doc: dict, level_name: str,
         "implementation_plan", "code_generation_plan", "database_model_generation",
         "backend_code_generation", "api_implementation", "frontend_code_generation",
         "ui_component_generation", "state_implementation", "integration_generation",
-        "build_compilation", "error_correction", "project_export"
+        "build_compilation", "error_correction", "project_export", "codebase"
     }
     
-    for k, v in project_doc.items():
-        if k not in arch_keys and not k.endswith("_full") and not k.endswith("_summary") and not k.endswith("_compressed") and not k.endswith("_contracts"):
-            context[k] = v
+    METADATA_WHITELIST = {
+        "_id", "name", "category", "status", "generation_type", 
+        "tech_stack", "active_healing_context", "initial_prompt",
+        "backtrack_depth", "agent_retries"
+    }
+    for k in METADATA_WHITELIST:
+        if k in project_doc:
+            context[k] = project_doc[k]
             
     # Populate selected keys based on chosen degradation tier
     for dep_key in selected_keys:
@@ -189,7 +194,7 @@ def build_context(agent_name: str, project_doc: dict) -> dict:
         "implementation_plan", "code_generation_plan", "database_model_generation",
         "backend_code_generation", "api_implementation", "frontend_code_generation",
         "ui_component_generation", "state_implementation", "integration_generation",
-        "build_compilation", "error_correction", "project_export"
+        "build_compilation", "error_correction", "project_export", "codebase"
     ]
     
     # 1. Resolve selected keys and removed non-dependency keys

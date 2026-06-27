@@ -78,6 +78,18 @@ def ws_log_sink(message):
             # Import connection manager dynamically to avoid circular import issues
             from app.services.ws_manager import manager
             loop.create_task(manager.broadcast_to_project(proj_id, payload))
+
+            # Save to MongoDB dynamically
+            try:
+                from app.db.mongodb import get_database
+                db = get_database()
+                if db is not None:
+                    loop.create_task(db.projects.update_one(
+                        {"_id": proj_id},
+                        {"$push": {"compilation_logs": payload}}
+                    ))
+            except Exception:
+                pass
     except RuntimeError:
         # No running event loop in this thread
         pass

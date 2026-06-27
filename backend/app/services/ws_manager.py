@@ -82,30 +82,20 @@ class ConnectionManager:
         progress: int | float,
         step: str,
         status: str = "generating",
+        **kwargs
     ):
         """Convenience wrapper used by the compilation pipeline."""
-        await self.broadcast_to_project(
-            project_id,
-            {
-                "type": "progress",
-                "project_id": project_id,
-                "progress": progress,
-                "step": step,
-                "status": status,
-            },
-        )
+        payload = {
+            "type": "progress",
+            "project_id": project_id,
+            "progress": progress,
+            "step": step,
+            "status": status,
+            **kwargs
+        }
+        await self.broadcast_to_project(project_id, payload)
         # Also push to global sockets so any dashboard listener sees it
-        await self.broadcast(
-            json.dumps(
-                {
-                    "type": "progress",
-                    "project_id": project_id,
-                    "progress": progress,
-                    "step": step,
-                    "status": status,
-                }
-            )
-        )
+        await self.broadcast(json.dumps(payload, default=str))
 
 
 # Singleton used across the whole application

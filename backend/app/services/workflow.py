@@ -171,7 +171,11 @@ async def broadcast_agent_progress(db: Any, project_id: str, progress: int | flo
     await manager.broadcast_progress(
         project_id=project_id,
         progress=final_progress,
-        step=step
+        step=step,
+        status=project_doc.get("status", "generating"),
+        validation_logs=project_doc.get("validation_logs", []),
+        active_healing_context=project_doc.get("active_healing_context"),
+        backtrack_history=project_doc.get("backtrack_history", [])
     )
     logger.info(f"Project {project_id} progress: {final_progress}% - {step}")
 
@@ -645,39 +649,46 @@ async def agent_dispatcher_node(state: AppState, config: Optional[RunnableConfig
     logger.info(f"Agent dispatcher running. Starting sequential architecture workspaces for {project_id}...")
     return {"project_doc": project_doc}
 
-async def db_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-    db = get_db(state, config)
-    project_id = state["project_id"]
-    project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+async def db_backend_workspace(db: Any, project_id: str, project_doc: Dict[str, Any], config: Any) -> Dict[str, Any]:
+    logger.info(f"Starting Database & Backend Workspace Pipeline for {project_id}...")
     
-    logger.info(f"Starting Database Workspace Subgraph for {project_id}...")
+    # 1. Database Architecture Design
     await broadcast_agent_progress(db, project_id, 15, "Designing Database Architecture...")
     await run_single_agent(db, project_id, project_doc, "DatabaseArchitectureAgent")
-    # Re-fetch after each agent so next agent sees fresh data
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 20, "Generating Database Models...")
-    await run_single_agent(db, project_id, project_doc, "DatabaseModelGenerationAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 25, "Database Workspace Complete.")
-    return {"project_doc": project_doc}
-
-async def backend_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-    db = get_db(state, config)
-    project_id = state["project_id"]
-    project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
-    logger.info(f"Starting Backend Workspace Subgraph for {project_id}...")
-    await broadcast_agent_progress(db, project_id, 26, "Designing Backend Architecture...")
-    await run_single_agent(db, project_id, project_doc, "BackendArchitectureAgent")
-    # Re-fetch after each agent so next agent sees fresh data
+    # Re-fetch project doc so downstream agents see database architecture contracts
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+    
+    # 2. Parallel Model Generation & Backend Architecture Structure
+    await broadcast_agent_progress(db, project_id, 23, "Generating Database Models & Backend Structure...")
+    
+    async def run_models():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "DatabaseModelGenerationAgent")
+        
+    async def run_backend_structure():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "BackendArchitectureAgent")
+        
+    await asyncio.gather(run_models(), run_backend_structure())
+    
+    # Re-fetch project doc so API spec agent sees models and backend layout
+    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+    
+    # 3. API Specs Architecture
     await broadcast_agent_progress(db, project_id, 31, "Designing API Architecture...")
     await run_single_agent(db, project_id, project_doc, "APIAgent")
+    
+    # Re-fetch project doc
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 36, "Generating API Implementation...")
+    
+    # 4. API Implementation Generator
+    await broadcast_agent_progress(db, project_id, 36, "Generating API Implementation Specs...")
     await run_single_agent(db, project_id, project_doc, "APIImplementationAgent")
+    
+    # Final fetch
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 40, "Backend Workspace Complete.")
+    await broadcast_agent_progress(db, project_id, 40, "Database & Backend Workspace Complete.")
     return {"project_doc": project_doc}
 
 async def frontend_workspace_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -686,21 +697,45 @@ async def frontend_workspace_node(state: AppState, config: Optional[RunnableConf
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
     logger.info(f"Starting Frontend Workspace Subgraph for {project_id}...")
-    await broadcast_agent_progress(db, project_id, 41, "Designing Frontend Architecture...")
-    await run_single_agent(db, project_id, project_doc, "FrontendArchitectureAgent")
-    # Re-fetch after each agent so next agent sees fresh data
+    
+    # 1. Parallel Frontend Layout & UI/UX Styling
+    await broadcast_agent_progress(db, project_id, 41, "Designing Frontend Structure & UI/UX Theme...")
+    
+    async def run_fe_arch():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "FrontendArchitectureAgent")
+        
+    async def run_uiux_styling():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "UIUXArchitectAgent")
+        
+    await asyncio.gather(run_fe_arch(), run_uiux_styling())
+    
+    # Re-fetch project doc so component/state agents see layout and styles
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 44, "Designing UI/UX Theme & Styling...")
-    await run_single_agent(db, project_id, project_doc, "UIUXArchitectAgent")
+    
+    # 2. Parallel UI Component Generation & State Management Design
+    await broadcast_agent_progress(db, project_id, 47, "Generating UI Components & Designing State Management...")
+    
+    async def run_ui_components():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "UIComponentGenerationAgent")
+        
+    async def run_state_mgmt():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "StateManagementAgent")
+        
+    await asyncio.gather(run_ui_components(), run_state_mgmt())
+    
+    # Re-fetch project doc so state implementation agent sees stores design and components
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 47, "Generating UI Components...")
-    await run_single_agent(db, project_id, project_doc, "UIComponentGenerationAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 50, "Designing State Management...")
-    await run_single_agent(db, project_id, project_doc, "StateManagementAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+    
+    # 3. State Implementation Generation
     await broadcast_agent_progress(db, project_id, 53, "Generating State Implementation...")
     await run_single_agent(db, project_id, project_doc, "StateImplementationAgent")
+    
+    # Final fetch
+    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
     await broadcast_agent_progress(db, project_id, 55, "Frontend Workspace Complete.")
     return {"project_doc": project_doc}
 
@@ -716,14 +751,8 @@ async def architecture_design_node(state: AppState, config: Optional[RunnableCon
     
     if gen_type != "frontend_only":
         async def run_db_backend():
-            # Run DB workspace sequentially
             doc = await db.projects.find_one({"_id": project_id}) or project_doc
-            res_db = await db_workspace_node({"project_id": project_id, "project_doc": doc}, config)
-            
-            # Run Backend workspace sequentially after DB workspace
-            doc_next = await db.projects.find_one({"_id": project_id}) or res_db.get("project_doc") or project_doc
-            res_be = await backend_workspace_node({"project_id": project_id, "project_doc": doc_next}, config)
-            return res_be
+            return await db_backend_workspace(db, project_id, doc, config)
             
         tasks.append(run_db_backend())
         
@@ -747,27 +776,43 @@ async def ops_security_workspace_node(state: AppState, config: Optional[Runnable
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
     logger.info(f"Starting Operations & Security Workspace Subgraph for {project_id}...")
-    await broadcast_agent_progress(db, project_id, 56, "Designing Auth Architecture...")
-    await run_single_agent(db, project_id, project_doc, "AuthArchitectureAgent")
-    # Re-fetch after each agent so next agent sees fresh data
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 58, "Designing Realtime Architecture...")
-    await run_single_agent(db, project_id, project_doc, "RealtimeArchitectureAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 60, "Designing DevOps Architecture...")
-    await run_single_agent(db, project_id, project_doc, "DevOpsArchitectureAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 62, "Designing Security Architecture...")
-    await run_single_agent(db, project_id, project_doc, "SecurityArchitectureAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 64, "Designing Testing Architecture...")
-    await run_single_agent(db, project_id, project_doc, "TestingArchitectureAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 66, "Designing Validation Architecture...")
-    await run_single_agent(db, project_id, project_doc, "ValidationArchitectureAgent")
-    project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
-    await broadcast_agent_progress(db, project_id, 68, "Designing Optimization Architecture...")
-    await run_single_agent(db, project_id, project_doc, "OptimizationArchitectureAgent")
+    await broadcast_agent_progress(db, project_id, 56, "Designing Operations, Security, and Testing Architecture...")
+    
+    async def run_auth_security():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "AuthArchitectureAgent")
+        doc_next = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc_next, "SecurityArchitectureAgent")
+        
+    async def run_realtime():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "RealtimeArchitectureAgent")
+        
+    async def run_devops():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "DevOpsArchitectureAgent")
+        
+    async def run_testing():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "TestingArchitectureAgent")
+        
+    async def run_validation():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "ValidationArchitectureAgent")
+        
+    async def run_optimization():
+        doc = await db.projects.find_one({"_id": project_id}) or project_doc
+        await run_single_agent(db, project_id, doc, "OptimizationArchitectureAgent")
+        
+    await asyncio.gather(
+        run_auth_security(),
+        run_realtime(),
+        run_devops(),
+        run_testing(),
+        run_validation(),
+        run_optimization()
+    )
+    
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
     await broadcast_agent_progress(db, project_id, 70, "Ops & Security Workspace Complete.")
     return {"project_doc": project_doc}
