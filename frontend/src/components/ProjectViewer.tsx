@@ -681,7 +681,7 @@ export const ProjectViewer: React.FC = () => {
     projLogs.forEach(log => {
       const matches = log.message.match(/(?:backend|frontend)\/[a-zA-Z0-9_\-\.\/]+\.(?:py|tsx|ts|json|css|md)/g);
       if (matches) {
-        matches.forEach(match => {
+        matches.forEach((match: string) => {
           let clean = match.replace(/[\.:,\s\(\)\[\]"']+$/, '');
           if (clean.includes('.')) {
             files.add(clean);
