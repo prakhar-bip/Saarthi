@@ -1081,7 +1081,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     theme?: string,
     blueprint?: any,
     themePalette?: any,
-    hitlEnabled: boolean = true,
+    hitlEnabled: boolean = false,
     generationType: string = "full_stack"
   ) => {
     if (isGeneratingProject) return;

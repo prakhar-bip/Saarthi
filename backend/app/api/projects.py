@@ -165,8 +165,8 @@ def _map_project_doc(doc: dict) -> ProjectResponse:
         prd=doc.get("prd"),
         mrd=doc.get("mrd"),
         trd=doc.get("trd"),
-        hitl_enabled=doc.get("hitl_enabled", True),
-        hitl_approved=doc.get("hitl_approved", False),
+        hitl_enabled=doc.get("hitl_enabled", False),
+        hitl_approved=doc.get("hitl_approved", True),
         implementation_plan=(
             {"plan_markdown": doc.get("implementation_plan"), "proposed_changes": []}
             if isinstance(doc.get("implementation_plan"), str)
@@ -1072,8 +1072,8 @@ async def compile_project(
         "trd": "",
         "hackathon_metadata": hackathon_metadata,
         "mcp_evidence": mcp_evidence,
-        "hitl_enabled": True,
-        "hitl_approved": False,
+        "hitl_enabled": False,
+        "hitl_approved": True,
         "requirements": None,
         "planning": None,
         "implementation_plan": None,
@@ -1405,7 +1405,7 @@ async def regenerate_project_documents(
             "prd": docs.get("prd", ""),
             "mrd": docs.get("mrd", ""),
             "trd": docs.get("trd", ""),
-            "status": "documents_ready" if not project.get("hitl_enabled") else "waiting_approval",
+            "status": "documents_ready",
         }}
     )
     

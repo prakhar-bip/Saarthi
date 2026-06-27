@@ -52,6 +52,7 @@ from app.agents.entity_generation_planner import EntityGenerationPlannerAgent
 from app.agents.entity_generators import BackendEntityGenerator, FrontendEntityGenerator
 from app.services.module_assembler import ModuleAssembler
 from app.services.project_assembler import assemble_project_codebase, detect_tech_stack
+from app.agents.customization_agent import DynamicCustomizationAgent
 import time
 import re
 import json
@@ -1443,6 +1444,26 @@ async def module_assembler_node(state: AppState, config: Optional[RunnableConfig
     project_doc["synthesized_codebase"] = assembled_codebase
     return {"project_doc": project_doc}
 
+async def dynamic_customization_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+    db = get_db(state, config)
+    project_id = state["project_id"]
+    project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
+    project_doc = enrich_project_doc_context(project_doc)
+    
+    await broadcast_agent_progress(db, project_id, 89, "🎨 Applying Dynamic Customization & Branding...")
+    
+    agent = DynamicCustomizationAgent()
+    codebase = project_doc.get("synthesized_codebase", [])
+    customized_codebase = await agent.customize_codebase(codebase, project_doc)
+    
+    await db.projects.update_one(
+        {"_id": project_id},
+        {"$set": {"synthesized_codebase": customized_codebase}}
+    )
+    
+    project_doc["synthesized_codebase"] = customized_codebase
+    return {"project_doc": project_doc}
+
 async def project_export_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     db = get_db(state, config)
     project_id = state["project_id"]
@@ -1484,10 +1505,7 @@ async def runtime_compilation_verifier_node(state: AppState, config: Optional[Ru
 # ──────────────────────────────────────────────────────────────
 
 def route_after_planner(state: AppState) -> str:
-    hitl_enabled = state.get("hitl_enabled", True)
-    if hitl_enabled:
-        return "research_planning"
-    return "agent_dispatcher"
+    return "research_planning"
 
 def route_dispatcher(state: AppState) -> List[str]:
     """Dynamically route and branch workspaces in parallel depending on generation_type."""
@@ -1547,6 +1565,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("entity_generation_planner", entity_generation_planner_node)
     workflow.add_node("entity_generation", entity_generation_node)
     workflow.add_node("module_assembler", module_assembler_node)
+    workflow.add_node("dynamic_customization", dynamic_customization_node)
     workflow.add_node("runtime_compilation_verifier", runtime_compilation_verifier_node)
     workflow.add_node("project_export", project_export_node)
     
@@ -1578,7 +1597,8 @@ def build_graph() -> StateGraph:
     workflow.add_edge("entity_discovery", "entity_generation_planner")
     workflow.add_edge("entity_generation_planner", "entity_generation")
     workflow.add_edge("entity_generation", "module_assembler")
-    workflow.add_edge("module_assembler", "runtime_compilation_verifier")
+    workflow.add_edge("module_assembler", "dynamic_customization")
+    workflow.add_edge("dynamic_customization", "runtime_compilation_verifier")
     workflow.add_edge("runtime_compilation_verifier", "project_export")
     workflow.add_edge("project_export", END)
     
@@ -1630,35 +1650,9 @@ async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[s
             return
             
         if "agent_dispatcher" in state_info.next:
-            latest_proj = await db.projects.find_one({"_id": project_id})
-            hitl_enabled = latest_proj.get("hitl_enabled", True)
-            hitl_approved = latest_proj.get("hitl_approved", False)
-            
-            if hitl_enabled and not hitl_approved:
-                # Suspend and wait for user approval
-                impl_plan = state_info.values.get("implementation_plan")
-                await db.projects.update_one(
-                    {"_id": project_id},
-                    {"$set": {
-                        "status": "waiting_approval",
-                        "step": "Awaiting Implementation Plan Approval",
-                        "progress": 15,
-                        "implementation_plan": impl_plan
-                    }}
-                )
-                from app.services.ws_manager import manager
-                await manager.broadcast_progress(
-                    project_id=project_id,
-                    progress=15,
-                    step="Awaiting Implementation Plan Approval",
-                    status="waiting_approval"
-                )
-                logger.info(f"Graph execution suspended for project {project_id}. Awaiting HITL approval.")
-                return
-            else:
-                # Resume execution
-                logger.info(f"Resuming project {project_id} past the dispatcher gate...")
-                await app.ainvoke(None, config)
+            # Resume execution directly without HITL pause gate
+            logger.info(f"Resuming project {project_id} past the dispatcher gate...")
+            await app.ainvoke(None, config)
         else:
             await app.ainvoke(None, config)
 

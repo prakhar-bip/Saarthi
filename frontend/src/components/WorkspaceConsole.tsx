@@ -752,36 +752,24 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: 0.15, ease: "easeOut" }}
-                  className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4"
+                  className="flex justify-center mt-4"
                 >
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!user) {
                         handleLockClick();
                         return;
                       }
-                      setShowCreateModal(true);
+                      if (!activeChatId) {
+                        await createNewChat("other", "New Project");
+                      }
+                      setActiveWorkspaceTab("workspace");
                     }}
-                    className="px-6 py-3 bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-950 text-white hover:to-indigo-900 text-xs font-bold rounded-xl shadow-lg border border-indigo-900/50 hover:shadow-xl transition-all cursor-pointer flex items-center gap-2 group relative overflow-hidden"
+                    className="px-8 py-3.5 bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-950 text-amber-500 hover:to-indigo-900 text-xs font-bold rounded-xl shadow-lg border border-indigo-900/50 hover:shadow-xl transition-all cursor-pointer flex items-center gap-2 group relative overflow-hidden"
                   >
                     <FolderPlus className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
-                    <span>Create New Project</span>
-                    <span className="bg-amber-500/25 text-amber-400 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">Manual & Wizard</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const inputEl = document.getElementById("chat-input-bar");
-                      if (inputEl) {
-                        inputEl.focus();
-                      }
-                    }}
-                    className="px-6 py-3 bg-white hover:bg-stone-50 text-indigo-950 text-xs font-bold rounded-xl shadow-md border border-stone-200/80 hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4 text-indigo-650 animate-pulse" />
-                    <span>Ask Sarthi Anything</span>
+                    <span>Go to Workspace</span>
                   </button>
                 </motion.div>
 
@@ -1106,20 +1094,7 @@ export const WorkspaceConsole: React.FC<{ isMinimized?: boolean }> = ({ isMinimi
               )}
             </div>
 
-            {/* Create Project button */}
-            {user && (
-              <button
-                onClick={async () => {
-                  await createNewChat("other", "New Project");
-                  setActiveWorkspaceTab("workspace");
-                }}
-                className="p-2.5 sm:px-4 sm:py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-950 font-bold transition-colors shadow-sm flex items-center gap-2 cursor-pointer shrink-0"
-                title="Create Project: Open the project creator wizard and describe your idea."
-              >
-                <FolderPlus className="w-4 h-4 text-indigo-950" />
-                <span className="hidden sm:inline text-xs">Create Project</span>
-              </button>
-            )}
+
 
             {/* Stop button */}
             {user && activeChatId && aiTyping && (

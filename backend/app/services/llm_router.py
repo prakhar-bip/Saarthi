@@ -81,7 +81,7 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     # ---------------------------------------------------------
     "ChatReply": ("openrouter", settings.OPENROUTER_MODEL),
     "CategoryClassifier": ("gemini", FAST_MODEL),
-    "ProjectSuggestions": ("gemini", FAST_MODEL),
+    "ProjectSuggestions": ("openrouter", settings.OPENROUTER_MODEL),
     "PlannerAgent": ("gemini", FAST_MODEL),
     "RequirementAnalyzerAgent": ("gemini", FAST_MODEL),
     "ErrorCorrectionAgent": ("gemini", REASONING_MODEL),

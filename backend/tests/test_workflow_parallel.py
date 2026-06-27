@@ -93,35 +93,17 @@ async def run_parallel_workflow_test():
     await db.projects.insert_one(project_doc)
     
     # 2. Run the initial compilation workflow
-    print("\n[Step 1] Running compile_project_workflow (HITL=True)...")
+    print("\n[Step 1] Running compile_project_workflow...")
     await compile_project_workflow(db, project_id, project_doc)
     
-    # Verify it suspended at the gate
-    updated_doc = db.projects.data[project_id]
-    print("Project status after compilation start:", updated_doc["status"])
-    print("Project step after compilation start:", updated_doc["step"])
-    print("Project progress after compilation start:", updated_doc["progress"])
-    
-    assert updated_doc["status"] == "waiting_approval", "Should halt and wait for approval!"
-    assert updated_doc["implementation_plan"] is not None, "Should generate an implementation plan!"
-    assert "proposed_changes" in updated_doc["implementation_plan"], "Implementation plan should have proposed changes!"
-    print("Generated plan changes count:", len(updated_doc["implementation_plan"]["proposed_changes"]))
-    
-    # 3. Resume the workflow
-    print("\n[Step 2] Resuming workflow with approval...")
-    edits = updated_doc["implementation_plan"]
-    edits["plan_markdown"] += "\n- Added custom test notes."
-    
-    await resume_project_workflow(db, project_id, edits)
-    
-    # Verify it finished compilation
+    # Verify it finished compilation directly
     final_doc = db.projects.data[project_id]
-    print("Project status after resume:", final_doc["status"])
-    print("Project step after resume:", final_doc["step"])
+    print("Project status after compilation:", final_doc["status"])
+    print("Project step after compilation:", final_doc["step"])
     print("Project final progress:", final_doc["progress"])
     
     print("VALIDATION LOGS FOR PROJECT test-proj-123:", final_doc.get("validation_logs"))
-    assert final_doc["status"] in ("completed", "completed_with_issues"), f"Should finish the connected project build! Status: {final_doc['status']}. Step: {final_doc.get('step')}"
+    assert final_doc["status"] in ("completed", "completed_with_issues"), f"Should finish the project build! Status: {final_doc['status']}. Step: {final_doc.get('step')}"
 
     assert final_doc["codebase"], "Workflow should produce a downloadable codebase."
     assert final_doc["quality_report"]["status"] in ("passed", "failed"), "Generated codebase should have a quality report status."

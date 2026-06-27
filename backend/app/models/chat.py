@@ -12,7 +12,7 @@ class ProjectSuggestionSchema(BaseModel):
     idea: str
     features: List[str]
     tech_stack: str
-    hitl_enabled: Optional[bool] = True
+    hitl_enabled: Optional[bool] = False
 
 class ChatSessionCreate(BaseModel):
     category: str

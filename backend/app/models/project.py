@@ -29,7 +29,7 @@ class ProjectCreate(BaseModel):
     theme: Optional[str] = None
     blueprint: Optional[BlueprintSchema] = None
     theme_palette: Optional[ThemePaletteSchema] = None
-    hitl_enabled: Optional[bool] = True
+    hitl_enabled: Optional[bool] = False
     generation_type: Optional[str] = "full_stack"
 
 class ProjectResponse(BaseModel):
@@ -85,8 +85,8 @@ class ProjectResponse(BaseModel):
     trd: Optional[str] = None
     
     # Sarthi 2.0 dynamic fields
-    hitl_enabled: Optional[bool] = True
-    hitl_approved: Optional[bool] = False
+    hitl_enabled: Optional[bool] = False
+    hitl_approved: Optional[bool] = True
     implementation_plan: Optional[Dict[str, Any]] = None
     validation_logs: Optional[List[Dict[str, Any]]] = []
 

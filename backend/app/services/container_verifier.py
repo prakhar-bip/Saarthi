@@ -103,3 +103,87 @@ class ContainerVerifier:
         logger.info(f"[ContainerVerifier] Ephemeral container finished in {duration:.2f}s with exit code {proc.returncode}")
         
         return proc.returncode if proc.returncode is not None else -1, logs
+
+    @classmethod
+    async def run_daemon_container(
+        cls,
+        workspace_dir: str,
+        image_name: str,
+        commands: List[str],
+        container_name: str,
+        memory_limit: str = "1.5g",
+        cpu_limit: float = 1.0,
+        run_duration: float = 7.0
+    ) -> Tuple[int, List[str]]:
+        """
+        Launches a detached Docker container, lets it run for run_duration,
+        reads its logs, stops, and removes the container.
+        """
+        mount_path = os.path.abspath(workspace_dir).replace("\\", "/")
+        sh_command = " && ".join(commands)
+        
+        # Ensure any pre-existing container with the same name is removed
+        try:
+            cleanup_proc = await asyncio.create_subprocess_exec(
+                "docker", "rm", "-f", container_name,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await cleanup_proc.wait()
+        except Exception:
+            pass
+
+        docker_cmd = [
+            "docker", "run", "-d",
+            "--name", container_name,
+            "--network", "bridge",
+            "-m", memory_limit,
+            "--cpus", str(cpu_limit),
+            "-v", f"{mount_path}:/workspace",
+            "-w", "/workspace",
+            image_name,
+            "sh", "-c", sh_command
+        ]
+        
+        logger.info(f"[ContainerVerifier] Starting daemon container: {' '.join(docker_cmd)}")
+        proc = await asyncio.create_subprocess_exec(
+            *docker_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            err_msg = stderr.decode('utf-8', errors='ignore')
+            logger.error(f"[ContainerVerifier] Failed to start daemon container: {err_msg}")
+            return proc.returncode if proc.returncode is not None else -1, [f"[SYSTEM] Failed to start daemon: {err_msg}"]
+
+        # Let the container run and sniff dev logs
+        await asyncio.sleep(run_duration)
+
+        # Get logs
+        logger.info(f"[ContainerVerifier] Sniffing logs from daemon container '{container_name}'...")
+        logs_proc = await asyncio.create_subprocess_exec(
+            "docker", "logs", container_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        logs_stdout, logs_stderr = await logs_proc.communicate()
+        
+        logs = []
+        for line in logs_stdout.decode('utf-8', errors='ignore').splitlines():
+            logs.append(f"[STDOUT] {line}")
+        for line in logs_stderr.decode('utf-8', errors='ignore').splitlines():
+            logs.append(f"[STDERR] {line}")
+
+        # Stop and remove container
+        logger.info(f"[ContainerVerifier] Stopping and removing daemon container '{container_name}'...")
+        stop_proc = await asyncio.create_subprocess_exec(
+            "docker", "rm", "-f", container_name,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await stop_proc.wait()
+
+        return 0, logs
+

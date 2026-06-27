@@ -616,6 +616,117 @@ class RuntimeVerifierAgent:
         errors: List[Tuple[str, str]] = []
         gen_type = project_doc.get("generation_type", "full_stack")
         
+        # Check Docker status
+        from app.services.container_verifier import ContainerVerifier
+        docker_active = await ContainerVerifier.is_docker_available()
+        
+        if docker_active:
+            await self._broadcast(db, project_id, 93, "🔍 Launching Containerized Startup Sniffing...")
+            fe_task = None
+            be_task = None
+            
+            # 1. Run Frontend in Detached Container
+            if gen_type in ["frontend_only", "full_stack"] and scope in ("frontend", "full_stack"):
+                frontend_dir = os.path.join(base_dir, "frontend")
+                if os.path.exists(frontend_dir):
+                    fe_install_cmd = "npm install --no-audit --no-fund --prefer-offline"
+                    fe_dev_cmd = "npm run dev"
+                    fe_image = "node:18-alpine"
+                    if os.path.exists(os.path.join(frontend_dir, "pnpm-lock.yaml")):
+                        fe_install_cmd = "npm install -g pnpm && pnpm install"
+                        fe_dev_cmd = "pnpm dev"
+                    elif os.path.exists(os.path.join(frontend_dir, "yarn.lock")):
+                        fe_install_cmd = "npm install -g yarn && yarn install"
+                        fe_dev_cmd = "yarn dev"
+                        
+                    fe_commands = [
+                        "cd frontend",
+                        fe_install_cmd,
+                        fe_dev_cmd
+                    ]
+                    
+                    async def run_fe():
+                        return await ContainerVerifier.run_daemon_container(
+                            workspace_dir=base_dir,
+                            image_name=fe_image,
+                            commands=fe_commands,
+                            container_name=f"sarthi_fe_{project_id}",
+                            run_duration=10.0
+                        )
+                    fe_task = asyncio.create_task(run_fe())
+            
+            # 2. Run Backend in Detached Container
+            if gen_type in ["backend_only", "full_stack", "microservice"] and scope in ("backend", "full_stack"):
+                backend_dir = os.path.join(base_dir, "backend")
+                if os.path.exists(backend_dir):
+                    be_image = "python:3.11-slim"
+                    be_commands = ["cd backend"]
+                    
+                    if backend_tech in ("fastapi", "django", "flask"):
+                        be_image = "python:3.11-slim"
+                        if os.path.exists(os.path.join(backend_dir, "requirements.txt")):
+                            be_commands.extend([
+                                "pip install -r requirements.txt --prefer-binary --disable-pip-version-check",
+                                "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+                            ])
+                        else:
+                            be_commands.append("python -m uvicorn app.main:app --host 0.0.0.0 --port 8000")
+                    elif backend_tech in ("express", "node"):
+                        be_image = "node:18-alpine"
+                        be_install_cmd = "npm install --prefer-offline"
+                        be_dev_cmd = "npm run dev"
+                        if os.path.exists(os.path.join(backend_dir, "pnpm-lock.yaml")):
+                            be_install_cmd = "npm install -g pnpm && pnpm install"
+                            be_dev_cmd = "pnpm dev"
+                        elif os.path.exists(os.path.join(backend_dir, "yarn.lock")):
+                            be_install_cmd = "npm install -g yarn && yarn install"
+                            be_dev_cmd = "yarn dev"
+                        be_commands.extend([
+                            be_install_cmd,
+                            be_dev_cmd
+                        ])
+                    elif backend_tech == "go":
+                        be_image = "golang:1.21-alpine"
+                        be_commands.append("go run main.go")
+                    elif backend_tech == "rust":
+                        be_image = "rust:1.72-alpine"
+                        be_commands.append("cargo run")
+                    else:
+                        be_image = "python:3.11-slim"
+                        be_commands.append("python main.py")
+                        
+                    async def run_be():
+                        return await ContainerVerifier.run_daemon_container(
+                            workspace_dir=base_dir,
+                            image_name=be_image,
+                            commands=be_commands,
+                            container_name=f"sarthi_be_{project_id}",
+                            run_duration=10.0
+                        )
+                    be_task = asyncio.create_task(run_be())
+            
+            # Wait for execution logs sniffing
+            fe_res = None
+            be_res = None
+            if fe_task and be_task:
+                fe_res, be_res = await asyncio.gather(fe_task, be_task)
+            elif fe_task:
+                fe_res = await fe_task
+            elif be_task:
+                be_res = await be_task
+                
+            # Parse logs for errors
+            if fe_res:
+                code, fe_logs = fe_res
+                errors.extend(self._parse_logs_for_errors(fe_logs, base_dir, "frontend"))
+            if be_res:
+                code, be_logs = be_res
+                errors.extend(self._parse_logs_for_errors(be_logs, base_dir, "backend"))
+                
+            return errors
+        
+        # Fallback to Host execution if Docker is not available
+        logger.warning("Docker is not active. Falling back to uvicorn/node startup checks on the host machine...")
         frontend_proc = None
         backend_proc = None
         frontend_logs: List[str] = []
@@ -702,6 +813,7 @@ class RuntimeVerifierAgent:
             errors.extend(self._parse_logs_for_errors(backend_logs, base_dir, "backend"))
 
         return errors
+
 
     def _clean_directory_preserving_cache(self, path: str) -> None:
         """Removes all non-cache files recursively to prepare for subsequent builds."""

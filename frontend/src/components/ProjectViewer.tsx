@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import { useWorkspace, CodeFile, Project, API_BASE } from "@/context/WorkspaceContext";
 import { CategoryIcon, SarthiLogo } from "./CustomSvgs";
@@ -366,6 +366,9 @@ export const ProjectViewer: React.FC = () => {
     updateProject
   } = useWorkspace();
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const prevProjIdRef = useRef<string | undefined>(undefined);
+  const prevProjStatusRef = useRef<string | undefined>(undefined);
+  const prevChatIdRef = useRef<string | undefined>(undefined);
   const [selectedFile, setSelectedFile] = useState<CodeFile | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeDocTab, setActiveDocTab] = useState<"trd" | "plan">("trd");
@@ -380,6 +383,7 @@ export const ProjectViewer: React.FC = () => {
 
   // Stepper & Workflow traveling states
   const [currentStep, setCurrentStep] = useState<number>(1);
+  const [isBlueprintConfirmed, setIsBlueprintConfirmed] = useState<boolean>(false);
   const [themes, setThemes] = useState<any[]>([]);
   const [loadingThemes, setLoadingThemes] = useState(false);
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
@@ -602,7 +606,7 @@ export const ProjectViewer: React.FC = () => {
   const maxUnlockedStep = (() => {
     if (!activeChat) return 0;
     let step = 1;
-    if (activeChat.selected_project?.name && activeChat.selected_project?.idea) {
+    if (activeChat.selected_project?.name && activeChat.selected_project?.idea && isBlueprintConfirmed) {
       step = 2;
     }
     if (activeProj) {
@@ -623,23 +627,37 @@ export const ProjectViewer: React.FC = () => {
     return 1;
   })();
 
-  // Removed automatic step advancement to let the user review the generated blueprint first
-  // The user must explicitly click the stepper or confirm buttons to advance.
-  // Auto-trigger codebase compilation as soon as documents are ready or plan is waiting approval
   // Sync currentStep automatically on project/chat loads and status updates
+  // Prevents automatic step jumps when user goes back to check previous steps.
   useEffect(() => {
-    if (activeProj) {
+    const projIdChanged = activeProj?.id !== prevProjIdRef.current;
+    const chatChanged = activeChat?.id !== prevChatIdRef.current;
+    const statusChanged = activeProj?.status !== prevProjStatusRef.current;
+
+    if (projIdChanged || chatChanged) {
+      if (activeProj) {
+        if (activeProj.status === "completed") {
+          setCurrentStep(4);
+        } else {
+          setCurrentStep(3);
+        }
+      } else if (activeChat?.selected_project?.name && isBlueprintConfirmed) {
+        setCurrentStep(2);
+      } else {
+        setCurrentStep(1);
+      }
+    } else if (statusChanged && activeProj) {
       if (activeProj.status === "completed") {
         setCurrentStep(4);
-      } else {
+      } else if (activeProj.status === "generating" && prevProjStatusRef.current !== "generating") {
         setCurrentStep(3);
       }
-    } else if (activeChat?.selected_project?.name) {
-      setCurrentStep(2);
-    } else {
-      setCurrentStep(1);
     }
-  }, [activeProj?.id, activeProj?.status, activeChat?.id, activeChat?.selected_project?.name]);
+
+    prevProjIdRef.current = activeProj?.id;
+    prevProjStatusRef.current = activeProj?.status;
+    prevChatIdRef.current = activeChat?.id;
+  }, [activeProj?.id, activeProj?.status, activeChat?.id, activeChat?.selected_project?.name, isBlueprintConfirmed]);
 
   useEffect(() => {
     if (activeProj && !isGeneratingProject) {
@@ -658,6 +676,22 @@ export const ProjectViewer: React.FC = () => {
     }
   }, [projLogs.length]);
 
+  const liveFiles = useMemo(() => {
+    const files = new Set<string>();
+    projLogs.forEach(log => {
+      const matches = log.message.match(/(?:backend|frontend)\/[a-zA-Z0-9_\-\.\/]+\.(?:py|tsx|ts|json|css|md)/g);
+      if (matches) {
+        matches.forEach(match => {
+          let clean = match.replace(/[\.:,\s\(\)\[\]"']+$/, '');
+          if (clean.includes('.')) {
+            files.add(clean);
+          }
+        });
+      }
+    });
+    return Array.from(files);
+  }, [projLogs]);
+
   useEffect(() => {
     if (activeChat && !activeChat.selected_project && activeChat.category && suggestions.length === 0) {
       fetchSuggestions(activeChat.category);
@@ -668,6 +702,7 @@ export const ProjectViewer: React.FC = () => {
   useEffect(() => {
     setThemes([]);
     setSelectedThemeIndex(0);
+    setIsBlueprintConfirmed(false);
   }, [activeChatId]);
 
   // Populate themes from existing project if it is already compiled or compiling
@@ -949,7 +984,7 @@ export const ProjectViewer: React.FC = () => {
       );
     }
 
-    const isBlueprintReadOnly = maxUnlockedStep >= 3;
+    const isBlueprintReadOnly = isBlueprintConfirmed || maxUnlockedStep >= 3;
 
     return (
       <div className="flex-1 overflow-y-auto p-4 flex justify-center items-start w-full">
@@ -966,6 +1001,7 @@ export const ProjectViewer: React.FC = () => {
               generation_type: customGenType
             };
             await updateChatSelectedProject(activeChat.id, newBlueprint);
+            setIsBlueprintConfirmed(true);
             setCurrentStep(2);
           }} className="w-full max-w-lg space-y-3 bg-stone-50 p-4 rounded-xl border border-stone-200/70 shadow-sm">
             <div className="space-y-1">
@@ -1576,48 +1612,17 @@ export const ProjectViewer: React.FC = () => {
               </p>
             </div>
 
-            {activeProj.status === "waiting_approval" && (
-              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3 text-left">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Planning Constraints</span>
-                  <span className="text-[8px] bg-amber-500/10 text-amber-700 px-1.5 py-0.5 rounded font-bold uppercase">HITL Guard</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="hitl-toggle-inner"
-                    checked={activeProj.hitl_enabled !== false}
-                    onChange={(e) => updateProjectHitl(activeProj.id, e.target.checked)}
-                    className="mt-0.5 rounded border-stone-300 text-indigo-950 focus:ring-indigo-950 w-3.5 h-3.5 cursor-pointer"
-                  />
-                  <label htmlFor="hitl-toggle-inner" className="text-[10px] text-stone-500 leading-tight font-medium cursor-pointer">
-                    Enable Human-in-the-Loop review guards for codebase generation steps
-                  </label>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="pt-4 border-t border-stone-150">
-            {activeProj.status === "waiting_approval" ? (
-              <button
-                type="button"
-                onClick={() => approveProjectPlan(activeProj.id, activeProj.chat_id, editedPlanMarkdown)}
-                disabled={isGeneratingProject}
-                className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
-              >
-                🚀 Approve Plan & Compile Codebase
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
-                disabled={isGeneratingProject}
-                className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
-              >
-                🚀 Proceed to Compile Codebase
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => compileProjectCodebase(activeProj.id, activeProj.chat_id)}
+              disabled={isGeneratingProject}
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-indigo-950 hover:bg-indigo-900 text-amber-500 font-bold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+            >
+              🚀 Proceed to Compile Codebase
+            </button>
           </div>
         </div>
       </div>
@@ -1662,238 +1667,308 @@ export const ProjectViewer: React.FC = () => {
     }
 
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto bg-transparent">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="max-w-xl w-full bg-white/70 backdrop-blur-2xl p-8 rounded-3xl border border-indigo-100 shadow-xl shadow-indigo-950/5 relative overflow-hidden flex flex-col items-center"
-        >
-          <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-indigo-500 via-amber-400 to-indigo-600" />
-
-          {/* Header */}
-          <div className="mb-6 flex flex-col items-center select-none">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-3 text-indigo-600">
+      <div className="flex-1 flex flex-col p-6 overflow-hidden h-full max-w-7xl mx-auto w-full space-y-6 select-none">
+        
+        {/* Top Header Control Bar */}
+        <div className="flex justify-between items-center bg-white/40 backdrop-blur-md p-4 rounded-2xl border border-stone-200/50 shadow-sm shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
               <Cpu className="w-5 h-5 animate-pulse" />
             </div>
-            <span className="text-[10px] uppercase font-bold tracking-widest text-amber-500">Sarthi Engine</span>
-            <h3 className="text-base font-bold font-display text-indigo-950 mt-1 select-text">Synthesizing Codebase</h3>
-            <div className="mt-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-stone-500">
-              <Database className="w-3 h-3 text-indigo-400" />
-              <span>{partnerTrack} MCP + Gemini Agents</span>
+            <div>
+              <span className="text-[9px] uppercase font-bold tracking-widest text-amber-500 block">Sarthi Compilation Engine</span>
+              <h3 className="text-xs font-bold text-indigo-950">Synthesizing Codebase</h3>
             </div>
           </div>
-
-          {/* Clean Linear Progress bar */}
-          <div className="w-full space-y-3 mb-6 bg-white p-5 rounded-2xl border border-stone-200/60 shadow-sm">
-            <div className="flex justify-between items-end mb-1 select-none">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-0.5">Pipeline Status</span>
-                <span className="font-black text-indigo-950 text-sm select-text">{activeProj.progress >= 100 ? "Zipping Assets" : activeProj.step}</span>
-              </div>
-              <div className="flex items-baseline">
-                <motion.span className="text-xl font-black font-display tracking-tight text-amber-500">
-                  {progressRounded}
-                </motion.span>
-                <span className="text-xl font-black font-display tracking-tight text-amber-500">%</span>
-              </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 block mb-0.5">Active Process</span>
+              <span className="text-xs font-bold text-indigo-950">{activeProj.progress >= 100 ? "Zipping Assets" : activeProj.step}</span>
             </div>
             
-            <div className="h-3 w-full bg-stone-100/80 rounded-full overflow-hidden border border-stone-200/50 shadow-inner">
-              <motion.div
-                className="h-full rounded-full bg-gradient-to-r from-indigo-900 to-amber-500 relative"
-                style={{ width: `${Math.min(100, activeProj.progress)}%` }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-              >
-                {/* Subtle shimmer effect inside the bar */}
-                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
-              </motion.div>
-            </div>
-          </div>
-
-          {/* Active Agent Status Badge */}
-          <div className="w-full bg-indigo-50/50 border border-indigo-100 rounded-2xl p-4 text-left mb-6 select-none">
-            <div className="flex items-center gap-2 text-indigo-600 mb-1.5">
+            {/* Action Play/Pause */}
+            <div>
               {activeProj.status === "paused" ? (
-                <Pause className="w-3.5 h-3.5 text-amber-550" />
+                <button
+                  onClick={() => resumeProjectCodebase(activeProj.id)}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer border-none"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Resume</span>
+                </button>
               ) : (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-550" />
+                <button
+                  onClick={() => pauseProjectCodebase(activeProj.id)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer border-none"
+                >
+                  <Pause className="w-3.5 h-3.5" />
+                  <span>Pause</span>
+                </button>
               )}
-              <span className="text-[9px] uppercase font-bold tracking-wider">
-                {activeProj.status === "paused" ? "Vyuh Process Paused" : "Active Vyuh Process"}
-              </span>
-            </div>
-            <div className="text-[10px] text-stone-600 leading-normal font-semibold select-text">
-              {activeProj.status === "paused" 
-                ? "Generation paused by user. Click Resume to continue the synthesis pipeline."
-                : (agentDescriptions[agentPipeline[currentAgentIdx]] || "Orchestrating codebase components...")}
             </div>
           </div>
+        </div>
 
-          {/* Controls Panel */}
-          <div className="w-full flex items-center justify-center gap-3 mb-6">
-            {activeProj.status === "paused" ? (
-              <motion.button
-                onClick={() => resumeProjectCodebase(activeProj.id)}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-bold text-xs shadow-md shadow-emerald-500/10 cursor-pointer transition-all border border-emerald-500/20"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>Resume Generation</span>
-              </motion.button>
-            ) : (
-              <motion.button
-                onClick={() => pauseProjectCodebase(activeProj.id)}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs shadow-md shadow-orange-500/10 cursor-pointer transition-all border border-orange-500/20"
-              >
-                <Pause className="w-3.5 h-3.5" />
-                <span>Pause Generation</span>
-              </motion.button>
-            )}
-          </div>
-
-          {/* Timeline Milestones */}
-          <div className="w-full border-t border-stone-100 pt-5 text-left select-none">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-4 px-1">Pipeline Milestones</h4>
-            <div className="space-y-4">
-              {[
-                {
-                  id: 1,
-                  title: "Architecture & DB Design",
-                  desc: "TRD, collection schemas & indexing mapping",
-                  isActive: activeProj.progress < 25,
-                  isCompleted: activeProj.progress >= 25,
-                  icon: Database
-                },
-                {
-                  id: 2,
-                  title: "Codebase Synthesis",
-                  desc: "FastAPI controllers, Next.js page views & Zustand stores",
-                  isActive: activeProj.progress >= 25 && activeProj.progress < 70,
-                  isCompleted: activeProj.progress >= 70,
-                  icon: Cpu
-                },
-                {
-                  id: 3,
-                  title: "Integration & Testing",
-                  desc: "System API links, Auth hooks & compiler check runs",
-                  isActive: activeProj.progress >= 70 && activeProj.progress < 90,
-                  isCompleted: activeProj.progress >= 90,
-                  icon: RefreshCw
-                },
-                {
-                  id: 4,
-                  title: "Monorepo Packaging",
-                  desc: "Production build compression & assets zip export",
-                  isActive: activeProj.progress >= 90,
-                  isCompleted: activeProj.status === "completed" || activeProj.progress >= 100,
-                  icon: FolderGit2
-                }
-              ].map((stage) => {
-                const StageIcon = stage.icon;
-                let statusColor = "text-stone-400 border-stone-200 bg-stone-50";
-                let textColor = "text-stone-500";
-                let descColor = "text-stone-400";
-                let indicator = <Lock className="w-3.5 h-3.5" />;
-
-                if (stage.isCompleted) {
-                  statusColor = "text-emerald-600 border-emerald-200 bg-emerald-50 shadow-sm";
-                  textColor = "text-stone-800 font-bold";
-                  descColor = "text-stone-500";
-                  indicator = <CheckCircle2 className="w-3.5 h-3.5" />;
-                } else if (stage.isActive) {
-                  statusColor = "text-indigo-600 border-indigo-200 bg-indigo-50 shadow-md";
-                  textColor = "text-indigo-950 font-bold";
-                  descColor = "text-stone-600";
-                  indicator = <Loader2 className="w-3.5 h-3.5 animate-spin" />;
-                }
-
-                return (
-                  <div key={stage.id} className="flex items-start gap-4">
-                    <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 transition-all ${statusColor}`}>
-                      <StageIcon className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0 select-text">
-                      <h5 className={`text-xs ${textColor} leading-none flex items-center gap-1.5`}>
-                        <span>{stage.title}</span>
-                        <span className="shrink-0">{indicator}</span>
-                      </h5>
-                      <p className={`text-[10px] ${descColor} mt-1 leading-normal`}>{stage.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Sarthi Live Compilation Log Console */}
-          <div className="w-full bg-stone-950 text-stone-200 font-mono text-[10px] rounded-2xl border border-stone-850 shadow-2xl p-4 mt-6 h-60 flex flex-col relative overflow-hidden text-left">
-            {/* Terminal Header */}
-            <div className="flex items-center justify-between border-b border-stone-800/80 pb-2 mb-2 shrink-0 select-none">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-rose-500/80" />
-                  <span className="w-2 h-2 rounded-full bg-amber-500/80" />
-                  <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
+        {/* Main Grid */}
+        <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+          
+          {/* Left Column: Progress Circle, Info and Milestones */}
+          <div className="w-80 shrink-0 flex flex-col gap-6 overflow-y-auto pr-1">
+            
+            {/* Circular Progress Card */}
+            <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-stone-200/60 shadow-sm flex flex-col items-center text-center shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-4">Overall Progress</span>
+              
+              {/* SVG Radial Ring */}
+              <div className="relative w-36 h-36 flex items-center justify-center mb-4">
+                <svg className="w-full h-full transform -rotate-90">
+                  {/* Track Circle */}
+                  <circle
+                    cx="72"
+                    cy="72"
+                    r="60"
+                    strokeWidth="8"
+                    stroke="currentColor"
+                    className="text-stone-100"
+                    fill="transparent"
+                  />
+                  {/* Progress Circle */}
+                  <motion.circle
+                    cx="72"
+                    cy="72"
+                    r="60"
+                    strokeWidth="8"
+                    strokeDasharray={2 * Math.PI * 60}
+                    strokeDashoffset={2 * Math.PI * 60 * (1 - Math.min(100, activeProj.progress) / 100)}
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    className="text-indigo-950"
+                    fill="transparent"
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  />
+                </svg>
+                {/* Center Text */}
+                <div className="absolute flex flex-col items-center justify-center">
+                  <motion.span className="text-3xl font-black font-display tracking-tight text-indigo-950">{progressRounded}</motion.span>
+                  <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 mt-0.5">percent</span>
                 </div>
-                <span className="text-[9px] uppercase font-bold tracking-wider text-stone-500 ml-1.5">Sarthi Live Compiler</span>
               </div>
-              <div className="text-[8.5px] text-stone-600 font-bold uppercase tracking-wider">
-                WebSocket Stream
+              
+              {/* Dynamic Status Box */}
+              <div className="w-full bg-indigo-50/50 border border-indigo-100/50 rounded-2xl p-3 text-left">
+                <div className="flex items-center gap-1.5 text-indigo-600 mb-1">
+                  {activeProj.status === "paused" ? (
+                    <Pause className="w-3.5 h-3.5 text-amber-500" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                  )}
+                  <span className="text-[9px] uppercase font-bold tracking-wider">
+                    {activeProj.status === "paused" ? "Pipeline Paused" : "Active Agent Process"}
+                  </span>
+                </div>
+                <p className="text-[10px] text-stone-600 leading-normal font-semibold">
+                  {activeProj.status === "paused" 
+                    ? "Generation paused by user. Click Resume to continue the synthesis pipeline."
+                    : (agentDescriptions[agentPipeline[currentAgentIdx]] || "Orchestrating codebase components...")}
+                </p>
               </div>
             </div>
 
-            {/* Terminal Body */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar scroll-smooth">
-              {projLogs.map((log, i) => {
-                const level = (log.level || "INFO").toUpperCase();
-                let badgeBg = "bg-stone-850 text-stone-400 border border-stone-850";
-                let messageColor = "text-stone-300";
+            {/* Pipeline Milestones */}
+            <div className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-stone-200/60 shadow-sm flex-1 flex flex-col">
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-4 px-1">Pipeline Milestones</h4>
+              <div className="space-y-4 flex-1">
+                {[
+                  {
+                    id: 1,
+                    title: "Architecture & DB Design",
+                    desc: "TRD, collection schemas & indexing mapping",
+                    isActive: activeProj.progress < 25,
+                    isCompleted: activeProj.progress >= 25,
+                    icon: Database
+                  },
+                  {
+                    id: 2,
+                    title: "Codebase Synthesis",
+                    desc: "FastAPI controllers, Next.js page views & Zustand stores",
+                    isActive: activeProj.progress >= 25 && activeProj.progress < 70,
+                    isCompleted: activeProj.progress >= 70,
+                    icon: Cpu
+                  },
+                  {
+                    id: 3,
+                    title: "Integration & Testing",
+                    desc: "System API links, Auth hooks & compiler check runs",
+                    isActive: activeProj.progress >= 70 && activeProj.progress < 90,
+                    isCompleted: activeProj.progress >= 90,
+                    icon: RefreshCw
+                  },
+                  {
+                    id: 4,
+                    title: "Monorepo Packaging",
+                    desc: "Production build compression & assets zip export",
+                    isActive: activeProj.progress >= 90,
+                    isCompleted: activeProj.status === "completed" || activeProj.progress >= 100,
+                    icon: FolderGit2
+                  }
+                ].map((stage) => {
+                  const StageIcon = stage.icon;
+                  let statusColor = "text-stone-400 border-stone-200 bg-stone-50";
+                  let textColor = "text-stone-500";
+                  let descColor = "text-stone-400";
+                  let indicator = <Lock className="w-3 h-3 text-stone-300" />;
 
-                if (level === "SUCCESS") {
-                  badgeBg = "bg-emerald-950/40 text-emerald-400 border border-emerald-900/30";
-                  messageColor = "text-emerald-100/90 font-medium";
-                } else if (level === "WARNING") {
-                  badgeBg = "bg-amber-950/40 text-amber-400 border border-amber-900/30";
-                  messageColor = "text-amber-100/90 font-medium";
-                } else if (level === "HEAL") {
-                  badgeBg = "bg-cyan-950/40 text-cyan-400 border border-cyan-900/30";
-                  messageColor = "text-cyan-100/95 font-semibold";
-                } else if (level === "ERROR") {
-                  badgeBg = "bg-rose-950/40 text-rose-400 border border-rose-900/30";
-                  messageColor = "text-rose-100/95 font-semibold";
-                } else if (level === "INFO") {
-                  badgeBg = "bg-indigo-950/40 text-indigo-400 border border-indigo-900/30";
-                }
+                  if (stage.isCompleted) {
+                    statusColor = "text-emerald-600 border-emerald-200 bg-emerald-50 shadow-sm";
+                    textColor = "text-stone-800 font-bold";
+                    descColor = "text-stone-500";
+                    indicator = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+                  } else if (stage.isActive) {
+                    statusColor = "text-indigo-600 border-indigo-200 bg-indigo-50 shadow-md";
+                    textColor = "text-indigo-950 font-bold";
+                    descColor = "text-stone-600";
+                    indicator = <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />;
+                  }
 
-                return (
-                  <div key={i} className="flex items-start gap-2 leading-normal">
-                    <span className="text-stone-600 shrink-0 select-none font-bold">{log.timestamp || "00:00:00"}</span>
-                    <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black tracking-wide uppercase shrink-0 ${badgeBg}`}>
-                      {level}
-                    </span>
-                    <span className="text-stone-500 shrink-0 font-semibold select-none">
-                      [{log.sender ? log.sender.split(".").pop() : "System"}]
-                    </span>
-                    <span className={`flex-1 select-text whitespace-pre-wrap break-all ${messageColor}`}>
-                      {log.message}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {projLogs.length === 0 && (
-                <div className="flex-1 h-36 flex flex-col items-center justify-center text-stone-600 select-none animate-pulse space-y-1.5">
-                  <span className="text-[9px] uppercase font-bold tracking-widest text-stone-500">Awaiting stream...</span>
-                </div>
-              )}
-              <div ref={terminalEndRef} />
+                  return (
+                    <div key={stage.id} className="flex items-start gap-3">
+                      <div className={`w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 transition-all ${statusColor}`}>
+                        <StageIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0 select-text">
+                        <h5 className={`text-[11px] ${textColor} leading-none flex items-center gap-1.5`}>
+                          <span>{stage.title}</span>
+                          <span className="shrink-0">{indicator}</span>
+                        </h5>
+                        <p className={`text-[9px] ${descColor} mt-1 leading-normal`}>{stage.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+
           </div>
-        </motion.div>
+
+          {/* Right Column: Split Terminal and Live Files Checklist */}
+          <div className="flex-1 flex gap-4 min-w-0 h-full">
+            
+            {/* Terminal (Log Stream) */}
+            <div className="flex-1 bg-stone-950 text-stone-200 font-mono text-[10px] rounded-3xl border border-stone-900 shadow-2xl p-5 flex flex-col relative overflow-hidden text-left h-full min-w-0">
+              {/* Terminal Header */}
+              <div className="flex items-center justify-between border-b border-stone-900 pb-3 mb-3 shrink-0 select-none">
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                  </div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-500 ml-1.5">Live Compiler Stream</span>
+                </div>
+                <div className="text-[9px] text-stone-500 font-bold uppercase tracking-wider bg-stone-900 px-2 py-0.5 rounded border border-stone-800">
+                  WS Live Connection
+                </div>
+              </div>
+
+              {/* Terminal Body */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar scroll-smooth min-h-0 select-text">
+                {projLogs.map((log, i) => {
+                  const level = (log.level || "INFO").toUpperCase();
+                  let badgeBg = "bg-stone-900 text-stone-400 border border-stone-800";
+                  let messageColor = "text-stone-300";
+
+                  if (level === "SUCCESS") {
+                    badgeBg = "bg-emerald-950/40 text-emerald-400 border border-emerald-900/30";
+                    messageColor = "text-emerald-100/90 font-medium";
+                  } else if (level === "WARNING") {
+                    badgeBg = "bg-amber-950/40 text-amber-400 border border-amber-900/30";
+                    messageColor = "text-amber-100/90 font-medium";
+                  } else if (level === "HEAL") {
+                    badgeBg = "bg-cyan-950/40 text-cyan-400 border border-cyan-900/30";
+                    messageColor = "text-cyan-100/95 font-semibold";
+                  } else if (level === "ERROR") {
+                    badgeBg = "bg-rose-950/40 text-rose-400 border border-rose-900/30";
+                    messageColor = "text-rose-100/95 font-semibold";
+                  } else if (level === "INFO") {
+                    badgeBg = "bg-indigo-950/40 text-indigo-400 border border-indigo-900/30";
+                  }
+
+                  return (
+                    <div key={i} className="flex items-start gap-2 leading-normal">
+                      <span className="text-stone-600 shrink-0 select-none font-bold">{log.timestamp || "00:00:00"}</span>
+                      <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black tracking-wide uppercase shrink-0 ${badgeBg}`}>
+                        {level}
+                      </span>
+                      <span className="text-stone-500 shrink-0 font-semibold select-none">
+                        [{log.sender ? log.sender.split(".").pop() : "System"}]
+                      </span>
+                      <span className={`flex-1 select-text whitespace-pre-wrap break-all ${messageColor}`}>
+                        {log.message}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {projLogs.length === 0 && (
+                  <div className="flex-1 h-36 flex flex-col items-center justify-center text-stone-600 select-none animate-pulse space-y-1.5">
+                    <span className="text-[9px] uppercase font-bold tracking-widest text-stone-500">Awaiting stream...</span>
+                  </div>
+                )}
+                <div ref={terminalEndRef} />
+              </div>
+            </div>
+
+            {/* Live Generated Files Checklist Panel */}
+            <div className="w-64 bg-white/70 backdrop-blur-md rounded-3xl border border-stone-200/60 shadow-sm p-5 flex flex-col h-full shrink-0 select-none">
+              <div className="flex justify-between items-center border-b border-stone-150 pb-3 mb-3 shrink-0">
+                <div>
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Live Generated Files</h4>
+                  <span className="text-xs font-bold text-indigo-950">{liveFiles.length} files assembled</span>
+                </div>
+                <div className="w-6 h-6 rounded-lg bg-indigo-50 border border-indigo-100/50 flex items-center justify-center text-indigo-600">
+                  <FileCode className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {/* Files List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-0 select-text">
+                {liveFiles.map((filePath) => {
+                  const parts = filePath.split('/');
+                  const fileName = parts.pop();
+                  const dirPath = parts.join('/');
+                  
+                  return (
+                    <motion.div
+                      key={filePath}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="p-2 bg-stone-50/50 border border-stone-150 rounded-xl flex items-start gap-2 shadow-sm"
+                    >
+                      <div className="w-5 h-5 rounded bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mt-0.5 shrink-0 select-none">
+                        <CheckCircle2 className="w-3 h-3" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-bold text-stone-850 block truncate">{fileName}</span>
+                        <span className="text-[8px] text-stone-450 block truncate">{dirPath || "/"}</span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+
+                {liveFiles.length === 0 && (
+                  <div className="h-full flex flex-col items-center justify-center text-stone-400 text-center select-none py-12">
+                    <Loader2 className="w-5 h-5 animate-spin text-stone-300 mb-2" />
+                    <span className="text-[9px] uppercase font-bold tracking-wider">Awaiting Code Synthesis...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     );
   };
