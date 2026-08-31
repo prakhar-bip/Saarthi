@@ -186,13 +186,13 @@ class BacktrackManager:
 
         target_ws = AGENT_TO_WORKSPACE.get(responsible_agent, "architecture_design")
         reason_msg = f"{len(validation_logs)} validation error(s) | Triggered agents: {', '.join(triggered_agents)}"
-        proj_id = self.project_id or str(project_doc.get("_id", ""))
+        project_id = self.project_id or str(project_doc.get("_id", ""))
         progress_logger.backtrack(
             responsible_agent=responsible_agent,
             target_workspace=target_ws,
             depth=backtrack_depth,
             reason=reason_msg,
-            project_id=proj_id
+            project_id=project_id
         )
 
         # Check thresholds
