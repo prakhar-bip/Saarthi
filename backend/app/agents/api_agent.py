@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any
 from openai import OpenAI
 from app.core.config import settings
@@ -42,7 +41,6 @@ class APIAgent:
             "backend_architecture": backend_architecture,
         }
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("NVIDIA_API_KEY not configured. Using intelligent fallback API architecture design.")
             return enrich_agent_output(self._get_fallback_api_architecture(requirements, planning, db_architecture, backend_architecture), self.agent_name, agent_inputs)
 
         system_prompt = build_agent_system_prompt(
@@ -145,9 +143,61 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 temperature=0.1
             )
             raw_response = raw_response.strip()
-            return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
+            data = parse_json_response(raw_response)
+            if not isinstance(data, dict):
+                data = {}
+            if "status" not in data:
+                data["status"] = "success"
+            if "api_strategy" not in data:
+                data["api_strategy"] = {
+                    "protocol": "HTTP/REST",
+                    "base_path": "/api/v1",
+                    "versioning": "URL Path",
+                    "default_response_format": "application/json"
+                }
+            if "endpoints" not in data:
+                data["endpoints"] = []
+            if "global_configurations" not in data:
+                data["global_configurations"] = {
+                    "cors_policy": {
+                        "allowed_origins": ["*"],
+                        "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                        "allowed_headers": ["Content-Type", "Authorization"]
+                    },
+                    "rate_limiting": {
+                        "rate_limit_enabled": True,
+                        "max_requests_per_minute": 60,
+                        "block_duration_seconds": 60
+                    }
+                }
+            if "security_schemes" not in data:
+                data["security_schemes"] = {
+                    "bearer_auth": {
+                        "type": "http",
+                        "scheme": "bearer",
+                        "bearer_format": "JWT",
+                        "header_name": "Authorization"
+                    }
+                }
+            if "error_architecture" not in data:
+                data["error_architecture"] = {
+                    "error_response_format": {
+                        "error": {"code": "string", "message": "string", "details": "array or object"}
+                    },
+                    "error_codes": [
+                        {"code": "UNAUTHORIZED", "http_status": 401, "message": "Unauthorized access"},
+                        {"code": "NOT_FOUND", "http_status": 404, "message": "Resource not found"},
+                        {"code": "VALIDATION_ERROR", "http_status": 422, "message": "Validation error"}
+                    ]
+                }
+            if "future_agent_context" not in data:
+                data["future_agent_context"] = {
+                    "important_notes_for_frontend_agents": [],
+                    "important_notes_for_backend_agents": [],
+                    "important_notes_for_devops_agents": []
+                }
+            return enrich_agent_output(data, self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run APIAgent: {e}")
             return enrich_agent_output(self._get_fallback_api_architecture(requirements, planning, db_architecture, backend_architecture), self.agent_name, agent_inputs)
 
     def _get_fallback_api_architecture(

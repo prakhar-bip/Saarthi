@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 import time
 from typing import List, Dict, Any
 from app.core.config import settings
@@ -79,7 +78,6 @@ async def generate_chat_reply(category: str, messages: List[Dict[str, str]], sel
         return reply
     except Exception as e:
         duration = time.perf_counter() - start_time
-        logger.error(f"❌ [CHAT COMPLETION FAILED] Error: {e} | Duration: {duration:.2f}s")
         return get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
 
 
@@ -152,7 +150,6 @@ async def stream_chat_reply(category: str, messages: List[Dict[str, str]], selec
         ):
             yield chunk
     except Exception as e:
-        logger.error(f"❌ [STREAM CHAT COMPLETION FAILED] Error: {e}")
         # Yield fallback reply
         fallback = get_fallback_chat_reply(category, messages[-1]["text"] if messages else "", selected_project)
         yield fallback
@@ -198,12 +195,11 @@ async def auto_identify_category(blueprint: dict, messages: List[Dict[str, str]]
         category = reply.strip().lower()
         allowed_categories = {"startup", "finance", "health", "education", "productivity", "sustainability", "other"}
         if category in allowed_categories:
-            logger.info(f"Auto-identified category: {category}")
             return category
     except Exception as e:
-        logger.error(f"Error classifying category: {e}")
     
     # Simple keyword fallback detection
+        pass
     idea_text = (blueprint.get("idea") or "").lower()
     name_text = (blueprint.get("name") or "").lower()
     combined = f"{name_text} {idea_text}"
@@ -646,7 +642,6 @@ async def generate_codebase(
     start_time = time.perf_counter()
     context = "\n".join([f"{m['sender'].upper()}: {m['text']}" for m in chat_history])
     if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
-        logger.warning("No LLM API keys or Vertex AI configured. Generating template codebase.")
         return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context, hackathon_metadata, mcp_evidence)
 
     blueprint_prompt = ""
@@ -793,16 +788,9 @@ Generate at least 5 files including: README.md, backend/requirements.txt, backen
         duration = time.perf_counter() - start_time
         
         # Structured terminal logging
-        logger.info("==================================================")
-        logger.info(f"🛠️ [CODEBASE GENERATION SUCCESS] Latency: {duration:.2f}s")
-        logger.info(f"🔹 Project Name: {project_name}")
-        logger.info(f"🔹 Category: {category}")
-        logger.info(f"🔹 Summary: {data.get('summary', '')[:100]}...")
-        logger.info(f"🔹 Code Files Generated ({len(data.get('codebase', []))}):")
         for f in data.get('codebase', []):
-            logger.info(f"  - {f.get('path')} ({len(f.get('content', ''))} chars)")
-        logger.info("==================================================")
         
+            pass
         if "summary" in data and "codebase" in data:
             data["codebase"] = inject_boilerplate_files(data["codebase"], project_name, architecture_context)
             return data
@@ -810,7 +798,6 @@ Generate at least 5 files including: README.md, backend/requirements.txt, backen
             raise ValueError("Invalid JSON structure returned by NIM model")
     except Exception as e:
         duration = time.perf_counter() - start_time
-        logger.error(f"❌ [CODEBASE GENERATION FAILED] Error: {e} | Duration: {duration:.2f}s")
         return get_fallback_codebase(project_name, category, theme, blueprint, theme_palette, architecture_context)
 
 FALLBACK_PROJECTS = {
@@ -1219,6 +1206,35 @@ FALLBACK_PROJECTS = {
     ]
 }
 
+def parse_json_array_response(raw_content: str) -> List[Any]:
+    raw_content = raw_content.strip()
+    
+    # Extract candidate block between first '[' and last ']'
+    start_idx = raw_content.find("[")
+    end_idx = raw_content.rfind("]")
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        cleaned = raw_content[start_idx:end_idx+1]
+    else:
+        cleaned = raw_content
+        
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, list):
+            return data
+    except json.JSONDecodeError:
+        pass
+        
+    # Attempt json_repair
+    try:
+        from json_repair import repair_json
+        repaired = repair_json(cleaned, return_objects=True)
+        if isinstance(repaired, list):
+            return repaired
+    except Exception:
+        pass
+        
+    raise ValueError("Failed to parse valid JSON array from raw content")
+
 async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     """
     Generate exactly 5 project suggestions in JSON format using Nvidia NIM / Google fallback,
@@ -1226,7 +1242,6 @@ async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     """
     category_lower = category.lower()
     if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
-        logger.warning("No LLM keys configured. Falling back to local structured suggestions.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
     
     prompt = f"""
@@ -1269,36 +1284,12 @@ The JSON must match this structure exactly:
             temperature=0.7,
             max_tokens=2048
         )
-        raw_content = content.strip()
-        if raw_content.startswith("```"):
-            lines = raw_content.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].startswith("```"):
-                lines = lines[:-1]
-            raw_content = "\n".join(lines).strip()
-        
-        try:
-            data = json.loads(raw_content)
-        except json.JSONDecodeError as decode_err:
-            try:
-                repaired = raw_content.rstrip(", \n\t")
-                if not repaired.endswith('"') and not repaired.endswith('}') and not repaired.endswith(']'):
-                    repaired += '"'
-                if not repaired.endswith('}'):
-                    repaired += '}'
-                if not repaired.endswith(']'):
-                    repaired += ']'
-                data = json.loads(repaired)
-            except Exception:
-                raise ValueError(f"Could not parse JSON. Original error: {decode_err}")
-
+        data = parse_json_array_response(content)
         if isinstance(data, list) and len(data) > 0:
             return data
         else:
             raise ValueError("Invalid suggestions format returned by model")
     except Exception as e:
-        logger.error(f"Error generating suggestions from LLM: {e}. Falling back.")
         return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
 
 async def generate_single_project_suggestion(idea: str, generation_type: str = "full_stack") -> Dict[str, Any]:
@@ -1442,7 +1433,6 @@ The JSON must match this structure:
         else:
             raise ValueError("Invalid single suggestion format returned by model")
     except Exception as e:
-        logger.error(f"Error generating single suggestion from LLM: {e}. Falling back.")
         if generation_type == "frontend_only":
             return {
                 "name": "Custom Frontend App",
@@ -1604,7 +1594,6 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None,
     or fall back to the structured category-specific lists.
     """
     if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
-        logger.warning("No LLM keys configured. Falling back to local dynamic themes.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt, chat_history)
 
     custom_guideline = f"\nCRITICAL: The user has requested custom themes matching this preference: '{custom_prompt}'. Please generate themes that specifically match this style/preference (e.g. naming, descriptions, and color choices matching '{custom_prompt}')." if custom_prompt else ""
@@ -1667,22 +1656,12 @@ async def generate_theme_suggestions(blueprint: dict, custom_prompt: str = None,
         )
         if not content:
             raise ValueError("LLM returned an empty or null theme suggestions response")
-        raw_content = content.strip()
-        if raw_content.startswith("```"):
-            lines = raw_content.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].startswith("```"):
-                lines = lines[:-1]
-            raw_content = "\n".join(lines).strip()
-
-        data = json.loads(raw_content)
+        data = parse_json_array_response(content)
         if isinstance(data, list) and len(data) == 3:
             return data
         else:
             raise ValueError("Theme suggestion JSON structure was not an array of 3 themes")
     except Exception as e:
-        logger.error(f"Error generating theme suggestions from LLM: {e}. Falling back.")
         return get_fallback_theme_suggestions(blueprint, custom_prompt, chat_history)
 
 
@@ -2314,7 +2293,6 @@ async def generate_prd_mrd_trd(
                 max_tokens=3500
             )
         except Exception as e:
-            logger.error(f"PRD Generation failed: {e}")
             return f"# PRD - {project_name}\\n\\nFailed to generate Product Requirement Document: {e}"
 
     async def run_mrd():
@@ -2329,7 +2307,6 @@ async def generate_prd_mrd_trd(
                 max_tokens=3500
             )
         except Exception as e:
-            logger.error(f"MRD Generation failed: {e}")
             return f"# MRD - {project_name}\\n\\nFailed to generate Market Requirement Document: {e}"
 
     async def run_trd():
@@ -2344,7 +2321,6 @@ async def generate_prd_mrd_trd(
                 max_tokens=3500
             )
         except Exception as e:
-            logger.error(f"TRD Generation failed: {e}")
             return f"# TRD - {project_name}\\n\\nFailed to generate Technical Requirement Document: {e}"
 
     if exclude_prd_mrd:

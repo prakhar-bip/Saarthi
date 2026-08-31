@@ -13,8 +13,8 @@ Phases:
 """
 
 import json
-from loguru import logger
 from typing import Any, Dict, List, Optional
+from app.core.progress_logger import progress_logger
 from app.services.llm_router import get_llm_completion
 from app.agents.context import parse_json_response
 
@@ -819,15 +819,11 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
     # Synthesis Orchestration
     # ──────────────────────────────────────────────────────────────
 
-    async def _run_phase(self, phase_name: str, prompt: str,
-                         db: Any, project_id: str,
-                         progress: int | float, step: str) -> List[Dict]:
-        """Execute one synthesis phase via LLM with a 3-attempt self-healing feedback retry loop."""
+    async def _run_phase_monolithic(self, phase_name: str, prompt: str,
+                                    db: Any, project_id: str,
+                                    progress: int | float, step: str) -> List[Dict]:
+        """Original single-call monolithic code generation (used as fallback or for small phases)."""
         from app.services.workflow import broadcast_agent_progress
-        from app.core.logger import SarthiConsoleLogger
-        
-        await broadcast_agent_progress(db, project_id, progress, step)
-        await SarthiConsoleLogger.log_agent_start(db, project_id, f"CodeSynthesizer_{phase_name}", f"Starting synthesis phase '{phase_name}'")
 
         system = (
             f"You are Sarthi's CodeSynthesizer — a world-class AI code compiler. "
@@ -859,7 +855,6 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                 data = parse_json_response(raw.strip())
                 files = data.get("codebase", [])
                 
-                # Validate file structure
                 valid_files = []
                 for f in files:
                     if isinstance(f, dict) and f.get("path") and f.get("content"):
@@ -869,23 +864,20 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                             f["language"] = self._detect_language(f["path"])
                         valid_files.append(f)
                         
-                logger.info(f"[CodeSynthesizer] Phase '{phase_name}': {len(valid_files)} files generated")
+                pass
                 for vf in valid_files:
-                    logger.info(f"  📄 {vf['path']} ({len(vf.get('content',''))} chars)")
+                    pass
                 
-                await SarthiConsoleLogger.log_success(db, project_id, f"CodeSynthesizer_{phase_name}", f"Successfully synthesized {len(valid_files)} files for phase '{phase_name}'")
+                pass
                 return valid_files
 
             except Exception as e:
                 err_msg = f"Attempt {attempt + 1}/{max_attempts} failed for phase '{phase_name}': {str(e)}"
-                logger.warning(f"[CodeSynthesizer] {err_msg}")
-                await SarthiConsoleLogger.log_healing(db, project_id, f"CodeSynthesizer_{phase_name}", f"Warning: {err_msg}")
+                pass
+                pass
                 
                 if attempt < max_attempts - 1:
-                    # Avoid sending back huge broken raw response. Ask it to just try again with smaller scope.
-                    # Or tell it which files were already parsed if any.
                     try:
-                        # Attempt to see if we extracted anything
                         import json
                         partial_data = {}
                         if "raw" in locals() and locals()["raw"]:
@@ -914,20 +906,151 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                             f"Please ensure you output complete valid JSON. Return ONLY valid JSON."
                         )
                         
-                    # We clear the history to avoid context window explosion and repetitive failure
                     messages = [
                         {"role": "system", "content": system},
                         {"role": "user", "content": prompt},
                         {"role": "user", "content": correction_prompt}
                     ]
                     
-                    # Update progress and UI
                     retry_step = f"🩹 Healing: Retrying {phase_name} (Attempt {attempt + 2}/{max_attempts})..."
                     await broadcast_agent_progress(db, project_id, progress, retry_step)
                 else:
-                    logger.error(f"[CodeSynthesizer] All {max_attempts} attempts failed for phase '{phase_name}'")
-                    await SarthiConsoleLogger.log_error(db, project_id, f"CodeSynthesizer_{phase_name}", f"All {max_attempts} attempts failed: {str(e)}")
+                    pass
+                    pass
                     return []
+
+    async def _run_phase(self, phase_name: str, prompt: str,
+                         db: Any, project_id: str,
+                         progress: int | float, step: str) -> List[Dict]:
+        """Execute one synthesis phase via LLM by discovering files first and then generating each one individually."""
+        import asyncio
+        from app.services.workflow import broadcast_agent_progress
+        
+        await broadcast_agent_progress(db, project_id, progress, step)
+
+        # Skip discovery for ReviewFix or Healing phases, as they work on already structured file lists or diffs
+        if phase_name in ("ReviewFix", "Healing"):
+            return await self._run_phase_monolithic(phase_name, prompt, db, project_id, progress, step)
+
+        # 1. Discovery Phase: Get list of file paths to generate
+        pass
+        pass
+        
+        discovery_system = (
+            "You are Sarthi's CodeSynthesizer — a world-class AI code compiler. "
+            "Your task is to identify and return a list of file paths that need to be generated for the requested phase, along with a brief description of what should go inside each file. "
+            "Do NOT write any actual code content. "
+            "Return ONLY a valid JSON object in this exact format:\n"
+            "{\n"
+            "  \"files\": [\n"
+            "    {\"path\": \"backend/app/main.py\", \"description\": \"Main entry point configuring FastAPI app and middleware.\"}\n"
+            "  ]\n"
+            "}"
+        )
+        
+        discovery_prompt = (
+            f"Review the following requirements and list ALL the files that must be generated for this phase:\n\n"
+            f"{prompt}\n\n"
+            f"Output ONLY valid JSON."
+        )
+
+        max_attempts = 3
+        files_to_generate = []
+        for attempt in range(max_attempts):
+            try:
+                raw_list = await get_llm_completion(
+                    agent_name=f"CodeSynthesizer_{phase_name}_Discovery",
+                    messages=[
+                        {"role": "system", "content": discovery_system},
+                        {"role": "user", "content": discovery_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=2000
+                )
+                data = parse_json_response(raw_list.strip())
+                files_to_generate = data.get("files", [])
+                if files_to_generate:
+                    break
+            except Exception as e:
+                pass
+                if attempt == max_attempts - 1:
+                    pass
+                    return await self._run_phase_monolithic(phase_name, prompt, db, project_id, progress, step)
+
+        pass
+        for f in files_to_generate:
+            pass
+
+        # 2. File-by-File Code Generation Phase (Parallel execution with Semaphore)
+        sem = asyncio.Semaphore(3)
+        
+        async def generate_file(file_info: Dict[str, str]) -> Optional[Dict[str, Any]]:
+            path = file_info.get("path")
+            desc = file_info.get("description", "")
+            if not path:
+                return None
+            
+            async with sem:
+                file_step = f"📄 Generating {path}..."
+                await broadcast_agent_progress(db, project_id, progress, file_step)
+                
+                # Focused prompt to generate only a single file
+                single_system = (
+                    "You are Sarthi's CodeSynthesizer — a world-class AI code compiler. "
+                    "Write the COMPLETE, PRODUCTION-READY code for the requested file path. "
+                    "ABSOLUTE RULES:\n"
+                    "- Write the FULL code content without any shortcuts, TODOs, placeholders, or truncation\n"
+                    "- Return ONLY valid JSON in this exact format:\n"
+                    "{\n"
+                    "  \"name\": \"filename\",\n"
+                    "  \"path\": \"path/to/file\",\n"
+                    "  \"language\": \"language\",\n"
+                    "  \"content\": \"COMPLETE code content\"\n"
+                    "}"
+                )
+                
+                single_user = (
+                    f"Project Requirements / Context:\n{prompt}\n\n"
+                    f"Target File Path to write: {path}\n"
+                    f"Requirements/Description for this file: {desc}\n\n"
+                    f"Output ONLY valid JSON."
+                )
+
+                for file_attempt in range(max_attempts):
+                    try:
+                        raw_code = await get_llm_completion(
+                            agent_name=f"CodeSynthesizer_File_{path.split('/')[-1]}",
+                            messages=[
+                                {"role": "system", "content": single_system},
+                                {"role": "user", "content": single_user}
+                            ],
+                            temperature=0.1,
+                            max_tokens=8000
+                        )
+                        file_data = parse_json_response(raw_code.strip())
+                        if file_data and file_data.get("content"):
+                            if not file_data.get("name"):
+                                file_data["name"] = path.split("/")[-1]
+                            if not file_data.get("language"):
+                                file_data["language"] = self._detect_language(path)
+                            file_data["path"] = path # Enforce requested path
+                            progress_logger.file_generated(path, char_count=len(file_data.get("content", "")), project_id=project_id)
+                            return file_data
+                    except Exception as e:
+                        progress_logger.warning(f"Failed to generate file {path} (attempt {file_attempt+1}): {e}", project_id=project_id)
+                
+                pass
+                return None
+
+        # Run file generation in parallel
+        tasks = [generate_file(f) for f in files_to_generate]
+        results = await asyncio.gather(*tasks)
+        
+        valid_files = [r for r in results if r is not None]
+        pass
+        
+        pass
+        return valid_files
 
     @staticmethod
     def _detect_language(path: str) -> str:
@@ -951,7 +1074,7 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
         Targeted self-healing pass: takes files with errors and validation error logs,
         runs a focused LLM repair, and merges the repaired files back.
         """
-        logger.info(f"[CodeSynthesizer] 🩺 Starting targeted dynamic healing for {len(validation_errors)} issues.")
+        pass
         from app.services.workflow import broadcast_agent_progress
         await broadcast_agent_progress(db, project_id, 89, "🩺 Running dynamic healing on compilation/syntax errors...")
         
@@ -980,7 +1103,7 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
                 files_to_heal[mf] = ""
                 
         if not files_to_heal:
-            logger.warning("[CodeSynthesizer] Healing called but no specific files were mapped to errors. Healing main entrypoints.")
+            pass
             for path in ["backend/app/main.py", "frontend/src/app/page.tsx"]:
                 for f in existing_codebase:
                     if f.get("path") == path:
@@ -1011,7 +1134,7 @@ If everything is correct: {{"fixes_applied":[],"codebase":[]}}"""
             healed_f = next(hf for hf in healed_files if hf["path"] == path)
             final_codebase.append(healed_f)
             
-        logger.info(f"[CodeSynthesizer] Dynamic healing applied {len(healed_files)} corrected files.")
+        pass
         return final_codebase
 
     def _build_dynamic_healing_prompt(self, info: Dict, files_to_heal: Dict[str, str],
@@ -1077,7 +1200,7 @@ Return ONLY the files you have repaired or created in the following JSON format:
     async def _store_intermediate(db: Any, project_id: str, files: List[Dict], phase: str) -> None:
         """Store intermediate codebase files in MongoDB to enable resume capability."""
         try:
-            logger.info(f"[CodeSynthesizer] Storing intermediate codebase ({len(files)} files) for phase '{phase}'")
+            pass
             await db.projects.update_one(
                 {"_id": project_id},
                 {"$set": {
@@ -1086,7 +1209,7 @@ Return ONLY the files you have repaired or created in the following JSON format:
                 }}
             )
         except Exception as e:
-            logger.error(f"[CodeSynthesizer] Failed to store intermediate codebase: {e}")
+            pass
 
     async def synthesize(self, project_doc: Dict, db: Any, project_id: str,
                          validation_errors: Optional[List[Dict]] = None,
@@ -1135,7 +1258,7 @@ Return ONLY the files you have repaired or created in the following JSON format:
                                 ],
                                 'description': f'{feat} entity'
                             })
-                logger.info(f"[CodeSynthesizer] Entities augmented from features: {[e['name'] for e in entities]}")
+                pass
 
         # ── Enforce minimum pages/features (Only if not backend_only or microservice) ──
         if gen_type not in ("backend_only", "microservice"):
@@ -1152,20 +1275,20 @@ Return ONLY the files you have repaired or created in the following JSON format:
                 for dp in default_pages:
                     if dp['route'] not in existing_routes and len(pages) < min_features:
                         pages.append(dp)
-                logger.info(f"[CodeSynthesizer] Pages padded to minimum: {len(pages)} pages")
+                pass
 
-        logger.info("=" * 60)
-        logger.info(f"[CodeSynthesizer] Starting synthesis for '{info['name']}' ({gen_type})")
-        logger.info(f"  Entities : {[e['name'] for e in entities]}")
-        logger.info(f"  Endpoints: {len(endpoints)}")
-        logger.info(f"  Pages    : {len(pages)}")
-        logger.info(f"  DB       : {db_type}")
-        logger.info(f"  Backend  : {stack['backend']}")
-        logger.info(f"  Frontend : {stack['frontend']}")
-        logger.info(f"  PRD      : {'Available (' + str(len(doc_context['prd_summary'])) + ' chars)' if doc_context['prd_summary'] != 'No PRD available' else 'Not available'}")
-        logger.info(f"  TRD      : {'Available (' + str(len(doc_context['trd_summary'])) + ' chars)' if doc_context['trd_summary'] != 'No TRD available' else 'Not available'}")
-        logger.info(f"  MRD      : {'Available (' + str(len(doc_context['mrd_summary'])) + ' chars)' if doc_context['mrd_summary'] != 'No MRD available' else 'Not available'}")
-        logger.info("=" * 60)
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
+        pass
 
         all_files: List[Dict] = []
 
@@ -1238,11 +1361,11 @@ Return ONLY the files you have repaired or created in the following JSON format:
                     if path in existing_paths:
                         all_files = [f for f in all_files if f["path"] != path]
                     all_files.append(fix_file)
-                logger.info(f"[CodeSynthesizer] Review applied {len(fix_result)} fixes")
+                pass
 
         # ── Safety net: ensure minimum viable files ──
         if len(all_files) < (3 if gen_type in ("frontend_only", "backend_only", "microservice") else 5):
-            logger.warning("[CodeSynthesizer] Too few files — injecting essential boilerplate")
+            pass
             all_files = self._inject_essential_boilerplate(all_files, info, entities, db_type, stack, gen_type)
 
         # Deduplicate by path (keep latest)
@@ -1254,11 +1377,11 @@ Return ONLY the files you have repaired or created in the following JSON format:
         # ── Validation Step ──
         self._validate_synthesis_output(all_files, backend_files, frontend_files, stack, gen_type)
 
-        logger.info("=" * 60)
-        logger.info(f"[CodeSynthesizer] ✅ Synthesis complete — {len(all_files)} files")
+        pass
+        pass
         total_chars = sum(len(f.get("content", "")) for f in all_files)
-        logger.info(f"  Total code size: {total_chars:,} characters")
-        logger.info("=" * 60)
+        pass
+        pass
 
         return all_files
 
@@ -1308,11 +1431,11 @@ Return ONLY the files you have repaired or created in the following JSON format:
                 warnings.append(f"Missing required file: {req_path} ({desc})")
 
         if warnings:
-            logger.warning("[CodeSynthesizer] ⚠️ Synthesis validation warnings:")
+            pass
             for w in warnings:
-                logger.warning(f"  - {w}")
+                pass
         else:
-            logger.info("[CodeSynthesizer] ✅ Synthesis validation passed — all checks OK")
+            pass
 
     def _inject_essential_boilerplate(self, files: List[Dict], info: Dict,
                                      entities: List[Dict], db_type: str, stack: Dict[str, Any], gen_type: str = "full_stack") -> List[Dict]:

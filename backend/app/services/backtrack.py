@@ -1,7 +1,29 @@
+import os
 from typing import Dict, Any, List, Set, Optional
-from loguru import logger
 import copy
 from datetime import datetime, timezone
+from app.core.progress_logger import progress_logger
+
+# Maps each responsible agent to the workspace node that should be re-run (scoped backtrack)
+AGENT_TO_WORKSPACE: dict = {
+    "DatabaseArchitectureAgent": "architecture_design",
+    "DatabaseModelGenerationAgent": "architecture_design",
+    "BackendArchitectureAgent": "architecture_design",
+    "APIAgent": "architecture_design",
+    "APIImplementationAgent": "architecture_design",
+    "FrontendArchitectureAgent": "architecture_design",
+    "UIUXArchitectAgent": "architecture_design",
+    "UIComponentGenerationAgent": "architecture_design",
+    "StateManagementAgent": "architecture_design",
+    "StateImplementationAgent": "architecture_design",
+    "AuthArchitectureAgent": "ops_security_workspace",
+    "RealtimeArchitectureAgent": "ops_security_workspace",
+    "DevOpsArchitectureAgent": "ops_security_workspace",
+    "SecurityArchitectureAgent": "ops_security_workspace",
+    "TestingArchitectureAgent": "ops_security_workspace",
+    "ValidationArchitectureAgent": "ops_security_workspace",
+    "OptimizationArchitectureAgent": "ops_security_workspace",
+}
 
 class ValidationFailureAnalyzer:
     """
@@ -145,8 +167,8 @@ class BacktrackManager:
         """
         Restores checkpoint, unsets relevant DB keys for responsible and downstream agents, and logs progress.
         """
-        MAX_AGENT_RETRIES = 3
-        MAX_BACKTRACK_DEPTH = 5
+        MAX_AGENT_RETRIES = 2 if os.environ.get("ENVIRONMENT") == "development" else 3
+        MAX_BACKTRACK_DEPTH = 1 if os.environ.get("ENVIRONMENT") == "development" else 5
 
         responsible_agent = analyzer_result["responsible_agent"]
         failure_type = analyzer_result["failure_type"]
@@ -162,14 +184,19 @@ class BacktrackManager:
         current_retries = agent_retries.get(responsible_agent, 0) + 1
         agent_retries[responsible_agent] = current_retries
 
-        # Format and write target logs to stdout
-        logger.info(f"[Validation]\nResult: FAILED - {len(validation_logs)} errors found.")
-        logger.info(f"[Backtrack]\nResponsible Agent: {responsible_agent}")
-        logger.info(f"[Regeneration]\nTriggered Agents: {', '.join(triggered_agents)}")
+        target_ws = AGENT_TO_WORKSPACE.get(responsible_agent, "architecture_design")
+        reason_msg = f"{len(validation_logs)} validation error(s) | Triggered agents: {', '.join(triggered_agents)}"
+        proj_id = self.project_id or str(project_doc.get("_id", ""))
+        progress_logger.backtrack(
+            responsible_agent=responsible_agent,
+            target_workspace=target_ws,
+            depth=backtrack_depth,
+            reason=reason_msg,
+            project_id=proj_id
+        )
 
         # Check thresholds
         if current_retries > MAX_AGENT_RETRIES or backtrack_depth > MAX_BACKTRACK_DEPTH:
-            logger.error(f"[Validation] Limit exceeded. Retries: {current_retries}/{MAX_AGENT_RETRIES}, Depth: {backtrack_depth}/{MAX_BACKTRACK_DEPTH}")
             
             # Record human intervention metrics in MongoDB
             await self._record_metrics_db(
@@ -232,8 +259,6 @@ class BacktrackManager:
         )
 
         # Log restored state and retry metrics
-        logger.info(f"[Checkpoint]\nRestored State: Cleared database keys for: {', '.join(triggered_agents)}")
-        logger.info(f"[Retry]\nCurrent Attempt: Depth={backtrack_depth}, Responsible Agent Retries={current_retries}")
 
         # Update MongoDB telemetry metrics
         await self._record_metrics_db(
@@ -247,12 +272,17 @@ class BacktrackManager:
         # Fetch clean, fresh project doc with cleared fields
         clean_doc = await self.db.projects.find_one({"_id": self.project_id}) or project_doc
 
+        # Determine which workspace to re-run (scoped backtrack)
+        responsible_agent = analyzer_result.get("responsible_agent", "")
+        backtrack_target = AGENT_TO_WORKSPACE.get(responsible_agent, "architecture_design")
+
         return {
             "status": "BACKTRACK_SUCCESS",
             "project_doc": clean_doc,
             "retry_count": backtrack_depth,
             "backtrack_depth": backtrack_depth,
-            "agent_retries": agent_retries
+            "agent_retries": agent_retries,
+            "backtrack_target": backtrack_target
         }
 
     async def record_regeneration_success(self, validation_errors: List[Dict[str, Any]] = None):
@@ -325,6 +355,5 @@ class BacktrackManager:
             {"_id": project_id},
             {"$unset": unset_fields}
         )
-        logger.warning(f"[{project_id}] Cleaned cache keys for surgical force run of {target_agent} and downstream: {', '.join(triggered_agents)}")
         return triggered_agents
 

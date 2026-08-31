@@ -1,7 +1,6 @@
 import json
 import time
-from typing import Dict, Any, List
-from loguru import logger
+from typing import Dict, Any, List, Optional
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
 from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
@@ -16,7 +15,7 @@ class BackendEntityGenerator:
     def __init__(self) -> None:
         self.agent_name = "BackendEntityGenerator"
 
-    async def generate(self, entity_contract: Dict[str, Any], relevant_dependencies: List[str], tech_stack: str = "fastapi") -> Dict[str, Any]:
+    async def generate(self, entity_contract: Dict[str, Any], relevant_dependencies: List[str], tech_stack: str = "fastapi", auth_architecture: Optional[Dict[str, Any]] = None, all_entity_names: Optional[List[str]] = None, sdlc_model: str = "agile", theme_styling: Optional[Dict[str, Any]] = None, realtime_architecture: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Synthesize backend modules for a single entity in isolation."""
         ename = entity_contract["name"]
         agent_inputs = {
@@ -30,7 +29,6 @@ class BackendEntityGenerator:
 
         # Check for API keys
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning(f"No LLM API keys configured. Using fallback backend code for {ename} on tech stack: {tech_stack_normalized}.")
             return enrich_agent_output(
                 self._get_fallback_backend(entity_contract, tech_stack_normalized),
                 self.agent_name,
@@ -137,7 +135,7 @@ class BackendEntityGenerator:
         elif tech_stack_normalized in ["springboot", "spring"]:
             path_prefix = "backend/src/main/java/com/saarthi/"
 
-        user_prompt = f"""
+        prompt_parts = [f"""
         Entity Contract: {json.dumps(entity_contract, indent=2)}
         Upstream Dependencies to Import/Reference: {json.dumps(relevant_dependencies)}
 
@@ -145,7 +143,19 @@ class BackendEntityGenerator:
         {files_prompt}
 
         Ensure files are saved under the correct path layout (e.g. prefix each relative path with '{path_prefix}').
-        
+        """]
+
+        if auth_architecture:
+            prompt_parts.append(f"\n\nAUTH STRATEGY:\n{json.dumps(auth_architecture.get('authentication_strategy', {}), default=str)[:1000]}")
+        if all_entity_names:
+            prompt_parts.append(f"\n\nALL PROJECT ENTITIES (for cross-references): {', '.join(all_entity_names)}")
+        if sdlc_model:
+            if sdlc_model == 'v_model':
+                prompt_parts.append("\n\nSDLC: V-Model — generate comprehensive docstrings and include a test stub for every function.")
+            elif sdlc_model == 'agile':
+                prompt_parts.append("\n\nSDLC: Agile — add TODO comments for future sprint enhancements.")
+
+        prompt_parts.append(f"""
         Return ONLY a JSON response in this exact format:
         {{
           "files": [
@@ -157,10 +167,12 @@ class BackendEntityGenerator:
             }}
           ]
         }}
-        """
+        """)
+
+        user_prompt = "".join(prompt_parts)
+
 
         try:
-            logger.info(f"[EntityGeneration] Entity: {ename} - Synthesizing backend code for stack '{tech_stack_normalized}'...")
             t0 = time.time()
             response = await get_llm_completion(
                 agent_name=self.agent_name,
@@ -175,7 +187,6 @@ class BackendEntityGenerator:
             parsed["duration"] = t1 - t0
             return enrich_agent_output(parsed, self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to generate backend for {ename}: {e}. Running fallback.")
             return enrich_agent_output(
                 self._get_fallback_backend(entity_contract, tech_stack_normalized),
                 self.agent_name,
@@ -568,7 +579,7 @@ class FrontendEntityGenerator:
     def __init__(self) -> None:
         self.agent_name = "FrontendEntityGenerator"
 
-    async def generate(self, entity_contract: Dict[str, Any], ui_contract: Dict[str, Any], api_contract: Dict[str, Any]) -> Dict[str, Any]:
+    async def generate(self, entity_contract: Dict[str, Any], ui_contract: Dict[str, Any], api_contract: Dict[str, Any], auth_architecture: Optional[Dict[str, Any]] = None, all_entity_names: Optional[List[str]] = None, sdlc_model: str = "agile", theme_styling: Optional[Dict[str, Any]] = None, realtime_architecture: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Synthesize frontend components, pages, stores, and hooks for a single entity in isolation."""
         ename = entity_contract["name"]
         agent_inputs = {
@@ -579,7 +590,6 @@ class FrontendEntityGenerator:
 
         # Check for API keys
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning(f"No LLM API keys configured. Using fallback frontend code for {ename}.")
             return enrich_agent_output(
                 self._get_fallback_frontend(entity_contract),
                 self.agent_name,
@@ -596,7 +606,7 @@ class FrontendEntityGenerator:
             ),
         )
 
-        user_prompt = f"""
+        prompt_parts = [f"""
         Entity Contract: {json.dumps(entity_contract, indent=2)}
         UI Theme & Styling Tokens: {json.dumps(ui_contract, indent=2)}
         API Contract Endpoints: {json.dumps(api_contract, indent=2)}
@@ -607,7 +617,19 @@ class FrontendEntityGenerator:
         3. hooks/use{ename}.ts — SWR React data fetching hook
         4. stores/{ename.lower()}Store.ts — Zustand state management store
         5. api/{ename.lower()}.ts — axios router client wrappers
+        """]
 
+        if auth_architecture:
+            prompt_parts.append(f"\n\nAUTH STRATEGY:\n{json.dumps(auth_architecture.get('authentication_strategy', {}), default=str)[:1000]}")
+        if all_entity_names:
+            prompt_parts.append(f"\n\nALL PROJECT ENTITIES (for cross-references): {', '.join(all_entity_names)}")
+        if sdlc_model:
+            if sdlc_model == 'v_model':
+                prompt_parts.append("\n\nSDLC: V-Model — generate comprehensive docstrings and include a test stub for every function.")
+            elif sdlc_model == 'agile':
+                prompt_parts.append("\n\nSDLC: Agile — add TODO comments for future sprint enhancements.")
+
+        prompt_parts.append(f"""
         Return ONLY a JSON response in this exact format:
         {{
           "files": [
@@ -619,10 +641,12 @@ class FrontendEntityGenerator:
             }}
           ]
         }}
-        """
+        """)
+
+        user_prompt = "".join(prompt_parts)
+
 
         try:
-            logger.info(f"[EntityGeneration] Entity: {ename} - Synthesizing frontend code...")
             t0 = time.time()
             response = await get_llm_completion(
                 agent_name=self.agent_name,
@@ -637,7 +661,6 @@ class FrontendEntityGenerator:
             parsed["duration"] = t1 - t0
             return enrich_agent_output(parsed, self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to generate frontend for {ename}: {e}. Running fallback.")
             return enrich_agent_output(
                 self._get_fallback_frontend(entity_contract),
                 self.agent_name,

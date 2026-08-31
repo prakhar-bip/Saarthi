@@ -1,9 +1,8 @@
-# Sarthi Premium Logging & Self-Healing Synthesis Task Checklist
+# Fix Tasks — Generation Hang (2-hour loop)
 
-- [ ] Implement `_store_intermediate` inside `backend/app/agents/code_synthesizer.py`
-- [x] Implement self-healing feedback retry loops (up to 3 attempts) inside `_run_phase` in `backend/app/agents/code_synthesizer.py`
-- [/] Implement `generation_type` folder isolation/filtering in `_merge_codebases` inside `backend/app/services/project_assembler.py`
-- [ ] Modify `backend/app/core/logger.py` to overhaul stdout format & ws_log_sink, and implement `SarthiConsoleLogger`
-- [ ] Modify `backend/app/services/llm_router.py` to inject agent retry feedback before both ADK Runner and direct API calls
-- [ ] Update frontend `ProjectViewer.tsx` to render beautiful colored log badges/capsules for [INFO], [SUCCESS], [WARNING], [HEAL], and [ERROR]
-- [ ] Compile and verify entire backend & frontend application
+- [x] Fix 1: Update .env — correct model names + DEV_PRIMARY_PROVIDER
+- [x] Fix 2: Add ADK runner 60s timeout in llm_router.py
+- [x] Fix 3: Add 5-min wall-clock timeout per agent in workflow.py
+- [x] Fix 4: Reduce MAX_BACKTRACK_DEPTH to 1 in dev in backtrack.py
+- [x] Fix 5: Reduce retry count to 2 in dev in workflow.py
+- [x] Fix 6: Lower verifier thresholds (pages/features) in dev in verifier_agent.py

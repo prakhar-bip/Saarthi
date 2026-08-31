@@ -1,7 +1,6 @@
 import os
 import asyncio
 from typing import Dict, Any, List, Tuple
-from loguru import logger
 
 class ContainerVerifier:
     """
@@ -37,7 +36,6 @@ class ContainerVerifier:
         Launches an ephemeral Docker container, mounts the workspace, runs verification, 
         collects the execution logs, and destroys the container on exit.
         """
-        logger.info(f"[ContainerVerifier] Executing containerized checks using image '{image_name}'...")
         
         # Establish robust container invocation CLI
         # --rm: Ephemeral, destroy container on exit
@@ -60,7 +58,6 @@ class ContainerVerifier:
             "sh", "-c", sh_command
         ]
         
-        logger.info(f"[ContainerVerifier] Invoking command: {' '.join(docker_cmd)}")
         
         t0 = asyncio.get_event_loop().time()
         proc = await asyncio.create_subprocess_exec(
@@ -79,7 +76,6 @@ class ContainerVerifier:
                     decoded = line.decode('utf-8', errors='ignore').strip()
                     if decoded:
                         logs.append(f"{prefix}{decoded}")
-                        logger.info(f"{prefix}{decoded}")
             except Exception:
                 pass
 
@@ -89,7 +85,6 @@ class ContainerVerifier:
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning(f"[ContainerVerifier] Execution timed out after {timeout} seconds. Killing process...")
             try:
                 proc.terminate()
                 await proc.wait()
@@ -100,7 +95,6 @@ class ContainerVerifier:
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
         
         duration = asyncio.get_event_loop().time() - t0
-        logger.info(f"[ContainerVerifier] Ephemeral container finished in {duration:.2f}s with exit code {proc.returncode}")
         
         return proc.returncode if proc.returncode is not None else -1, logs
 
@@ -145,7 +139,6 @@ class ContainerVerifier:
             "sh", "-c", sh_command
         ]
         
-        logger.info(f"[ContainerVerifier] Starting daemon container: {' '.join(docker_cmd)}")
         proc = await asyncio.create_subprocess_exec(
             *docker_cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -155,14 +148,12 @@ class ContainerVerifier:
         
         if proc.returncode != 0:
             err_msg = stderr.decode('utf-8', errors='ignore')
-            logger.error(f"[ContainerVerifier] Failed to start daemon container: {err_msg}")
             return proc.returncode if proc.returncode is not None else -1, [f"[SYSTEM] Failed to start daemon: {err_msg}"]
 
         # Let the container run and sniff dev logs
         await asyncio.sleep(run_duration)
 
         # Get logs
-        logger.info(f"[ContainerVerifier] Sniffing logs from daemon container '{container_name}'...")
         logs_proc = await asyncio.create_subprocess_exec(
             "docker", "logs", container_name,
             stdout=asyncio.subprocess.PIPE,
@@ -177,7 +168,6 @@ class ContainerVerifier:
             logs.append(f"[STDERR] {line}")
 
         # Stop and remove container
-        logger.info(f"[ContainerVerifier] Stopping and removing daemon container '{container_name}'...")
         stop_proc = await asyncio.create_subprocess_exec(
             "docker", "rm", "-f", container_name,
             stdout=asyncio.subprocess.DEVNULL,

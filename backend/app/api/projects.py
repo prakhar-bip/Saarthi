@@ -1,4 +1,3 @@
-from loguru import logger
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -11,6 +10,7 @@ from app.models.project import ProjectResponse, ProjectCreate, BlueprintSchema, 
 from app.db.mongodb import get_database
 from app.api.auth import get_current_user
 from app.core.config import settings
+from app.core.progress_logger import progress_logger
 from app.services.ai import generate_codebase, generate_project_suggestions
 from app.services.mcp_service import mcp_client
 from app.services.ws_manager import manager
@@ -210,18 +210,14 @@ async def run_optimization_and_generation_planning(
     )
     missing_fields = [field for field in required_fields if not project_doc.get(field)]
     if missing_fields:
-        logger.info(
-            "Skipping post-validation optimization agents for project %s. Missing: %s",
-            project_id,
-            ", ".join(missing_fields)
-        )
+        pass
         return
 
     optimization_arch = project_doc.get("optimization_architecture")
     if not optimization_arch:
         try:
             await broadcast_agent_progress(db, project_id, 80, "Optimizing Performance...")
-            logger.info(f"Executing OptimizationArchitectureAgent for project {project_id}...")
+            pass
             optimization_agent = OptimizationArchitectureAgent()
             optimization_arch = await optimization_agent.design(
                 project_doc["requirements"],
@@ -245,16 +241,16 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"optimization_architecture": optimization_arch}}
             )
             project_doc["optimization_architecture"] = optimization_arch
-            logger.info("OptimizationArchitectureAgent completed successfully.")
+            pass
         except Exception as opt_err:
-            logger.error(f"OptimizationArchitectureAgent failed: {opt_err}")
+            pass
 
     if not project_doc.get("optimization_architecture"):
         return
 
     if not project_doc.get("code_generation_plan"):
         try:
-            logger.info(f"Executing CodeGenerationPlannerAgent for project {project_id}...")
+            pass
             codegen_planner = CodeGenerationPlannerAgent()
             code_generation_plan = await codegen_planner.design(
                 project_doc["requirements"],
@@ -279,16 +275,16 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"code_generation_plan": code_generation_plan}}
             )
             project_doc["code_generation_plan"] = code_generation_plan
-            logger.info("CodeGenerationPlannerAgent completed successfully.")
+            pass
         except Exception as codegen_err:
-            logger.error(f"CodeGenerationPlannerAgent failed: {codegen_err}")
+            pass
 
     if not project_doc.get("code_generation_plan"):
         return
 
     if not project_doc.get("database_model_generation"):
         try:
-            logger.info(f"Executing DatabaseModelGenerationAgent for project {project_id}...")
+            pass
             db_model_agent = DatabaseModelGenerationAgent()
             database_model_generation = await db_model_agent.design(
                 project_doc["requirements"],
@@ -306,13 +302,13 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"database_model_generation": database_model_generation}}
             )
             project_doc["database_model_generation"] = database_model_generation
-            logger.info("DatabaseModelGenerationAgent completed successfully.")
+            pass
         except Exception as db_model_err:
-            logger.error(f"DatabaseModelGenerationAgent failed: {db_model_err}")
+            pass
 
     if not project_doc.get("backend_code_generation") and project_doc.get("database_model_generation"):
         try:
-            logger.info(f"Executing BackendCodeGenerationAgent for project {project_id}...")
+            pass
             backend_code_agent = BackendCodeGenerationAgent()
             backend_code_generation = await backend_code_agent.design(
                 project_doc["requirements"],
@@ -331,14 +327,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"backend_code_generation": backend_code_generation}}
             )
             project_doc["backend_code_generation"] = backend_code_generation
-            logger.info("BackendCodeGenerationAgent completed successfully.")
+            pass
         except Exception as backend_code_err:
-            logger.error(f"BackendCodeGenerationAgent failed: {backend_code_err}")
+            pass
 
     if not project_doc.get("api_implementation") and project_doc.get("backend_code_generation"):
         try:
             await broadcast_agent_progress(db, project_id, 81, "Implementing APIs...")
-            logger.info(f"Executing APIImplementationAgent for project {project_id}...")
+            pass
             api_impl_agent = APIImplementationAgent()
             api_implementation = await api_impl_agent.design(
                 project_doc["requirements"],
@@ -358,14 +354,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"api_implementation": api_implementation}}
             )
             project_doc["api_implementation"] = api_implementation
-            logger.info("APIImplementationAgent completed successfully.")
+            pass
         except Exception as api_impl_err:
-            logger.error(f"APIImplementationAgent failed: {api_impl_err}")
+            pass
 
     if not project_doc.get("frontend_code_generation") and project_doc.get("api_implementation"):
         try:
             await broadcast_agent_progress(db, project_id, 83, "Generating Frontend Code...")
-            logger.info(f"Executing FrontendCodeGenerationAgent for project {project_id}...")
+            pass
             fe_code_agent = FrontendCodeGenerationAgent()
             frontend_code_generation = await fe_code_agent.design(
                 project_doc["requirements"],
@@ -386,14 +382,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"frontend_code_generation": frontend_code_generation}}
             )
             project_doc["frontend_code_generation"] = frontend_code_generation
-            logger.info("FrontendCodeGenerationAgent completed successfully.")
+            pass
         except Exception as fe_code_err:
-            logger.error(f"FrontendCodeGenerationAgent failed: {fe_code_err}")
+            pass
 
     if not project_doc.get("ui_component_generation") and project_doc.get("frontend_code_generation"):
         try:
             await broadcast_agent_progress(db, project_id, 85, "Generating UI Components...")
-            logger.info(f"Executing UIComponentGenerationAgent for project {project_id}...")
+            pass
             ui_comp_agent = UIComponentGenerationAgent()
             ui_component_generation = await ui_comp_agent.design(
                 project_doc["requirements"],
@@ -415,14 +411,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"ui_component_generation": ui_component_generation}}
             )
             project_doc["ui_component_generation"] = ui_component_generation
-            logger.info("UIComponentGenerationAgent completed successfully.")
+            pass
         except Exception as ui_comp_err:
-            logger.error(f"UIComponentGenerationAgent failed: {ui_comp_err}")
+            pass
 
     if not project_doc.get("state_implementation") and project_doc.get("ui_component_generation"):
         try:
             await broadcast_agent_progress(db, project_id, 87, "Implementing State Management...")
-            logger.info(f"Executing StateImplementationAgent for project {project_id}...")
+            pass
             state_impl_agent = StateImplementationAgent()
             state_implementation = await state_impl_agent.design(
                 project_doc["requirements"],
@@ -445,14 +441,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"state_implementation": state_implementation}}
             )
             project_doc["state_implementation"] = state_implementation
-            logger.info("StateImplementationAgent completed successfully.")
+            pass
         except Exception as state_impl_err:
-            logger.error(f"StateImplementationAgent failed: {state_impl_err}")
+            pass
 
     if not project_doc.get("integration_generation") and project_doc.get("state_implementation"):
         try:
             await broadcast_agent_progress(db, project_id, 89, "Integrating Systems...")
-            logger.info(f"Executing IntegrationGenerationAgent for project {project_id}...")
+            pass
             integration_agent = IntegrationGenerationAgent()
             integration_generation = await integration_agent.design(
                 project_doc["requirements"],
@@ -476,14 +472,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"integration_generation": integration_generation}}
             )
             project_doc["integration_generation"] = integration_generation
-            logger.info("IntegrationGenerationAgent completed successfully.")
+            pass
         except Exception as integration_err:
-            logger.error(f"IntegrationGenerationAgent failed: {integration_err}")
+            pass
 
     if not project_doc.get("build_compilation") and project_doc.get("integration_generation"):
         try:
             await broadcast_agent_progress(db, project_id, 91, "Compiling Build Assets...")
-            logger.info(f"Executing BuildCompilationAgent for project {project_id}...")
+            pass
             build_agent = BuildCompilationAgent()
             build_compilation = await build_agent.design(
                 project_doc["requirements"],
@@ -508,14 +504,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"build_compilation": build_compilation}}
             )
             project_doc["build_compilation"] = build_compilation
-            logger.info("BuildCompilationAgent completed successfully.")
+            pass
         except Exception as build_err:
-            logger.error(f"BuildCompilationAgent failed: {build_err}")
+            pass
 
     if not project_doc.get("error_correction") and project_doc.get("build_compilation"):
         try:
             await broadcast_agent_progress(db, project_id, 93, "Running Error Correction...")
-            logger.info(f"Executing ErrorCorrectionAgent for project {project_id}...")
+            pass
             error_correction_agent = ErrorCorrectionAgent()
             error_correction = await error_correction_agent.design(
                 project_doc["requirements"],
@@ -541,14 +537,14 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"error_correction": error_correction}}
             )
             project_doc["error_correction"] = error_correction
-            logger.info("ErrorCorrectionAgent completed successfully.")
+            pass
         except Exception as ec_err:
-            logger.error(f"ErrorCorrectionAgent failed: {ec_err}")
+            pass
 
     if not project_doc.get("project_export") and project_doc.get("error_correction"):
         try:
             await broadcast_agent_progress(db, project_id, 95, "Exporting Project Files...")
-            logger.info(f"Executing ProjectExportAgent for project {project_id}...")
+            pass
             export_agent = ProjectExportAgent()
             project_export = await export_agent.design(
                 project_doc["requirements"],
@@ -577,9 +573,9 @@ async def run_optimization_and_generation_planning(
                 {"$set": {"project_export": project_export}}
             )
             project_doc["project_export"] = project_export
-            logger.info("ProjectExportAgent completed successfully.")
+            pass
         except Exception as export_err:
-            logger.error(f"ProjectExportAgent failed: {export_err}")
+            pass
 
     agent_context = build_compilation_context(extract_architecture_context(project_doc))
     await db.projects.update_one(
@@ -599,8 +595,7 @@ async def run_project_compilation(
     theme_palette: ThemePaletteSchema = None
 ):
     """Background task to simulate stages, call Nvidia NIM to write code, and update DB."""
-    from app.core.logger import current_project_id
-    current_project_id.set(project_id)
+    pass
     db = get_database()
     
     try:
@@ -663,11 +658,11 @@ async def run_project_compilation(
         if latest_project_doc.get("status") != "completed":
             # Fallback: the workflow may have been interrupted at HITL gate
             if latest_project_doc.get("status") == "waiting_approval":
-                logger.info(f"Project {project_id} is waiting for HITL approval — not marking complete.")
+                pass
                 return
             
             # If workflow finished but status wasn't set, finalize now
-            logger.warning(f"Project {project_id} workflow finished but status is '{latest_project_doc.get('status')}' — finalizing.")
+            pass
             from app.services.workflow import finalize_project_delivery
             await finalize_project_delivery(db, project_id, latest_project_doc)
         
@@ -699,10 +694,10 @@ async def run_project_compilation(
             step="Deployment Complete",
             status="completed"
         )
-        logger.info(f"Project {project_id} compilation complete! ({file_count} files synthesized)")
+        pass
         
     except Exception as e:
-        logger.error(f"Project compilation failed for {project_id}: {e}")
+        pass
         await db.projects.update_one(
             {"_id": project_id},
             {
@@ -787,7 +782,7 @@ async def generate_documents_endpoint(
     try:
         docs = await generate_prd_mrd_trd(payload.name, payload.prompt, payload.generation_type)
     except Exception as e:
-        logger.error(f"Failed to generate documents for project {payload.name}: {e}")
+        pass
         raise HTTPException(status_code=500, detail=f"Document generation failed: {str(e)}")
         
     new_project = {
@@ -840,8 +835,7 @@ async def run_full_generation_pipeline(
     - If TRD generation fails, a fallback TRD is used so downstream verifier never blocks.
     - Each agent step has individual error handling + fallback values.
     """
-    from app.core.logger import current_project_id
-    current_project_id.set(project_id)
+    pass
     db = get_database()
 
     # ── Step 1: TRD Generation — Atomic Save (0-8%) ──────────────────────────────
@@ -867,9 +861,9 @@ async def run_full_generation_pipeline(
             trd = docs.get("trd", "").strip()
             if trd and len(trd) > 100:
                 break
-            logger.warning(f"[{project_id}] TRD attempt {trd_attempt} returned short/empty content. Retrying...")
+            pass
         except Exception as e:
-            logger.error(f"[{project_id}] TRD generation attempt {trd_attempt} failed: {e}")
+            pass
 
     if not trd or len(trd) < 100:
         # Fallback TRD — ensures verifier check never fails due to empty TRD
@@ -881,14 +875,14 @@ async def run_full_generation_pipeline(
             f"Technical requirements are derived from the project blueprint and chat context. "
             f"Architecture agents will design the system based on the blueprint specification."
         )
-        logger.warning(f"[{project_id}] Using fallback TRD after failed generation attempts.")
+        pass
 
     # Save TRD immediately — do NOT batch with other fields
     await db.projects.update_one(
         {"_id": project_id},
         {"$set": {"trd": trd, "prd": "", "mrd": ""}}  # PRD/MRD intentionally empty
     )
-    logger.info(f"[{project_id}] TRD saved to MongoDB ({len(trd)} chars).")
+    pass
 
     # ── Step 2: Requirements Analysis — Atomic Save (8-14%) ──────────────────────
     await manager.broadcast_progress(
@@ -913,9 +907,9 @@ async def run_full_generation_pipeline(
                 {"_id": project_id},
                 {"$set": {"requirements": requirements}}
             )
-            logger.info(f"[{project_id}] Requirements saved to MongoDB.")
+            pass
     except Exception as e:
-        logger.error(f"[{project_id}] RequirementAnalyzerAgent failed: {e}")
+        pass
         # requirements stays None — LangGraph workflow will re-run it via its own retry
 
     # ── Step 3: Planner — Atomic Save (14-19%) ───────────────────────────────────
@@ -936,9 +930,9 @@ async def run_full_generation_pipeline(
                     {"_id": project_id},
                     {"$set": {"planning": planning}}
                 )
-                logger.info(f"[{project_id}] Planning saved to MongoDB.")
+                pass
         except Exception as e:
-            logger.error(f"[{project_id}] PlannerAgent failed: {e}")
+            pass
 
     # ── Step 4: Implementation Plan — Atomic Save (19-25%) ───────────────────────
     await manager.broadcast_progress(
@@ -958,9 +952,9 @@ async def run_full_generation_pipeline(
                     {"_id": project_id},
                     {"$set": {"implementation_plan": impl_plan}}
                 )
-                logger.info(f"[{project_id}] Implementation plan saved to MongoDB.")
+                pass
         except Exception as e:
-            logger.error(f"[{project_id}] ResearchPlanningAgent failed: {e}")
+            pass
 
     if not impl_plan:
         # Minimal fallback so downstream agents have something to reference
@@ -976,10 +970,7 @@ async def run_full_generation_pipeline(
             {"$set": {"implementation_plan": impl_plan}}
         )
 
-    logger.info(
-        f"[{project_id}] Pre-generation phase complete. "
-        f"TRD ({len(trd)} chars) + Requirements + Planning + Implementation Plan saved."
-    )
+    pass
 
     # ── Step 5: Trigger main orchestration pipeline (25-100%) ────────────────────
     await manager.broadcast_progress(
@@ -1013,8 +1004,7 @@ async def compile_project(
 ):
     db = get_database()
     project_id = f"proj-{uuid.uuid4().hex[:8]}"
-    from app.core.logger import current_project_id
-    current_project_id.set(project_id)
+    progress_logger.set_context(project_id=project_id)
     created_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
     
     # Check if chat exists
@@ -1026,7 +1016,7 @@ async def compile_project(
     from app.services.ai import auto_identify_category
     bp_dict = payload.blueprint.dict() if payload.blueprint else {}
     detected_category = await auto_identify_category(bp_dict, chat_exists.get("messages", []))
-    logger.info(f"Project category auto-identified as: {detected_category}")
+    progress_logger.info(f"Project category auto-identified as: {detected_category}", project_id=project_id)
 
     # Format chat history for context
     chat_messages = chat_exists.get("messages", [])
@@ -1323,7 +1313,7 @@ async def generate_prd_mrd_endpoint(
             chat_history_str += f"{sender.capitalize()}: {text}\n"
 
     try:
-        logger.info(f"Generating PRD and MRD for completed project {project.get('name')}...")
+        pass
         docs = await generate_prd_mrd_trd(
             project.get("name"), 
             prompt_for_docs, 
@@ -1334,7 +1324,7 @@ async def generate_prd_mrd_endpoint(
             exclude_prd_mrd=False
         )
     except Exception as e:
-        logger.error(f"Failed to generate PRD/MRD: {e}")
+        pass
         raise HTTPException(status_code=500, detail=f"Failed to generate documents: {str(e)}")
 
     await db.projects.update_one(
@@ -1411,7 +1401,7 @@ async def regenerate_project_documents(
             chat_history=chat_history_str
         )
     except Exception as e:
-        logger.error(f"Failed to regenerate documents for project {project_id}: {e}")
+        pass
         raise HTTPException(status_code=500, detail=f"Document regeneration failed: {str(e)}")
     
     await db.projects.update_one(
@@ -1557,7 +1547,7 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
     # Auto-heal: If codebase is empty but we have requirements or a compiled status,
     # run finalize_project_delivery on-the-fly to compile/assemble the workspace ZIP.
     if not codebase and (doc.get("status") in ("completed", "completed_with_issues", "generating", "failed", "waiting_approval") or doc.get("synthesized_codebase")):
-        logger.info(f"Project {project_id} download requested but codebase is empty. Running on-the-fly export/assembly...")
+        pass
         try:
             from app.services.workflow import finalize_project_delivery
             updated_doc = await finalize_project_delivery(db, project_id, doc)
@@ -1565,7 +1555,7 @@ async def download_project_zip(project_id: str, current_user: dict = Depends(get
                 doc = updated_doc
                 codebase = doc.get("codebase", [])
         except Exception as e:
-            logger.error(f"On-the-fly codebase assembly failed for project {project_id}: {e}")
+            pass
 
     has_docs = any(doc.get(f) for f in ("prd", "mrd", "trd"))
     if not codebase and not has_docs:
@@ -1693,7 +1683,7 @@ async def push_project_to_github(project_id: str, current_user: dict = Depends(g
                 # If main doesn't exist yet, PyGithub creates it on first commit implicitly for some API versions, 
                 # but if we get an error we might need to handle branch creation.
                 # However, create_file handles it natively if auto_init is false and this is the first commit.
-                logger.error(f"Failed to push {path}: {e}")
+                pass
                 
         # Push .env.example if we have export intelligence
         project_export = doc.get("project_export", {})
@@ -1703,7 +1693,7 @@ async def push_project_to_github(project_id: str, current_user: dict = Depends(g
                 try:
                     repo.create_file(".env.example", "Sarthi auto-commit: add environment template", "\n".join(env_templates), branch="main")
                 except Exception as e:
-                    logger.error(f"Failed to push .env.example: {e}")
+                    pass
                     
         return {
             "status": "success", 
@@ -1711,5 +1701,5 @@ async def push_project_to_github(project_id: str, current_user: dict = Depends(g
             "repo_url": repo.html_url
         }
     except Exception as e:
-        logger.error(f"GitHub Push failed: {str(e)}")
+        pass
         raise HTTPException(status_code=500, detail=f"Failed to push to GitHub: {str(e)}")

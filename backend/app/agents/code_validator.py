@@ -14,7 +14,6 @@ Returns a list of issues, each with type, severity, file, and description.
 """
 
 import re
-from loguru import logger
 from typing import Any, Dict, List, Set
 
 
@@ -42,11 +41,11 @@ class CodeValidatorAgent:
             issues.extend(self._check_entity_endpoint_alignment(codebase, architecture_context))
 
         if issues:
-            logger.warning(f"[CodeValidator] Found {len(issues)} issues:")
+            pass
             for i in issues[:20]:
-                logger.warning(f"  [{i['severity']}] {i['type']} in {i.get('file','-')}: {i['description']}")
+                pass
         else:
-            logger.info("[CodeValidator] ✅ No issues found — codebase passes validation")
+            pass
 
         return issues
 
@@ -133,7 +132,7 @@ class CodeValidatorAgent:
             "fastapi", "pydantic", "pydantic_settings", "motor", "pymongo",
             "jose", "jwt", "passlib", "dotenv", "httpx", "redis", "celery",
             "sqlalchemy", "alembic", "asyncpg", "aiosqlite",
-            "starlette", "bson", "loguru", "openai",
+            "starlette", "bson", "openai",
             "google", "pytest", "unittest", "mock",
         }
 

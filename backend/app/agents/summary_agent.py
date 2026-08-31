@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any
 from app.services.llm_router import get_llm_completion
 from app.agents.context import parse_json_response
@@ -67,9 +66,46 @@ class SummaryAgent:
             "- If the original document contains list collections, preserve just their names/schemas in critical_contracts.\n"
         )
 
+        from app.core.config import settings
+        
+        # Clean redundant cyclic keys
+        cleaned_output = {}
+        if isinstance(agent_output, dict):
+            for k, v in agent_output.items():
+                if k.endswith("_full") or k.endswith("_summary") or k.endswith("_compressed") or k.endswith("_contracts") or k in ("codebase", "knowledge_graph", "knowledge_base"):
+                    continue
+                cleaned_output[k] = v
+        else:
+            cleaned_output = agent_output
+
+        # In production, Vertex AI handles full-scale documents natively with a 1M+ context window.
+        # In development, we gently trim verbose paragraphs of English prose (>600 chars) in description fields,
+        # ensuring 100% of structural entities, routes, models, and contracts are strictly preserved.
+        if settings.ENVIRONMENT != "production":
+            def prune_verbose_prose(obj: Any, depth: int = 0) -> Any:
+                if depth > 8:
+                    return obj
+                if isinstance(obj, dict):
+                    pruned = {}
+                    for k, v in obj.items():
+                        if isinstance(v, str) and len(v) > 600 and any(w in k.lower() for w in ("description", "notes", "rationale", "commentary")):
+                            pruned[k] = v[:400] + "..."
+                        elif isinstance(v, (dict, list)):
+                            pruned[k] = prune_verbose_prose(v, depth + 1)
+                        else:
+                            pruned[k] = v
+                    return pruned
+                elif isinstance(obj, list):
+                    return [prune_verbose_prose(item, depth + 1) for item in obj]
+                return obj
+
+            cleaned_output = prune_verbose_prose(cleaned_output)
+
+        serialized = json.dumps(cleaned_output, indent=2 if settings.ENVIRONMENT == "production" else None, default=str)
+
         user_prompt = (
             f"Please summarize the following JSON output produced by {target_agent_name}:\n\n"
-            f"{json.dumps(agent_output, indent=2)}\n\n"
+            f"{serialized}\n\n"
             "Format your output EXACTLY as this JSON structure:\n"
             "{\n"
             '  "summary_output": "your conceptual summary text here",\n'
@@ -83,14 +119,13 @@ class SummaryAgent:
             {"role": "user", "content": user_prompt}
         ]
 
-        logger.info(f"[SummaryLayer] Summarizing output for {target_agent_name}...")
         
         try:
             raw_response = await get_llm_completion(
                 agent_name=self.agent_name,
                 messages=messages,
                 temperature=0.2,
-                max_tokens=4000
+                max_tokens=1500
             )
             parsed_response = parse_json_response(raw_response)
             
@@ -99,7 +134,6 @@ class SummaryAgent:
             compressed_output = parsed_response.get("compressed_output", "")
             critical_contracts = parsed_response.get("critical_contracts", {})
         except Exception as e:
-            logger.error(f"[SummaryLayer] Failed to generate summary for {target_agent_name}: {e}. Falling back to default values.")
             summary_output = f"Summary fallback due to error: {str(e)}"
             compressed_output = "Fallback compressed summary."
             critical_contracts = {"fallback": True}
@@ -116,14 +150,6 @@ class SummaryAgent:
         from app.services.workflow import get_agent_db_key
         db_key = get_agent_db_key(target_agent_name)
         
-        logger.info(
-            f"\n"
-            f"[SummaryLayer]\n"
-            f"Document: {db_key}\n"
-            f"Original Tokens: {original_tokens}\n"
-            f"Summary Tokens: {summary_tokens}\n"
-            f"Compression Ratio: {compression_ratio}\n"
-        )
 
         return {
             "summary_output": summary_output,

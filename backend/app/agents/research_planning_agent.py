@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any, List
 from openai import OpenAI
 from app.core.config import settings
@@ -43,7 +42,6 @@ class ResearchPlanningAgent:
         }
 
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("No LLM API keys configured. Using fallback implementation plan.")
             return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase, generation_type), self.agent_name, agent_inputs)
 
         # Construct state dict for dynamic prompt generation
@@ -80,7 +78,15 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
     {{
       "path": "string — absolute or relative file path, e.g. 'backend/app/models.py'",
       "action": "string — 'create' or 'modify'",
-      "description": "string — description of what will be added or changed, highlighting how it applies styling and features dynamically"
+      "description": "string — description of what will be added or changed"
+    }}
+  ],
+  "recommended_sdlc": "string — one of: agile, waterfall, v_model, spiral, kanban. Choose based on: complexity (high=spiral/waterfall), compliance/safety-critical=v_model, startup/MVP/fast-iteration=agile, continuous flow/support=kanban",
+  "sdlc_reasoning": "string — 1-2 sentences explaining why this SDLC was chosen for this project",
+  "implementation_phases": [
+    {{
+      "phase_name": "string — e.g. Phase 1: Core Authentication",
+      "deliverables": ["string"]
     }}
   ]
 }}
@@ -98,7 +104,6 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run Research Planning Agent: {e}")
             return enrich_agent_output(self._get_fallback_plan(requirements, planning, codebase, generation_type), self.agent_name, agent_inputs)
 
     def _get_fallback_plan(self, requirements: Dict[str, Any], planning: Dict[str, Any], codebase: List[Dict[str, Any]], generation_type: str = "full_stack") -> Dict[str, Any]:
@@ -172,5 +177,11 @@ This implementation plan is compiled by Sarthi's Research & Planning Agent.
         return {
             "status": "success",
             "plan_markdown": plan_markdown,
-            "proposed_changes": proposed_changes
+            "proposed_changes": proposed_changes,
+            "recommended_sdlc": "agile",
+            "sdlc_reasoning": "Default fallback: Agile is recommended for most projects when SDLC cannot be determined.",
+            "implementation_phases": [
+                {"phase_name": "Phase 1: Core Setup", "deliverables": ["Database models", "Core API routes"]},
+                {"phase_name": "Phase 2: Features", "deliverables": ["Feature modules", "UI pages"]}
+            ]
         }

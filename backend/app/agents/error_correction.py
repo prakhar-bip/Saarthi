@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
@@ -87,9 +86,6 @@ class ErrorCorrectionAgent:
             or settings.GOOGLE_API_KEY
         )
         if no_keys:
-            logger.warning(
-                "No API keys configured. Using local fallback error-correction intelligence."
-            )
             return enrich_agent_output(
                 self._get_fallback_error_correction(**agent_inputs),
                 self.agent_name,
@@ -213,7 +209,6 @@ class ErrorCorrectionAgent:
                 ),
             )
         except Exception as exc:
-            logger.error(f"Failed to run ErrorCorrectionAgent: {exc}")
             return enrich_agent_output(
                 self._get_fallback_error_correction(**agent_inputs),
                 self.agent_name,
@@ -572,7 +567,6 @@ class ErrorCorrectionAgent:
         }}
         """
         
-        logger.info(f"[SurgicalHealing] Repairing file {file_path}...")
         response = await get_llm_completion(
             agent_name=self.agent_name,
             messages=[
@@ -586,6 +580,5 @@ class ErrorCorrectionAgent:
             parsed = parse_json_response(response)
             return parsed
         except Exception as e:
-            logger.error(f"[SurgicalHealing] Failed to parse repair response: {e}")
             # Try to extract content or return original code
             return {"corrected_code": file_content}

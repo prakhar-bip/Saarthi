@@ -301,8 +301,8 @@ async def test_module_assembler_node(mock_broadcast, mock_get_db):
     
     result = await module_assembler_node(state)
     
-    assert "synthesized_codebase" in result["project_doc"]
-    codebase = result["project_doc"]["synthesized_codebase"]
+    assert "assembled_codebase" in result["project_doc"]
+    codebase = result["project_doc"]["assembled_codebase"]
     # Should contain user.py, page.tsx, main.py (assembled router), and index.ts (assembled store)
     paths = [file["path"] for file in codebase]
     assert "backend/app/models/user.py" in paths

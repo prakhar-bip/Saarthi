@@ -126,7 +126,6 @@ async def send_message(
     if stream:
         from fastapi.responses import StreamingResponse
         from app.services.adk_agent import stream_adk_chat
-        from loguru import logger
         import json
         
         async def event_generator():
@@ -145,7 +144,6 @@ async def send_message(
                     ai_reply_chunks.append(chunk)
                     yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
             except Exception as e:
-                logger.error(f"Error streaming AI response: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'text': 'Failed to generate response.'})}\n\n"
                 return
             

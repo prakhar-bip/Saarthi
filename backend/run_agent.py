@@ -10,7 +10,6 @@ import os
 import asyncio
 import argparse
 from typing import Optional, List, Dict, Any
-from loguru import logger
 
 # Add backend directory to path to ensure app imports resolve correctly
 backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +50,7 @@ async def run_cli():
     if not args.agent and not args.assemble:
         parser.error("At least one of --agent or --assemble must be specified.")
 
-    logger.info("Initializing Sarthi CLI DB Connection...")
+    print("Initializing Sarthi CLI DB Connection...")
     await connect_to_mongo()
     db = get_database()
 
@@ -60,10 +59,10 @@ async def run_cli():
         project_doc = await db.projects.find_one({"_id": project_id})
         
         if not project_doc:
-            logger.error(f"Project with ID '{project_id}' not found in database.")
+            print(f"Project with ID '{project_id}' not found in database.")
             sys.exit(1)
 
-        logger.info(f"Loaded project '{project_doc.get('name')}' (ID: {project_id}).")
+        print(f"Loaded project '{project_doc.get('name')}' (ID: {project_id}).")
 
         # 1. Run agent if requested
         if args.agent:
@@ -74,7 +73,7 @@ async def run_cli():
                 db_key = get_agent_db_key(agent_name)
             except KeyError:
                 valid_agents = list(BacktrackManager.AGENT_DB_KEYS.keys())
-                logger.error(
+                print(
                     f"Unknown agent name: '{agent_name}'.\n"
                     f"Valid agents: {', '.join(valid_agents)}"
                 )
@@ -92,23 +91,23 @@ async def run_cli():
                 unset_query["validation_logs"] = ""
                 unset_query["active_healing_context"] = ""
 
-                logger.warning(f"Force-run requested. Unsetting DB keys for {agent_name}: {list(unset_query.keys())}")
+                print(f"Force-run requested. Unsetting DB keys for {agent_name}: {list(unset_query.keys())}")
                 await db.projects.update_one({"_id": project_id}, {"$unset": unset_query})
                 
                 # Reload clean project doc
                 project_doc = await db.projects.find_one({"_id": project_id})
 
-            logger.info(f"Triggering execution of agent: {agent_name}")
+            print(f"Triggering execution of agent: {agent_name}")
             result = await run_single_agent(db, project_id, project_doc, agent_name)
             
             if result is None:
-                logger.warning(f"Agent '{agent_name}' did not produce a new result (it might have been skipped or cached).")
+                print(f"Agent '{agent_name}' did not produce a new result (it might have been skipped or cached).")
             else:
-                logger.success(f"Agent '{agent_name}' successfully executed and persisted results to DB.")
+                print(f"Agent '{agent_name}' successfully executed and persisted results to DB.")
 
         # 2. Run codebase assembly if requested
         if args.assemble:
-            logger.info("Triggering assembly of the complete connected codebase...")
+            print("Triggering assembly of the complete connected codebase...")
             # Reload fresh project document
             project_doc = await db.projects.find_one({"_id": project_id})
             updated_doc = await finalize_project_delivery(db, project_id, project_doc)
@@ -116,21 +115,21 @@ async def run_cli():
             quality_report = updated_doc.get("quality_report", {})
             status = updated_doc.get("status")
             
-            logger.success(f"Codebase assembly complete! Status: {status}")
+            print(f"Codebase assembly complete! Status: {status}")
             if quality_report:
-                logger.info(f"Assembly Quality Report Status: {quality_report.get('status', 'N/A')}")
+                print(f"Assembly Quality Report Status: {quality_report.get('status', 'N/A')}")
                 errors = quality_report.get("errors", [])
                 if errors:
-                    logger.warning(f"Assembly Validation completed with {len(errors)} errors:")
+                    print(f"Assembly Validation completed with {len(errors)} errors:")
                     for idx, err in enumerate(errors):
-                        logger.warning(f"  {idx + 1}. [{err.get('module', 'general')}] {err.get('error')}")
+                        print(f"  {idx + 1}. [{err.get('module', 'general')}] {err.get('error')}")
 
     except Exception as e:
-        logger.exception(f"An unexpected error occurred during execution: {e}")
+        print(f"An unexpected error occurred during execution: {e}")
         sys.exit(1)
     finally:
         await close_mongo_connection()
-        logger.info("CLI DB connection closed.")
+        print("CLI DB connection closed.")
 
 
 def main():

@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
@@ -92,9 +91,6 @@ class ProjectExportAgent:
             or settings.GOOGLE_API_KEY
         )
         if no_keys:
-            logger.warning(
-                "No API keys configured. Using local fallback project export intelligence."
-            )
             return enrich_agent_output(
                 self._get_fallback_project_export(**agent_inputs),
                 self.agent_name,
@@ -222,7 +218,6 @@ class ProjectExportAgent:
                 ),
             )
         except Exception as exc:
-            logger.error(f"Failed to run ProjectExportAgent: {exc}")
             return enrich_agent_output(
                 self._get_fallback_project_export(**agent_inputs),
                 self.agent_name,

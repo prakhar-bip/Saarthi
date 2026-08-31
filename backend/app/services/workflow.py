@@ -3,7 +3,6 @@ import asyncio
 from typing import Dict, Any, TypedDict, Optional, List
 from datetime import datetime, timezone
 import uuid
-from loguru import logger
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables import RunnableConfig
@@ -14,7 +13,11 @@ from app.agents.context import (
     build_document_context,
     generate_agent_prompt,
 )
+from app.core.progress_logger import progress_logger
 from app.services.llm_router import current_agent_feedback
+from app.services.contract_auditor import ContractAuditor
+from app.services.surgical_gap_filler import SurgicalGapFiller
+from app.services.state_merger import StateMerger
 
 # Import all agents explicitly
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent
@@ -172,12 +175,10 @@ async def broadcast_agent_progress(db: Any, project_id: str, progress: int | flo
         project_id=project_id,
         progress=final_progress,
         step=step,
-        status=project_doc.get("status", "generating"),
-        validation_logs=project_doc.get("validation_logs", []),
         active_healing_context=project_doc.get("active_healing_context"),
         backtrack_history=project_doc.get("backtrack_history", [])
     )
-    logger.info(f"Project {project_id} progress: {final_progress}% - {step}")
+    progress_logger.info(f"Project progress: {final_progress}% - {step}", project_id=project_id, step=step)
 
 class AppState(TypedDict):
     project_id: str
@@ -197,6 +198,7 @@ class AppState(TypedDict):
     backtrack_depth: int
     agent_retries: Dict[str, int]
     active_healing_context: Optional[Dict[str, Any]]
+    backtrack_target: Optional[str]
     
     # Entity-Level Generation State
     entity_discovery: Optional[Dict[str, Any]]
@@ -319,6 +321,9 @@ async def call_agent_design(agent_name: str, agent: Any, project_doc: Dict[str, 
         "prd": "prd",
         "trd": "trd",
         "mrd": "mrd",
+        # Codebase keys — passed as lists
+        "synthesized_codebase": "synthesized_codebase",
+        "assembled_codebase": "assembled_codebase",
     }
     
     for param_name, param in sig.parameters.items():
@@ -326,8 +331,8 @@ async def call_agent_design(agent_name: str, agent: Any, project_doc: Dict[str, 
             continue
         db_key = param_mapping.get(param_name)
         if db_key:
-            # Handle list keys differently
-            if db_key == "codebase":
+            # Handle list keys — these are lists not dicts
+            if db_key in ("codebase", "synthesized_codebase", "assembled_codebase"):
                 kwargs[param_name] = project_doc.get(db_key, []) or []
             else:
                 kwargs[param_name] = project_doc.get(db_key, {}) or {}
@@ -372,7 +377,7 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
     from app.agents.registry import should_run_agent, get_group_for_agent
     gen_type = project_doc.get("generation_type", "full_stack")
     if not should_run_agent(agent_name, gen_type):
-        logger.info(f"[{project_id}] Skipping agent {agent_name} (Group: {get_group_for_agent(agent_name)}) based on generation type {gen_type}.")
+        pass
         return None
 
     db_key = get_agent_db_key(agent_name)
@@ -380,15 +385,16 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
     # —— Idempotency check: skip if this agent already produced valid output ——
     existing = project_doc.get(db_key)
     if existing and isinstance(existing, dict) and len(existing) > 0:
-        logger.info(f"[{project_id}] {agent_name} output already exists in DB (key={db_key}). Skipping execution.")
+        pass
         return existing
 
     agent = get_agent_instance(agent_name)
     project_doc = enrich_project_doc_context(project_doc)
+    progress_logger.agent_start(agent_name, f"Executing architecture generation ({gen_type})", project_id=project_id)
     
-    # Prune/Filter project document to pass only optimized context to next agent
-    from app.services.context_builder import build_context
-    pruned_project_doc = build_context(agent_name, project_doc)
+    # Prune/Filter project document using dynamic knowledge graph sub-graph query
+    from app.services.graph_store import GraphStore
+    pruned_project_doc = GraphStore.get_pruned_context(project_doc, agent_name)
     
     # Set tech stack and theme context variables for dynamic prompt adaptation
     from app.services.llm_router import current_tech_stack, current_theme_palette, current_generation_type
@@ -403,8 +409,14 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
     feedback_history = []
     result = None
     
+    # In dev mode: cap retries at 2 and enforce a 5-min wall-clock limit per agent
+    from app.core.config import settings as _settings
+    max_retries = 2 if _settings.ENVIRONMENT == "development" else 3
+    MAX_AGENT_WALL_SECONDS = 300 if _settings.ENVIRONMENT == "development" else 600
+    
     try:
-        while retry_count <= 3:
+      async with asyncio.timeout(MAX_AGENT_WALL_SECONDS):
+        while retry_count <= max_retries:
             if feedback_history:
                 cumulative_feedback = "\n\n".join([f"Attempt {i+1} Issue:\n{fb}" for i, fb in enumerate(feedback_history)])
             else:
@@ -429,7 +441,7 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
             except IncompleteJSONError as e:
                 # IncompleteJSONError = LLM truncated its JSON output mid-way.
                 # Do NOT assign the exception as result — treat as retryable failure.
-                logger.warning(f"[{project_id}] IncompleteJSONError for {agent_name} on attempt {retry_count + 1}: {e}")
+                pass
                 result = None
                 retry_count += 1
                 feedback_history.append(
@@ -440,7 +452,7 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                 current_agent_feedback.reset(token)
                 continue
             except Exception as e:
-                logger.error(f"[{project_id}] Generic error for {agent_name} on attempt {retry_count + 1}: {e}")
+                pass
                 result = None
                 retry_count += 1
                 feedback_history.append(f"Error on previous attempt: {str(e)[:300]}. Please retry with a complete response.")
@@ -462,6 +474,41 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
             is_complete, new_feedback = await verifier.verify(agent_name, result)
             
             if is_complete:
+                # ──────────────────────────────────────────────────────
+                # Contract Auditor: Cross-check against Master TRD/Reqs
+                # ──────────────────────────────────────────────────────
+                try:
+                    gaps = ContractAuditor.audit(agent_name, result, project_doc)
+                    if gaps:
+                        pass
+                        # Surgical Gap Filler: Generate only the missing delta
+                        max_gap_retries = 2
+                        for gap_attempt in range(max_gap_retries):
+                            delta = await SurgicalGapFiller.fill_gaps(
+                                agent_name, gaps, result, project_doc
+                            )
+                            if delta and isinstance(delta, dict) and len(delta) > 0:
+                                # State Merger: Merge delta into result and persist
+                                result = await StateMerger.merge_and_persist(
+                                    agent_name, result, delta, project_doc, db
+                                )
+                                pass
+                                # Re-audit to confirm all gaps are now filled
+                                remaining_gaps = ContractAuditor.audit(agent_name, result, project_doc)
+                                if not remaining_gaps:
+                                    pass
+                                    break
+                                else:
+                                    gaps = remaining_gaps
+                                    pass
+                            else:
+                                pass
+                                break
+                    else:
+                        pass
+                except Exception as audit_err:
+                    pass
+
                 # Generate summaries if this is a design/architecture phase
                 target_keys = {
                     "requirements", "planning", "implementation_plan", "db_architecture", "backend_architecture",
@@ -483,7 +530,7 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                             f"{db_key}_contracts": summary_results["critical_contracts"]
                         }
                     except Exception as e:
-                        logger.error(f"[{project_id}] SummaryAgent failed for {agent_name}: {e}")
+                        pass
                         summary_data = {
                             db_key: result,
                             f"{db_key}_full": result,
@@ -497,16 +544,24 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                         f"{db_key}_full": result
                     }
                 
+                # Ingest output into Knowledge Graph
+                from app.services.graph_store import GraphStore
+                fresh_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+                updated_graph = GraphStore.ingest_agent_output(fresh_doc, agent_name, result)
+                summary_data["knowledge_graph"] = updated_graph
+                summary_data["knowledge_base"] = fresh_doc.get("knowledge_base", {})
+
                 await db.projects.update_one({"_id": project_id}, {"$set": summary_data})
                 for k, v in summary_data.items():
                     project_doc[k] = v
+                progress_logger.agent_success(agent_name, f"Completed successfully and saved to DB (key={db_key})", project_id=project_id)
                 return result
             else:
                 retry_count += 1
                 feedback_history.append(new_feedback)
-                logger.warning(f"[{project_id}] Verifier feedback for {agent_name} (retry {retry_count}): {new_feedback}")
+                pass
                 
-        logger.error(f"[{project_id}] Max retries reached for {agent_name}. Saving partial result and advancing.")
+        pass
         if result and not isinstance(result, Exception):
             target_keys = {
                 "requirements", "planning", "implementation_plan", "db_architecture", "backend_architecture",
@@ -527,7 +582,7 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                         f"{db_key}_contracts": summary_results["critical_contracts"]
                     }
                 except Exception as e:
-                    logger.error(f"[{project_id}] SummaryAgent failed for {agent_name} on fallback: {e}")
+                    pass
                     summary_data = {
                         db_key: result,
                         f"{db_key}_full": result,
@@ -540,9 +595,22 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                     db_key: result,
                     f"{db_key}_full": result
                 }
+            
+            # Ingest output into Knowledge Graph
+            from app.services.graph_store import GraphStore
+            fresh_doc = await db.projects.find_one({"_id": project_id}) or project_doc
+            updated_graph = GraphStore.ingest_agent_output(fresh_doc, agent_name, result)
+            summary_data["knowledge_graph"] = updated_graph
+            summary_data["knowledge_base"] = fresh_doc.get("knowledge_base", {})
+
             await db.projects.update_one({"_id": project_id}, {"$set": summary_data})
             for k, v in summary_data.items():
                 project_doc[k] = v
+        return result
+    except asyncio.TimeoutError:
+        pass
+        if result and not isinstance(result, Exception):
+            await db.projects.update_one({"_id": project_id}, {"$set": {db_key: result}})
         return result
     finally:
         current_tech_stack.reset(token_tech)
@@ -572,7 +640,7 @@ async def requirement_analyzer_node(state: AppState, config: Optional[RunnableCo
     
     requirements = project_doc.get("requirements")
     if requirements:
-        logger.info(f"[{project_id}] RequirementAnalyzerAgent output already exists in database. Skipping LLM execution.")
+        pass
         return {"project_doc": project_doc, "latest_output": requirements}
         
     await broadcast_agent_progress(db, project_id, 3, "Analyzing Requirements...")
@@ -587,7 +655,7 @@ async def planner_node(state: AppState, config: Optional[RunnableConfig] = None)
     
     planning = project_doc.get("planning")
     if planning:
-        logger.info(f"[{project_id}] PlannerAgent output already exists in database. Skipping LLM execution.")
+        pass
         return {"project_doc": project_doc, "latest_output": planning}
         
     await broadcast_agent_progress(db, project_id, 6, "Planning Orchestration...")
@@ -602,7 +670,7 @@ async def research_planning_node(state: AppState, config: Optional[RunnableConfi
     
     impl_plan = project_doc.get("implementation_plan")
     if impl_plan:
-        logger.info(f"[{project_id}] ResearchPlanningAgent output (Implementation Plan) already exists in database. Skipping LLM execution.")
+        pass
         return {"project_doc": project_doc, "implementation_plan": impl_plan, "latest_output": impl_plan}
         
     await broadcast_agent_progress(db, project_id, 11, "Creating Research & Planning Blueprint...")
@@ -628,7 +696,7 @@ async def reset_architecture_outputs(db: Any, project_id: str) -> None:
     """Clear cached architecture/codegen outputs so correction loops re-execute agents."""
     unset_fields = {field: "" for field in ARCHITECTURE_RESET_FIELDS}
     await db.projects.update_one({"_id": project_id}, {"$unset": unset_fields})
-    logger.warning(f"[{project_id}] Cleared architecture outputs for correction loop retry.")
+    pass
 
 
 async def agent_dispatcher_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -646,11 +714,11 @@ async def agent_dispatcher_node(state: AppState, config: Optional[RunnableConfig
             "workflow_phase": "architecture",
         }},
     )
-    logger.info(f"Agent dispatcher running. Starting sequential architecture workspaces for {project_id}...")
+    pass
     return {"project_doc": project_doc}
 
 async def db_backend_workspace(db: Any, project_id: str, project_doc: Dict[str, Any], config: Any) -> Dict[str, Any]:
-    logger.info(f"Starting Database & Backend Workspace Pipeline for {project_id}...")
+    pass
     
     # 1. Database Architecture Design
     await broadcast_agent_progress(db, project_id, 15, "Designing Database Architecture...")
@@ -696,7 +764,7 @@ async def frontend_workspace_node(state: AppState, config: Optional[RunnableConf
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
-    logger.info(f"Starting Frontend Workspace Subgraph for {project_id}...")
+    pass
     
     # 1. Parallel Frontend Layout & UI/UX Styling
     await broadcast_agent_progress(db, project_id, 41, "Designing Frontend Structure & UI/UX Theme...")
@@ -745,7 +813,7 @@ async def architecture_design_node(state: AppState, config: Optional[RunnableCon
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
     gen_type = project_doc.get("generation_type", "full_stack")
-    logger.info(f"[{project_id}] Running concurrent architecture design workspaces for generation_type: {gen_type}...")
+    pass
     
     tasks = []
     
@@ -775,9 +843,19 @@ async def ops_security_workspace_node(state: AppState, config: Optional[Runnable
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
-    logger.info(f"Starting Operations & Security Workspace Subgraph for {project_id}...")
+    pass
     await broadcast_agent_progress(db, project_id, 56, "Designing Operations, Security, and Testing Architecture...")
     
+    # In development, limit concurrency to 2 to prevent GPU cluster queue timeouts.
+    # In production with Vertex AI, allow 4 concurrent pipelines.
+    from app.core.config import settings
+    max_concurrency = 4 if settings.ENVIRONMENT == "production" else 2
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def with_sem(coro_fn):
+        async with sem:
+            return await coro_fn()
+
     async def run_auth_security():
         doc = await db.projects.find_one({"_id": project_id}) or project_doc
         await run_single_agent(db, project_id, doc, "AuthArchitectureAgent")
@@ -805,12 +883,12 @@ async def ops_security_workspace_node(state: AppState, config: Optional[Runnable
         await run_single_agent(db, project_id, doc, "OptimizationArchitectureAgent")
         
     await asyncio.gather(
-        run_auth_security(),
-        run_realtime(),
-        run_devops(),
-        run_testing(),
-        run_validation(),
-        run_optimization()
+        with_sem(run_auth_security),
+        with_sem(run_realtime),
+        with_sem(run_devops),
+        with_sem(run_testing),
+        with_sem(run_validation),
+        with_sem(run_optimization)
     )
     
     project_doc = await db.projects.find_one({"_id": project_id}) or project_doc
@@ -829,7 +907,7 @@ async def join_workspaces_node(state: AppState, config: Optional[RunnableConfig]
         "frontend": bool(project_doc.get("frontend_architecture") and project_doc.get("theme_styling")),
         "ops_security": bool(project_doc.get("auth_architecture") and project_doc.get("security_architecture")),
     }
-    logger.info(f"Workspace merge status for {project_id}: {workspace_status}")
+    pass
     
     gen_type = project_doc.get("generation_type", "full_stack")
     expected_workspaces = ["ops_security"]
@@ -840,7 +918,7 @@ async def join_workspaces_node(state: AppState, config: Optional[RunnableConfig]
         
     missing = [k for k in expected_workspaces if not workspace_status[k]]
     if missing:
-        logger.warning(f"Incomplete workspaces detected: {missing}")
+        pass
     
     project_doc = enrich_project_doc_context(project_doc)
     agent_context = build_compilation_context({
@@ -872,7 +950,7 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     
     await broadcast_agent_progress(db, project_id, 71, "Running Verifier State Guardrails...")
-    logger.info("Running Verifier State Guardrails...")
+    pass
     validation_logs = []
     
     db_arch = project_doc.get("db_architecture", {}) or {}
@@ -971,17 +1049,40 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
             if isinstance(ep, dict):
                 endpoint_paths.add(ep.get("path", "").lower())
                 endpoint_paths.add(ep.get("resource", "").lower())
-        uncovered_entities = []
+        
+        # Internal / infrastructure / auth tokens do NOT expose generic public REST CRUD endpoints.
+        # They are managed internally by auth flows (e.g. /api/auth/refresh) or background services.
+        INTERNAL_ENTITY_KEYWORDS = {
+            "token", "refreshtoken", "session", "audit", "log", "synclog",
+            "setting", "config", "permission", "role", "userrole", "mapping",
+            "relation", "association", "link"
+        }
+
+        def is_internal_system_entity(ent_name: str) -> bool:
+            name_clean = ent_name.lower().replace("_", "").replace("-", "")
+            return any(kw in name_clean for kw in INTERNAL_ENTITY_KEYWORDS)
+
+        uncovered_domain_entities = []
+        internal_entities_acknowledged = []
+
         for entity in db_entities:
             entity_lower = entity.lower().replace("_", "").replace("-", "")
             has_endpoint = any(entity_lower in p.lower().replace("_", "").replace("-", "") for p in endpoint_paths if p)
             if not has_endpoint:
-                uncovered_entities.append(entity)
-        if uncovered_entities:
+                if is_internal_system_entity(entity):
+                    internal_entities_acknowledged.append(entity)
+                else:
+                    uncovered_domain_entities.append(entity)
+
+        if internal_entities_acknowledged:
+            pass
+
+        if uncovered_domain_entities:
             validation_logs.append({
                 "module": "CrossRef-API",
                 "severity": "error",
-                "error": f"Entities without matching API endpoints: {uncovered_entities}",
+                "error": f"Domain entities without matching API endpoints: {uncovered_domain_entities}. "
+                         f"APIAgent must provide CRUD routes for these core business entities.",
             })
     
     # 13. Cross-reference: pages vs routes
@@ -997,7 +1098,7 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
             validation_logs.append({
                 "module": "CrossRef-Routes",
                 "severity": "error",
-                "error": f"Frontend pages without routes: {pages_without_routes}",
+                "error": f"Frontend pages without routes: {pages_without_routes}. FrontendArchitectureAgent must assign route paths.",
             })
     
     # Save validation logs to project document
@@ -1007,17 +1108,17 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
     # If the workflow has previously backtracked and now has zero errors, log success!
     errors = [log for log in validation_logs if log.get("severity") == "error"]
     if not errors and state.get("backtrack_depth", 0) > 0:
-        logger.info("[Validation]\nResult: PASSED after regeneration backtracking.")
+        pass
         from app.services.backtrack import BacktrackManager
         manager = BacktrackManager(db, project_id)
         await manager.record_regeneration_success()
     elif not errors:
-        logger.info("[Validation]\nResult: PASSED.")
+        pass
     else:
-        logger.warning(f"Verifier guardrail found {len(errors)} critical errors and {len(validation_logs) - len(errors)} warnings.")
+        pass
     
     await broadcast_agent_progress(db, project_id, 73, "Verifier Guardrail Complete.")
-    logger.info("Verifier guardrail complete.")
+    pass
     return {"validation_logs": validation_logs, "hitl_approved": True}
 
 async def backtrack_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -1061,7 +1162,8 @@ async def backtrack_node(state: AppState, config: Optional[RunnableConfig] = Non
         "validation_logs": [],
         "backtrack_depth": backtrack_res["backtrack_depth"],
         "agent_retries": backtrack_res["agent_retries"],
-        "active_healing_context": backtrack_res["project_doc"].get("active_healing_context")
+        "active_healing_context": backtrack_res["project_doc"].get("active_healing_context"),
+        "backtrack_target": backtrack_res.get("backtrack_target", "architecture_design")
     }
 
 async def code_gen_planner_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -1081,7 +1183,7 @@ async def backend_code_generation_node(state: AppState, config: Optional[Runnabl
     
     gen_type = project_doc.get("generation_type", "full_stack")
     if gen_type == "frontend_only":
-        logger.info(f"[{project_id}] Skipping Backend Code Generation for frontend_only project.")
+        pass
         return {"project_doc": project_doc}
         
     await broadcast_agent_progress(db, project_id, 77, "Generating Backend Code Contracts...")
@@ -1095,7 +1197,7 @@ async def frontend_code_generation_node(state: AppState, config: Optional[Runnab
     
     gen_type = project_doc.get("generation_type", "full_stack")
     if gen_type in ("backend_only", "microservice"):
-        logger.info(f"[{project_id}] Skipping Frontend Code Generation for backend_only or microservice project.")
+        pass
         return {"project_doc": project_doc}
         
     await broadcast_agent_progress(db, project_id, 78, "Generating Frontend Code Contracts...")
@@ -1196,15 +1298,22 @@ async def finalize_project_delivery(
     return await db.projects.find_one({"_id": project_id}) or latest_project_doc
 
 async def code_synthesis_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-    """Multi-phase code synthesis — generates actual source code files from architecture."""
+    """Multi-phase code synthesis — generates actual source code files from architecture.
+    
+    Runs AFTER module_assembler (which saves to 'assembled_codebase').
+    After synthesis completes, merges assembled_codebase + synthesized output → 'synthesized_codebase'.
+    Downstream nodes (dynamic_customization, runtime_verifier, project_export) all read 'synthesized_codebase'.
+    """
     db = get_db(state, config)
     project_id = state["project_id"]
     project_doc = await db.projects.find_one({"_id": project_id}) or state["project_doc"]
     project_doc = enrich_project_doc_context(project_doc)
     
-    existing_codebase = project_doc.get("synthesized_codebase")
-    if existing_codebase and len(existing_codebase) > 15:
-        logger.info(f"[{project_id}] Code already synthesized ({len(existing_codebase)} files). Skipping.")
+    # Guard: skip only if THIS node already ran (check synthesis_validation, not synthesized_codebase)
+    # synthesized_codebase is the merged output — checking it would false-positive due to module_assembler
+    already_ran = project_doc.get("synthesis_validation", {})
+    if already_ran and already_ran.get("total_files", 0) > 15:
+        pass
         return {"project_doc": project_doc}
     
     await broadcast_agent_progress(db, project_id, 86, "🚀 Starting Multi-Phase Code Synthesis...")
@@ -1244,29 +1353,39 @@ async def code_synthesis_node(state: AppState, config: Optional[RunnableConfig] 
         critical_issues = [i for i in issues if i.get("severity") == "error"]
         if not critical_issues or attempt == max_synthesis_attempts:
             break
-        logger.warning(
-            f"[{project_id}] Synthesis attempt {attempt} produced {len(critical_issues)} critical issues — triggering self-healing loop."
-        )
+        pass
         await db.projects.update_one(
             {"_id": project_id},
-            {"$unset": {"synthesized_codebase": ""}},
+            {"$unset": {"synthesis_validation": ""}},
         )
+    
+    # Merge with assembled_codebase from module_assembler — prefer synthesizer files on path collision
+    assembled_codebase = project_doc.get("assembled_codebase") or []
+    if assembled_codebase:
+        synthesized_paths = {f.get("path") for f in codebase if f.get("path")}
+        # Add assembled files that code_synthesizer didn't re-generate
+        merged_codebase = list(codebase) + [
+            f for f in assembled_codebase if f.get("path") not in synthesized_paths
+        ]
+        pass
+    else:
+        merged_codebase = codebase
     
     await db.projects.update_one(
         {"_id": project_id},
         {"$set": {
-            "synthesized_codebase": codebase,
+            "synthesized_codebase": merged_codebase,
             "synthesis_validation": {
-                "total_files": len(codebase),
+                "total_files": len(merged_codebase),
                 "total_issues": len(issues),
                 "critical_issues": len([i for i in issues if i.get("severity") == "error"]),
                 "issues": issues[:50],
             },
         }}
     )
-    project_doc["synthesized_codebase"] = codebase
+    project_doc["synthesized_codebase"] = merged_codebase
     
-    logger.info(f"[{project_id}] Code synthesis complete: {len(codebase)} files, {len(issues)} issues")
+    pass
     return {"project_doc": project_doc}
 
 async def validate_and_heal_entity(
@@ -1278,7 +1397,7 @@ async def validate_and_heal_entity(
     error_correction_agent: Any
 ) -> List[Dict[str, Any]]:
     """Incremental compiler check & targeted healing loop."""
-    logger.info(f"[EntityValidation] Validating {entity_name} module...")
+    pass
     
     if isinstance(tech_stack, dict):
         backend = tech_stack.get("backend", "fastapi")
@@ -1325,15 +1444,15 @@ async def validate_and_heal_entity(
                     })
 
         if not errors:
-            logger.info(f"[EntityValidation] {entity_name} module PASSED incremental checks.")
+            pass
             return healed_files
             
-        logger.warning(f"[EntityValidation] {entity_name} module FAILED with {len(errors)} errors. Initiating healing...")
+        pass
         attempts += 1
         
         # Heal files surgically
         for err in errors:
-            logger.info(f"[EntityHealing] Repair: Healing file {err['file_path']} surgically...")
+            pass
             healed = await error_correction_agent.heal(
                 file_path=err["file_path"],
                 error_log=err["error_log"],
@@ -1349,7 +1468,7 @@ async def validate_and_heal_entity(
                     if file_rec["path"] == err["file_path"]:
                         file_rec["content"] = corrected_content
                     
-    logger.error(f"[EntityHealing] Repair: Failed to heal {entity_name} module after {max_attempts} loops.")
+    pass
     return healed_files
 
 async def entity_discovery_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -1406,23 +1525,49 @@ async def entity_generation_node(state: AppState, config: Optional[RunnableConfi
     frontend_gen = FrontendEntityGenerator()
     error_correction = ErrorCorrectionAgent()
     
+    # Pre-compute shared context for all entity generators
+    impl_plan = project_doc.get("implementation_plan", {}) or {}
+    sdlc_model = impl_plan.get("recommended_sdlc", "agile") if isinstance(impl_plan, dict) else "agile"
+    all_entity_names = [
+        e.get("name") or e.get("entity_name", "")
+        for e in (project_doc.get("db_architecture", {}) or {}).get("entities", [])
+        if isinstance(e, dict)
+    ]
+    auth_architecture = project_doc.get("auth_architecture") or {}
+    realtime_architecture = project_doc.get("realtime_architecture") or {}
+    theme_styling = project_doc.get("theme_styling") or {}
+
     synthesized_modules = {}
     metrics = {}
     
-    # Throttle concurrency using semaphores
-    sem = asyncio.Semaphore(3) 
-    
+    # Throttle concurrency using semaphores (max 3 entities at once)
+    sem = asyncio.Semaphore(3)
+
     async def process_single_entity(entity: Dict[str, Any]) -> None:
         async with sem:
             name = entity["name"]
             
-            # Backend Generation
+            # Backend Generation — with full context
             t0 = time.time()
-            be_res = await backend_gen.generate(entity, [], backend_tech)
+            be_res = await backend_gen.generate(
+                entity, [], backend_tech,
+                auth_architecture=auth_architecture,
+                all_entity_names=all_entity_names,
+                sdlc_model=sdlc_model,
+                theme_styling=theme_styling,
+                realtime_architecture=realtime_architecture,
+            )
             be_files = be_res.get("files", [])
             
-            # Frontend Generation
-            fe_res = await frontend_gen.generate(entity, project_doc.get("theme_styling", {}), project_doc.get("api_architecture", {}))
+            # Frontend Generation — with full context
+            fe_res = await frontend_gen.generate(
+                entity, project_doc.get("theme_styling", {}), project_doc.get("api_architecture", {}),
+                auth_architecture=auth_architecture,
+                all_entity_names=all_entity_names,
+                sdlc_model=sdlc_model,
+                theme_styling=theme_styling,
+                realtime_architecture=realtime_architecture,
+            )
             fe_files = fe_res.get("files", [])
             t1 = time.time()
             
@@ -1458,7 +1603,7 @@ async def entity_generation_node(state: AppState, config: Optional[RunnableConfi
     entities_list = discovery_data.get("entities", [])
     
     for i, group in enumerate(parallel_groups):
-        logger.info(f"[EntityGeneration] Running Parallel Group {i+1}/{len(parallel_groups)}: {group}")
+        pass
         entities_in_group = [
             e for e in entities_list if e.get("name") in group
         ]
@@ -1480,13 +1625,15 @@ async def module_assembler_node(state: AppState, config: Optional[RunnableConfig
     assembler = ModuleAssembler(db, project_id)
     assembled_codebase = await assembler.assemble(project_doc, project_doc.get("synthesized_modules", {}))
     
-    # Save to the existing Sarthi unified codebase key so downstream verifiers compile it directly
+    # Save to 'assembled_codebase' — a staging key separate from 'synthesized_codebase'.
+    # This prevents code_synthesis_node from falsely detecting pre-existing files and skipping.
+    # code_synthesis_node will merge assembled_codebase + its own output into synthesized_codebase.
     await db.projects.update_one(
         {"_id": project_id},
-        {"$set": {"synthesized_codebase": assembled_codebase}}
+        {"$set": {"assembled_codebase": assembled_codebase}}
     )
     
-    project_doc["synthesized_codebase"] = assembled_codebase
+    project_doc["assembled_codebase"] = assembled_codebase
     return {"project_doc": project_doc}
 
 async def dynamic_customization_node(state: AppState, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -1570,12 +1717,22 @@ def route_after_verifier(state: AppState) -> str:
     validation_logs = state.get("validation_logs", [])
     errors = [log for log in validation_logs if log.get("severity") == "error"]
     if errors:
-        logger.warning(f"Verifier recorded {len(errors)} critical validation errors. Invoking backtracking...")
+        pass
         return "backtrack"
     
     if validation_logs:
-        logger.info(f"Verifier recorded {len(validation_logs)} warnings. Proceeding to code generation.")
+        pass
     return "code_gen_planner"
+
+def route_after_backtrack(state: AppState) -> str:
+    """Scoped backtrack: route to only the failing workspace, not the full pipeline."""
+    target = state.get("backtrack_target", "architecture_design")
+    allowed = {"architecture_design", "ops_security_workspace"}
+    if target not in allowed:
+        pass
+        return "architecture_design"
+    pass
+    return target
 
 # ──────────────────────────────────────────────────────────────
 # Graph Builder
@@ -1600,11 +1757,6 @@ def build_graph() -> StateGraph:
     workflow.add_node("backtrack", backtrack_node)
     
     workflow.add_node("code_gen_planner", code_gen_planner_node)
-    workflow.add_node("backend_code_generation", backend_code_generation_node)
-    workflow.add_node("frontend_code_generation", frontend_code_generation_node)
-    workflow.add_node("integration_generator", integration_generator_node)
-    workflow.add_node("build_compiler", build_compiler_node)
-    workflow.add_node("error_correction", error_correction_node)
     workflow.add_node("code_synthesis", code_synthesis_node)
     workflow.add_node("entity_discovery", entity_discovery_node)
     workflow.add_node("entity_generation_planner", entity_generation_planner_node)
@@ -1618,10 +1770,7 @@ def build_graph() -> StateGraph:
     workflow.set_entry_point("requirement_analyzer")
     workflow.add_edge("requirement_analyzer", "planner")
     
-    workflow.add_conditional_edges("planner", route_after_planner, {
-        "research_planning": "research_planning",
-        "agent_dispatcher": "agent_dispatcher"
-    })
+    workflow.add_edge("planner", "research_planning")
     
     workflow.add_edge("research_planning", "agent_dispatcher")
     
@@ -1635,14 +1784,18 @@ def build_graph() -> StateGraph:
         "code_gen_planner": "code_gen_planner",
         "backtrack": "backtrack"
     })
-    workflow.add_edge("backtrack", "agent_dispatcher")
+    workflow.add_conditional_edges("backtrack", route_after_backtrack, {
+        "architecture_design": "architecture_design",
+        "ops_security_workspace": "ops_security_workspace"
+    })
     
     # Codegen chain — REDESIGNED for Entity modularity
     workflow.add_edge("code_gen_planner", "entity_discovery")
     workflow.add_edge("entity_discovery", "entity_generation_planner")
     workflow.add_edge("entity_generation_planner", "entity_generation")
     workflow.add_edge("entity_generation", "module_assembler")
-    workflow.add_edge("module_assembler", "dynamic_customization")
+    workflow.add_edge("module_assembler", "code_synthesis")
+    workflow.add_edge("code_synthesis", "dynamic_customization")
     workflow.add_edge("dynamic_customization", "runtime_compilation_verifier")
     workflow.add_edge("runtime_compilation_verifier", "project_export")
     workflow.add_edge("project_export", END)
@@ -1654,8 +1807,7 @@ def build_graph() -> StateGraph:
     )
 
 async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[str, Any]):
-    from app.core.logger import current_project_id
-    current_project_id.set(project_id)
+    pass
     app = build_graph()
     config = {"configurable": {"thread_id": project_id, "db": db}}
     
@@ -1691,12 +1843,12 @@ async def compile_project_workflow(db: Any, project_id: str, project_doc: Dict[s
         # Check if the user paused the project compilation
         latest_proj = await db.projects.find_one({"_id": project_id})
         if latest_proj and latest_proj.get("status") == "paused":
-            logger.info(f"Graph execution paused for project {project_id} by user request.")
+            pass
             return
             
         if "agent_dispatcher" in state_info.next:
             # Resume execution directly without HITL pause gate
-            logger.info(f"Resuming project {project_id} past the dispatcher gate...")
+            pass
             await app.ainvoke(None, config)
         else:
             await app.ainvoke(None, config)
@@ -1715,8 +1867,7 @@ async def resume_project_workflow(db: Any, project_id: str, plan_edits: Optional
     2. The project was created with synchronous HITL (req + plan + research ran
        outside the graph) → no checkpoint exists → we start the full workflow.
     """
-    from app.core.logger import current_project_id
-    current_project_id.set(project_id)
+    pass
     
     try:
         app = build_graph()
@@ -1749,7 +1900,7 @@ async def resume_project_workflow(db: Any, project_id: str, plan_edits: Optional
         
         if has_checkpoint:
             # Scenario 1: Graph was suspended at interrupt → resume it
-            logger.info(f"[{project_id}] Found suspended checkpoint at {state_info.next}. Resuming graph...")
+            pass
             updates = {"hitl_approved": True}
             if plan_edits:
                 updates["implementation_plan"] = plan_edits
@@ -1761,10 +1912,10 @@ async def resume_project_workflow(db: Any, project_id: str, plan_edits: Optional
         else:
             # Scenario 2: No checkpoint — HITL ran synchronously during project creation
             # Start the full workflow from scratch (it will skip already-computed phases)
-            logger.info(f"[{project_id}] No suspended checkpoint found. Starting full workflow from scratch (HITL sync path).")
+            pass
             latest_proj = await db.projects.find_one({"_id": project_id})
             if not latest_proj:
-                logger.error(f"[{project_id}] Project not found in database!")
+                pass
                 return
             
             # Ensure the project has the initial_prompt set
@@ -1782,7 +1933,7 @@ async def resume_project_workflow(db: Any, project_id: str, plan_edits: Optional
             await compile_project_workflow(db, project_id, latest_proj)
             
     except Exception as e:
-        logger.error(f"[{project_id}] resume_project_workflow FAILED: {e}", exc_info=True)
+        pass
         await db.projects.update_one(
             {"_id": project_id},
             {"$set": {

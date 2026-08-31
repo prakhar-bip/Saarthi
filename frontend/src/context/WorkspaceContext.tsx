@@ -133,6 +133,7 @@ interface WorkspaceContextType {
   stopChatGeneration: (chatId: string) => void;
 
   projects: Project[];
+  setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
   generateProject: (
@@ -1386,6 +1387,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     togglePauseChat,
     stopChatGeneration,
     projects,
+    setProjects,
     activeProjectId,
     setActiveProjectId,
     generateProject,
@@ -1442,6 +1444,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     togglePauseChat,
     stopChatGeneration,
     projects,
+    setProjects,
     activeProjectId,
     generateProject,
     compileProjectCodebase,

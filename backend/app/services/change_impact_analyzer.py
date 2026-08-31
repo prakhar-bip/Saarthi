@@ -2,7 +2,6 @@ import os
 import re
 import hashlib
 from typing import Dict, Any, List, Set, Tuple
-from loguru import logger
 
 class ChangeImpactAnalyzer:
     """
@@ -138,7 +137,6 @@ class ChangeImpactAnalyzer:
         """Main orchestrator computing changed files, dependents, scope, and recommended start tier."""
         changed = cls.identify_changed_files(current_files, previous_hashes)
         if not changed:
-            logger.info("[ChangeImpact] No changed files detected compared to baseline.")
             return {
                 "changed_files": [],
                 "affected_files": [],
@@ -154,7 +152,6 @@ class ChangeImpactAnalyzer:
         has_config_change = any("package.json" in f or "requirements" in f or "config" in f for f in changed)
         recommended_tier = 5 if has_config_change else 1
         
-        logger.info(f"[ChangeImpact] Identified {len(changed)} changed files, affecting {len(affected)} total files. Scope={scope}. Start Tier={recommended_tier}")
         return {
             "changed_files": changed,
             "affected_files": list(affected),

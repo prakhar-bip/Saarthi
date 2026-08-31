@@ -1,6 +1,5 @@
 import json
 import random
-from loguru import logger
 from typing import Dict, Any, List
 from app.services.llm_router import get_llm_completion
 from app.agents.context import parse_json_response
@@ -19,7 +18,6 @@ class DynamicCustomizationAgent:
         codebase: List[Dict[str, Any]],
         project_doc: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        logger.info("[CustomizationAgent] Initializing dynamic customization pass...")
         
         # 1. Generate or extract dynamic brand name
         reqs = project_doc.get("requirements", {}) or {}
@@ -60,7 +58,6 @@ class DynamicCustomizationAgent:
             )
             brand_info = parse_json_response(raw_response)
         except Exception as e:
-            logger.error(f"[CustomizationAgent] LLM failed: {e}. Using fallback defaults.")
             brand_info = {
                 "brand_name": "SaarthiProject_" + str(random.randint(100, 999)),
                 "primary_color": "#3b82f6",
@@ -76,7 +73,6 @@ class DynamicCustomizationAgent:
         # Create a unique Student Verification ID for anti-plagiarism headers
         random_id = f"PL-2026-{random.randint(1000, 9999)}-{chr(random.randint(65, 90))}{chr(random.randint(65, 90))}"
         
-        logger.info(f"[CustomizationAgent] Selected Brand Name: {brand_name}, Student Code: {random_id}")
         
         customized_codebase = []
         for file in codebase:
@@ -139,5 +135,69 @@ class DynamicCustomizationAgent:
             new_file["content"] = content
             customized_codebase.append(new_file)
             
-        logger.info("[CustomizationAgent] Dynamic customization pass completed.")
+        # ── SDLC-specific project management docs ────────────────────────────────
+        impl_plan = project_doc.get("implementation_plan", {}) or {}
+        recommended_sdlc = impl_plan.get("recommended_sdlc", "") or ""
+        sdlc_reasoning = impl_plan.get("sdlc_reasoning", "") or ""
+        project_name = (project_doc.get("requirements", {}) or {}).get("project_overview", {}).get("name", "Project")
+        features = (project_doc.get("requirements", {}) or {}).get("features", []) or []
+        features_str = "\n".join([f"- [ ] {f}" for f in features[:15]])
+
+        sdlc_docs: list = []
+
+        if recommended_sdlc == "agile":
+            sdlc_docs.append({
+                "name": "BACKLOG.md",
+                "path": "BACKLOG.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Product Backlog\n\n> SDLC Model: Agile\n> {sdlc_reasoning}\n\n## User Stories\n\n{features_str}\n\n## Definition of Done\n- Unit tests pass\n- Code reviewed\n- Deployed to staging\n"
+            })
+            sdlc_docs.append({
+                "name": "SPRINT_PLAN.md",
+                "path": "SPRINT_PLAN.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Sprint Plan\n\n## Sprint 1 (Week 1-2)\n### Goals\n- Set up project structure\n- Core authentication\n- Basic CRUD for primary entities\n\n## Sprint 2 (Week 3-4)\n### Goals\n- Feature modules\n- Frontend pages\n- Integration tests\n"
+            })
+
+        elif recommended_sdlc == "waterfall":
+            sdlc_docs.append({
+                "name": "REQUIREMENTS_SPEC.md",
+                "path": "docs/REQUIREMENTS_SPEC.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Requirements Specification\n\n> SDLC Model: Waterfall\n> {sdlc_reasoning}\n\n## Functional Requirements\n\n{features_str}\n\n## Non-Functional Requirements\n- Performance: API response < 200ms\n- Availability: 99.9% uptime\n- Security: JWT authentication, HTTPS only\n"
+            })
+            sdlc_docs.append({
+                "name": "TEST_PLAN.md",
+                "path": "docs/TEST_PLAN.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Test Plan\n\n## Unit Testing\n- All service functions have unit tests\n\n## Integration Testing\n- All API endpoints tested\n\n## System Testing\n- End-to-end user flows validated\n"
+            })
+
+        elif recommended_sdlc == "v_model":
+            sdlc_docs.append({
+                "name": "TRACEABILITY_MATRIX.md",
+                "path": "docs/TRACEABILITY_MATRIX.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Requirements Traceability Matrix\n\n> SDLC Model: V-Model\n> {sdlc_reasoning}\n\n| Requirement | Design Module | Unit Test | Integration Test | Status |\n|-------------|--------------|-----------|-----------------|--------|\n" + "".join([f"| {f} | {f}Module | test_{f.lower().replace(' ', '_')}.py | test_integration_{f.lower().replace(' ', '_')}.py | Pending |\n" for f in features[:10]])
+            })
+
+        elif recommended_sdlc == "spiral":
+            sdlc_docs.append({
+                "name": "RISK_REGISTER.md",
+                "path": "RISK_REGISTER.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Risk Register\n\n> SDLC Model: Spiral\n> {sdlc_reasoning}\n\n| Risk | Probability | Impact | Mitigation |\n|------|-------------|--------|------------|\n| API instability | Medium | High | Implement retry logic and circuit breakers |\n| Scope creep | High | Medium | Strict feature freeze after each iteration |\n| Integration failures | Low | High | Comprehensive integration test suite |\n"
+            })
+
+        elif recommended_sdlc == "kanban":
+            sdlc_docs.append({
+                "name": "KANBAN_BOARD.md",
+                "path": "KANBAN_BOARD.md",
+                "language": "markdown",
+                "content": f"# {project_name} — Kanban Board\n\n> SDLC Model: Kanban\n> {sdlc_reasoning}\n\n## Backlog\n{features_str}\n\n## In Progress (WIP Limit: 3)\n\n## Review\n\n## Done\n"
+            })
+
+        if sdlc_docs:
+            customized_codebase.extend(sdlc_docs)
+
         return customized_codebase

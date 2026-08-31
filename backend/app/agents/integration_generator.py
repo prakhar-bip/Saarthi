@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Any, Dict, Optional
 from openai import OpenAI
 from app.core.config import settings
@@ -68,7 +67,6 @@ class IntegrationGenerationAgent:
         }
 
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("No API keys configured. Using intelligent fallback cross-system integration design.")
             return enrich_agent_output(
                 self._get_fallback_integration_generation(**agent_inputs),
                 self.agent_name,
@@ -172,7 +170,6 @@ class IntegrationGenerationAgent:
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run IntegrationGenerationAgent: {e}")
             return enrich_agent_output(
                 self._get_fallback_integration_generation(**agent_inputs),
                 self.agent_name,

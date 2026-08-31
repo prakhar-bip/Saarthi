@@ -1,11 +1,11 @@
 import time
 import asyncio
-from loguru import logger
 from typing import List, Dict, Any, Tuple
 from openai import OpenAI
 from google import genai
 from google.genai import types
 from app.core.config import settings
+from app.core.progress_logger import progress_logger
 import contextvars
 import os
 
@@ -152,7 +152,7 @@ def get_provider_client(provider: str) -> Any:
         return OpenAI(
             base_url=settings.NVIDIA_BASE_URL,
             api_key=settings.NVIDIA_API_KEY,
-            timeout=120.0
+            timeout=240.0
         )
     
     return None
@@ -170,32 +170,7 @@ def get_default_model(provider: str) -> str:
     return ""
 
 
-def log_llm_call(
-    agent_name: str, 
-    provider: str, 
-    model: str, 
-    latency: float, 
-    input_len: int, 
-    output_len: int, 
-    status: str, 
-    error: str = None
-):
-    """Log LLM call details beautifully with emojis and token approximations."""
-    est_prompt_tokens = int(input_len / 4)
-    est_completion_tokens = int(output_len / 4)
-    
-    logger.info("==================================================")
-    if status == "SUCCESS":
-        logger.info(f"🔌 [LLM API CALL SUCCESS] Agent: {agent_name}")
-        logger.info(f"🔹 Provider: {provider.upper()} | Model: {model}")
-        logger.info(f"🔹 Latency: {latency:.2f}s")
-        logger.info(f"🔹 Est. Tokens: Prompt {est_prompt_tokens} | Completion {est_completion_tokens} | Total {est_prompt_tokens + est_completion_tokens}")
-    else:
-        logger.info(f"❌ [LLM API CALL FAILED] Agent: {agent_name}")
-        logger.info(f"🔹 Provider: {provider.upper()} | Model: {model}")
-        logger.info(f"🔹 Latency: {latency:.2f}s")
-        logger.info(f"🔹 Error Detail: {error}")
-    logger.info("==================================================")
+pass
 
 
 def _inject_platform_instruction(messages: List[Dict[str, str]]):
@@ -229,21 +204,31 @@ async def get_raw_llm_completion(
     # Feedback injection moved to the top of get_llm_completion to cover all code paths
 
     # Determine preferred provider and model
-    has_google = settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("GEMINI_API_KEY")
     if settings.ENVIRONMENT == "production":
         pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
         if agent_name == "ChatReply":
-            # ChatReply uses OpenRouter as primary, fallback to Gemini
-            fallback_sequence = ["gemini"]
+            fallback_sequence = ["nvidia", "openrouter"]
         else:
-            # All other tasks in production MUST strictly use Vertex AI and NOT openrouter
-            fallback_sequence = []
+            # Production: Vertex AI (gemini) -> NVIDIA fallback
+            fallback_sequence = ["nvidia"]
     else:  # development
-        pref_provider = "openrouter"
-        pref_model = settings.OPENROUTER_MODEL
-        fallback_sequence = ["gemini", "nvidia"]
+        dev_pref = settings.DEV_PRIMARY_PROVIDER.lower() if settings.DEV_PRIMARY_PROVIDER else "nvidia"
+        if dev_pref == "openrouter" and not settings.OPENROUTER_API_KEY and settings.NVIDIA_API_KEY:
+            dev_pref = "nvidia"
+        elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
+            dev_pref = "openrouter"
+
+        if dev_pref == "nvidia":
+            pref_provider = "nvidia"
+            pref_model = settings.NVIDIA_MODEL
+            # Development: NVIDIA -> OpenRouter fallback
+            fallback_sequence = ["openrouter"]
+        else:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
+            fallback_sequence = ["nvidia"]
     
     # Sequence of providers to try (preferred first, then cascade through fallbacks)
     seen = set()
@@ -281,7 +266,7 @@ async def get_raw_llm_completion(
             for retry_attempt in range(max_retries):
                 try:
                     reply = None
-                    logger.info(f"🌐 [{agent_name}] Attempting call on {provider.upper()} using model {model_item}...")
+                    pass
                     
                     if provider in ("google", "gemini"):
                         system_instruction = None
@@ -315,25 +300,45 @@ async def get_raw_llm_completion(
                         )
                         reply = response.text
                     else:
-                        completion = await asyncio.to_thread(
-                            client.chat.completions.create,
-                            model=model_item,
-                            messages=messages,
-                            temperature=temperature,
-                            max_tokens=max_tokens
-                        )
-                        reply = completion.choices[0].message.content
+                        create_kwargs = {
+                            "model": model_item,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens
+                        }
+                        if provider == "nvidia" and "nemotron" in model_item.lower():
+                            create_kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+
+                        try:
+                            completion = await asyncio.to_thread(
+                                client.chat.completions.create,
+                                **create_kwargs
+                            )
+                        except Exception as extra_err:
+                            if "extra_body" in create_kwargs:
+                                del create_kwargs["extra_body"]
+                                completion = await asyncio.to_thread(
+                                    client.chat.completions.create,
+                                    **create_kwargs
+                                )
+                            else:
+                                raise extra_err
+
+                        choice_msg = completion.choices[0].message
+                        reply = choice_msg.content
+                        if not reply:
+                            reply = getattr(choice_msg, "reasoning_content", None) or getattr(choice_msg, "reasoning", None)
                         
                     if not reply:
                         raise ValueError("Received empty or null response content")
                         
                     latency = time.perf_counter() - start_time
-                    log_llm_call(
+                    progress_logger.llm_call(
                         agent_name=agent_name,
                         provider=provider,
-                        model=model_item,
-                        latency=latency,
-                        input_len=input_str_len,
+                        model=model,
+                        latency_sec=latency,
+                        input_len=len(str(messages)),
                         output_len=len(reply),
                         status="SUCCESS"
                     )
@@ -346,30 +351,27 @@ async def get_raw_llm_completion(
                     ])
                     if is_retryable and retry_attempt < max_retries - 1:
                         wait_time = (2 ** retry_attempt) * 1.5  # 1.5s, 3s, 6s
-                        logger.warning(f"⏳ Retryable error for {agent_name} on {model_item} (attempt {retry_attempt+1}/{max_retries}). Waiting {wait_time:.1f}s...")
+                        progress_logger.warning(f"Retrying LLM call for {agent_name} after {wait_time}s due to transient error: {e}")
                         await asyncio.sleep(wait_time)
                         continue
                     last_model_error = e
-                    logger.warning(f"⚠️ Model {model_item} failed on {provider.upper()}: {e}")
                     if "credentials" in str(e).lower() or "default credentials" in str(e).lower():
-                        logger.error(f"❌ Credentials/Auth error on {provider.upper()}. Skipping remaining models.")
                         break_provider = True
                     break
                 
         # If we exhausted all models for this provider
         latency = time.perf_counter() - start_time
         last_error = f"[{provider.upper()} Error] {last_model_error}"
-        log_llm_call(
+        progress_logger.llm_call(
             agent_name=agent_name,
             provider=provider,
             model=model,
-            latency=latency,
-            input_len=input_str_len,
+            latency_sec=latency,
+            input_len=len(str(messages)),
             output_len=0,
-            status="FAILED",
+            status="ERROR",
             error=str(last_model_error)
         )
-        logger.warning(f"⚠️ Provider {provider.upper()} failed for {agent_name}. Cascading to fallback...")
         continue
             
     raise RuntimeError(f"All LLM providers failed for agent '{agent_name}'. Last error: {last_error}")
@@ -392,15 +394,26 @@ async def stream_raw_llm_completion(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
         if agent_name == "ChatReply":
-            # ChatReply uses OpenRouter as primary, fallback to Gemini
-            fallback_sequence = ["gemini"]
+            fallback_sequence = ["nvidia", "openrouter"]
         else:
-            # All other tasks in production MUST strictly use Vertex AI and NOT openrouter
-            fallback_sequence = []
+            # Production: Vertex AI (gemini) -> NVIDIA fallback
+            fallback_sequence = ["nvidia"]
     else:  # development
-        pref_provider = "openrouter"
-        pref_model = settings.OPENROUTER_MODEL
-        fallback_sequence = ["gemini", "nvidia"]
+        dev_pref = settings.DEV_PRIMARY_PROVIDER.lower() if settings.DEV_PRIMARY_PROVIDER else "nvidia"
+        if dev_pref == "openrouter" and not settings.OPENROUTER_API_KEY and settings.NVIDIA_API_KEY:
+            dev_pref = "nvidia"
+        elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
+            dev_pref = "openrouter"
+
+        if dev_pref == "nvidia":
+            pref_provider = "nvidia"
+            pref_model = settings.NVIDIA_MODEL
+            # Development: NVIDIA -> OpenRouter fallback
+            fallback_sequence = ["openrouter"]
+        else:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
+            fallback_sequence = ["nvidia"]
     
     seen = set()
     providers_to_try = []
@@ -430,7 +443,7 @@ async def stream_raw_llm_completion(
         
         for model_item in models:
             try:
-                logger.info(f"🌐 [{agent_name}] Attempting streaming call on {provider.upper()} using model {model_item}...")
+                pass
                 
                 if provider in ("google", "gemini"):
                     system_instruction = None
@@ -469,29 +482,47 @@ async def stream_raw_llm_completion(
                     return
                     
                 else:
-                    completion_stream = client.chat.completions.create(
-                        model=model_item,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        stream=True
-                    )
+                    create_kwargs = {
+                        "model": model_item,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "stream": True
+                    }
+                    if provider == "nvidia" and "nemotron" in model_item.lower():
+                        create_kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+
+                    try:
+                        completion_stream = client.chat.completions.create(**create_kwargs)
+                    except Exception as stream_err:
+                        if "extra_body" in create_kwargs:
+                            del create_kwargs["extra_body"]
+                            completion_stream = client.chat.completions.create(**create_kwargs)
+                        else:
+                            raise stream_err
+
                     for chunk in completion_stream:
-                        if chunk.choices and chunk.choices[0].delta.content:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        delta_content = delta.content
+                        if delta_content is None:
+                            delta_content = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+                        if delta_content:
                             stream_started = True
-                            yield chunk.choices[0].delta.content
+                            yield delta_content
                     return
                     
             except Exception as e:
                 last_model_error = e
-                logger.warning(f"⚠️ Model {model_item} streaming failed on {provider.upper()}: {e}")
+                pass
                 if stream_started:
-                    logger.error(f"❌ Streaming failed mid-stream for model {model_item}. Cannot fallback.")
+                    pass
                     raise e
                 continue
                 
         last_error = f"[{provider.upper()} Error] {last_model_error}"
-        logger.warning(f"⚠️ Provider {provider.upper()} streaming failed for {agent_name}. Cascading to fallback: {last_model_error}")
+        pass
         continue
             
     raise RuntimeError(f"All LLM providers failed for streaming agent '{agent_name}'. Last error: {last_error}")
@@ -510,7 +541,7 @@ async def get_llm_completion(
     # Extract feedback context from previous attempt if present (enables self-healing globally)
     feedback = current_agent_feedback.get()
     if feedback:
-        logger.info(f"[{agent_name}] Injecting retry feedback into prompt at the top of get_llm_completion.")
+        pass
         if messages:
             messages = [dict(m) for m in messages]
             last_msg = messages[-1]
@@ -522,8 +553,18 @@ async def get_llm_completion(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
     else:  # development
-        pref_provider = "openrouter"
-        pref_model = settings.OPENROUTER_MODEL
+        dev_pref = settings.DEV_PRIMARY_PROVIDER.lower() if settings.DEV_PRIMARY_PROVIDER else "nvidia"
+        if dev_pref == "openrouter" and not settings.OPENROUTER_API_KEY and settings.NVIDIA_API_KEY:
+            dev_pref = "nvidia"
+        elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
+            dev_pref = "openrouter"
+
+        if dev_pref == "nvidia":
+            pref_provider = "nvidia"
+            pref_model = settings.NVIDIA_MODEL
+        else:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
     
     # Extract system and user contents
     system_instruction = ""
@@ -553,7 +594,7 @@ async def get_llm_completion(
         try:
             # Cleanly skip ADK if credentials are missing to avoid noisy thread stack traces
             if not settings.USE_VERTEX_AI and not settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get("GEMINI_API_KEY"):
-                logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (No Google Credentials found). Deferring to Fallback.")
+                pass
                 raise ValueError("Google Credentials missing for local dev.")
 
             if settings.USE_VERTEX_AI:
@@ -561,7 +602,7 @@ async def get_llm_completion(
                     import google.auth
                     google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
                 except Exception as credentials_err:
-                    logger.info(f"⏭️ [ADK RUNNER] Skipping ADK for {agent_name} (Vertex AI default credentials not found: {credentials_err}). Deferring to Fallback.")
+                    pass
                     raise ValueError("Vertex AI credentials not configured.")
 
             from google.adk.agents.llm_agent import Agent as ADKAgent
@@ -572,7 +613,7 @@ async def get_llm_completion(
             from app.services.mcp_service import mcp_client
             import json
             
-            logger.info(f"🔌 [ADK RUNNER] Invoking {agent_name}...")
+            pass
             
             async def mongodb_mcp_tool(tool_name: str, arguments_json: str = "{}") -> str:
                 """
@@ -620,13 +661,19 @@ async def get_llm_completion(
             user_message = Content(role="user", parts=[Part.from_text(text=user_prompt)])
             run_config = RunConfig(response_modalities=["TEXT"])
             
-            events = await asyncio.to_thread(
-                runner.run,
-                user_id=session.user_id,
-                session_id=session.id,
-                new_message=user_message,
-                run_config=run_config
-            )
+            try:
+                events = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        runner.run,
+                        user_id=session.user_id,
+                        session_id=session.id,
+                        new_message=user_message,
+                        run_config=run_config
+                    ),
+                    timeout=60.0  # 60s hard cutoff — falls back to direct API call
+                )
+            except asyncio.TimeoutError:
+                raise ValueError("ADK runner timed out after 60s. Falling back to direct API.")
             
             response_text = ""
             for event in events:
@@ -638,11 +685,11 @@ async def get_llm_completion(
             if not response_text:
                 raise ValueError("ADK runner returned empty response")
                 
-            logger.info(f"✅ [ADK RUNNER] Completed {agent_name} successfully.")
+            pass
             return response_text
             
         except Exception as adk_err:
-            logger.warning(f"⚠️ [ADK RUNNER] Failed for {agent_name}: {adk_err}. Falling back to direct API...")
+            pass
 
     # 2. Direct API call (removed wasteful LangGraph StateGraph wrapper)
     return await get_raw_llm_completion(agent_name, messages, temperature, max_tokens)

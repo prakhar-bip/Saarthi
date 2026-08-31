@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any, List
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
@@ -22,7 +21,6 @@ class EntityGenerationPlannerAgent:
 
         # Check for API keys
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("No LLM API keys configured. Using fallback generation plan.")
             return enrich_agent_output(
                 self._get_fallback_plan(entities_dict),
                 self.agent_name,
@@ -66,7 +64,6 @@ class EntityGenerationPlannerAgent:
         """
 
         try:
-            logger.info("[EntityGenerationPlanner] Planning topological generation schedules...")
             raw_response = await get_llm_completion(
                 agent_name=self.agent_name,
                 messages=[
@@ -77,10 +74,8 @@ class EntityGenerationPlannerAgent:
             )
             raw_response = raw_response.strip()
             parsed = parse_json_response(raw_response)
-            logger.info(f"[EntityGenerationPlanner] Generation plan created with {len(parsed.get('parallel_groups', []))} batches.")
             return enrich_agent_output(parsed, self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run EntityGenerationPlannerAgent: {e}. Executing fallback.")
             return enrich_agent_output(
                 self._get_fallback_plan(entities_dict),
                 self.agent_name,

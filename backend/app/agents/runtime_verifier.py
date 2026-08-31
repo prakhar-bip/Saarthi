@@ -7,7 +7,6 @@ import json
 import time
 import subprocess
 from datetime import datetime, timezone
-from loguru import logger
 from typing import Any, Dict, List, Tuple, Optional
 
 from app.core.config import settings
@@ -38,13 +37,13 @@ class RuntimeVerifierAgent:
         """
         Main orchestration entrypoint for Containerized Runtime verification and healing.
         """
-        logger.info(f"[{project_id}] Starting Containerized Runtime Verification & Healing pipeline...")
+        pass
         t_start = time.time()
         
         # 1. Retrieve current generated codebase
         synthesized_codebase = project_doc.get("synthesized_codebase", [])
         if not synthesized_codebase:
-            logger.warning(f"[{project_id}] No synthesized codebase found. Skipping.")
+            pass
             return project_doc
 
         # Calculate healing capacity dynamically
@@ -54,7 +53,7 @@ class RuntimeVerifierAgent:
         assembly = assemble_project_codebase(project_doc, ai_codebase=synthesized_codebase)
         assembled_files = assembly.get("codebase", [])
         if not assembled_files:
-            logger.warning(f"[{project_id}] Assembly empty. Skipping verification.")
+            pass
             return project_doc
 
         # Detect stacks
@@ -84,7 +83,7 @@ class RuntimeVerifierAgent:
 
         # Check Docker status
         docker_active = await ContainerVerifier.is_docker_available()
-        logger.info(f"[{project_id}] Docker Daemon Active Status: {docker_active}")
+        pass
 
         success = False
         metrics_rebuilds = 0
@@ -96,7 +95,7 @@ class RuntimeVerifierAgent:
 
         # 4. Compile & Heal Iterative Loop
         for attempt in range(1, self.max_healing_attempts + 1):
-            logger.info(f"[{project_id}] [Iteration {attempt}] Validating with Scope={scope}...")
+            pass
             
             # Execute validation across tiered checks
             errors, tier_reached, duration_container = await self._run_tiered_verification(
@@ -122,17 +121,17 @@ class RuntimeVerifierAgent:
                 metrics_inc_rebuilds += 1
 
             if not errors:
-                logger.info(f"[{project_id}] All validation tiers PASSED on attempt {attempt}!")
+                pass
                 success = True
                 break
 
-            logger.warning(f"[{project_id}] Verification failed on attempt {attempt} with {len(errors)} issues.")
+            pass
             
             # Execute Surgical Auto-Healing
             healed_any = False
             t_heal_0 = time.time()
             for err_file, err_log in errors:
-                logger.info(f"[{project_id}] Healing broken module/file: {err_file}")
+                pass
                 
                 file_record = file_map.get(err_file)
                 if not file_record:
@@ -163,7 +162,7 @@ class RuntimeVerifierAgent:
 
             repair_duration += (time.time() - t_heal_0)
             if not healed_any:
-                logger.warning(f"[{project_id}] Healing engine failed to suggest corrections. Terminating.")
+                pass
                 break
 
         # 5. Read back modified files
@@ -200,9 +199,9 @@ class RuntimeVerifierAgent:
         
         try:
             await db.runtime_verification_analytics.insert_one(analytics_record)
-            logger.info(f"[{project_id}] Successfully persisted runtime verification metrics to MongoDB.")
+            pass
         except Exception as err:
-            logger.warning(f"[{project_id}] Failed to store analytics in Mongo: {err}")
+            pass
 
         # Sync back to project document
         await db.projects.update_one(
@@ -227,7 +226,7 @@ class RuntimeVerifierAgent:
         try:
             self._clean_directory_preserving_cache(temp_dir)
         except Exception as ex:
-            logger.warning(f"Could not selective-clean workspace: {ex}")
+            pass
 
         return project_doc
 
@@ -255,7 +254,7 @@ class RuntimeVerifierAgent:
         # --------------------------------------------------
         # Tier 1: Syntax Validation
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 1: Syntax Validation]")
+        pass
         for file_path in (changed_files if changed_files else []):
             full_path = os.path.join(temp_dir, file_path)
             if file_path.endswith(".py") and os.path.exists(full_path):
@@ -283,23 +282,23 @@ class RuntimeVerifierAgent:
         # --------------------------------------------------
         # Tier 2: Import Validation
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 2: Import Validation]")
+        pass
         # Static check can raise warnings/errors but for compilation, Tier 5 acts as physical build check
         
         # --------------------------------------------------
         # Tier 3: Module Validation
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 3: Module Validation]")
+        pass
         
         # --------------------------------------------------
         # Tier 4: Service Validation
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 4: Service Validation]")
+        pass
 
         # --------------------------------------------------
         # Tier 5: Application Validation (Docker / Ephemeral Sandbox Build)
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 5: Application Validation]")
+        pass
         
         if docker_active:
             t_container_0 = time.time()
@@ -405,7 +404,7 @@ class RuntimeVerifierAgent:
                     errors.extend(be_errors)
         else:
             # Fallback seamlessly to direct host execution if Docker Desktop is stopped
-            logger.warning(f"[{project_id}] Docker unavailable. Falling back to host application compilation checks...")
+            pass
             host_errors = await self._run_host_compilation(temp_dir, scope, backend_tech, frontend_tech, db_tech, project_doc, db, project_id)
             errors.extend(host_errors)
 
@@ -415,7 +414,7 @@ class RuntimeVerifierAgent:
         # --------------------------------------------------
         # Tier 6: Full Integration Validation (Live startup & sniffer checks)
         # --------------------------------------------------
-        logger.info(f"[{project_id}] Running [Tier 6: Full Integration Validation]")
+        pass
         # Execute server startup sniffer to confirm runtime ports binding and DB connectivity
         live_errors = await self._run_host_startup_sniffing(temp_dir, scope, backend_tech, frontend_tech, db_tech, project_doc, db, project_id)
         errors.extend(live_errors)
@@ -726,7 +725,7 @@ class RuntimeVerifierAgent:
             return errors
         
         # Fallback to Host execution if Docker is not available
-        logger.warning("Docker is not active. Falling back to uvicorn/node startup checks on the host machine...")
+        pass
         frontend_proc = None
         backend_proc = None
         frontend_logs: List[str] = []
@@ -870,7 +869,7 @@ class RuntimeVerifierAgent:
                 proc.terminate()
                 await proc.wait()
         except Exception as e:
-            logger.warning(f"Error killing PID {proc.pid}: {e}")
+            pass
 
     async def _run_command_with_logging(
         self, cmd: str, cwd: str, timeout: float, step_name: str, db: Any, project_id: str, progress: int
@@ -883,7 +882,7 @@ class RuntimeVerifierAgent:
             )
         except Exception as e:
             err_msg = f"Failed to spawn command '{cmd}' on host: {e}"
-            logger.error(err_msg)
+            pass
             logs.append(err_msg)
             return -1, logs
 
@@ -1010,5 +1009,5 @@ class RuntimeVerifierAgent:
             parsed = parse_json_response(raw_response.strip())
             return parsed.get("corrected_code")
         except Exception as e:
-            logger.error(f"Failed to heal file {file_path}: {e}")
+            pass
             return None

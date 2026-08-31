@@ -4,7 +4,6 @@ Imported by both main.py (to register the /ws/notifications endpoint)
 and projects.py (to broadcast compilation progress events).
 """
 import json
-from loguru import logger
 from fastapi import WebSocket
 
 
@@ -24,10 +23,10 @@ class ConnectionManager:
         await websocket.accept()
         if project_id:
             self._project_sockets.setdefault(project_id, []).append(websocket)
-            logger.info(f"WS connected for project {project_id}. Total for project: {len(self._project_sockets[project_id])}")
+            pass
         else:
             self._global_sockets.append(websocket)
-            logger.info(f"Global WS connected. Total global: {len(self._global_sockets)}")
+            pass
 
     def disconnect(self, websocket: WebSocket, project_id: str | None = None):
         if project_id and project_id in self._project_sockets:
@@ -47,7 +46,7 @@ class ConnectionManager:
         try:
             await websocket.send_text(message)
         except Exception as e:
-            logger.error(f"Failed to send personal WS message: {e}")
+            pass
 
     async def broadcast(self, message: str):
         """Broadcast to all global sockets."""

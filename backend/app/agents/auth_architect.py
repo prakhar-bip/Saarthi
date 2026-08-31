@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any
 from openai import OpenAI
 from app.core.config import settings
@@ -48,7 +47,6 @@ class AuthArchitectureAgent:
             "theme_styling": theme_styling,
         }
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("NVIDIA_API_KEY not configured. Using intelligent fallback authentication architecture design.")
             return enrich_agent_output(self._get_fallback_auth_architecture(requirements, planning, db_architecture, backend_architecture, api_architecture, frontend_architecture), self.agent_name, agent_inputs)
 
         system_prompt = build_agent_system_prompt(
@@ -171,7 +169,6 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run AuthArchitectureAgent: {e}")
             return enrich_agent_output(self._get_fallback_auth_architecture(requirements, planning, db_architecture, backend_architecture, api_architecture, frontend_architecture), self.agent_name, agent_inputs)
 
     def _get_fallback_auth_architecture(

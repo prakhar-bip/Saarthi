@@ -1,6 +1,5 @@
 import asyncio
 import json
-from loguru import logger
 import os
 import shutil
 from contextlib import AsyncExitStack
@@ -70,13 +69,13 @@ class MCPManager:
         if not getattr(settings, "MONGODB_MCP_ENABLED", True):
             self.mode = "disabled"
             self.last_error = "MONGODB_MCP_ENABLED is false."
-            logger.info("MongoDB MCP bridge disabled by configuration.")
+            pass
             return
 
         if MCP_SDK_IMPORT_ERROR or StdioServerParameters is None or stdio_client is None:
             self.mode = "local_mongodb_fallback"
             self.last_error = f"Python MCP SDK is not installed: {MCP_SDK_IMPORT_ERROR}"
-            logger.warning(self.last_error)
+            pass
             return
 
         command = shutil.which("npx.cmd") or shutil.which("npx") or "npx"
@@ -95,25 +94,17 @@ class MCPManager:
 
         timeout = max(3, int(getattr(settings, "MONGODB_MCP_STARTUP_TIMEOUT_SECONDS", 15)))
         try:
-            logger.info(
-                "Starting MongoDB MCP bridge with %s %s against %s",
-                command,
-                " ".join(args),
-                _safe_mongo_uri(self.mongo_uri),
-            )
+            pass
             await asyncio.wait_for(self._start_stdio_session(), timeout=timeout)
             self.mode = "official_mcp_stdio"
             self.is_connected = True
             self.last_error = None
-            logger.info("Connected to official MongoDB MCP server.")
+            pass
         except Exception as exc:
             self.is_connected = False
             self.mode = "local_mongodb_fallback"
             self.last_error = f"{type(exc).__name__}: {exc}"
-            logger.warning(
-                "MongoDB MCP server unavailable; continuing with local MongoDB fallback: %s",
-                self.last_error,
-            )
+            pass
             await self._reset_exit_stack()
 
     async def _start_stdio_session(self) -> None:
@@ -141,13 +132,13 @@ class MCPManager:
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception as e:
-                logger.debug(f"Failed to kill orphaned MCP processes: {e}")
+                pass
 
         try:
             # Wrap aclose in a timeout to prevent uvicorn shutdown from hanging if npx gets stuck
             await asyncio.wait_for(self.exit_stack.aclose(), timeout=5.0)
         except Exception:
-            logger.debug("Ignoring MCP exit stack cleanup error.", exc_info=True)
+            pass
         self.exit_stack = AsyncExitStack()
         self.session = None
 
@@ -155,7 +146,7 @@ class MCPManager:
     async def stop(self) -> None:
         """Close the MCP session and subprocess if they are running."""
         if self.exit_stack:
-            logger.info("Shutting down MongoDB MCP bridge...")
+            pass
             await self._reset_exit_stack()
         self.is_connected = False
         if self.mode == "official_mcp_stdio":
@@ -181,7 +172,7 @@ class MCPManager:
         """Fetch available tools from the MCP server or fallback adapter."""
         if self.mode == "official_mcp_stdio":
             if not self.is_connected or getattr(self.session, '_closed', False):
-                logger.warning("MCP session appears disconnected. Attempting auto-reconnect...")
+                pass
                 await self.stop()
                 await self.start()
 
@@ -192,7 +183,7 @@ class MCPManager:
                 return self.tools_cache
             except Exception as exc:
                 self.last_error = str(exc)
-                logger.error("Failed to list MCP tools: %s", exc)
+                pass
 
         return self._fallback_tools()
 
@@ -236,13 +227,13 @@ class MCPManager:
         if self.mode == "official_mcp_stdio":
             # Check if session is closed or unresponsive and auto-reconnect
             if not self.is_connected or getattr(self.session, '_closed', False):
-                logger.warning("MCP session appears disconnected. Attempting auto-reconnect...")
+                pass
                 await self.stop()
                 await self.start()
 
         if self.is_connected and self.session:
             try:
-                logger.info("Executing MongoDB MCP tool %s with %s", name, arguments)
+                pass
                 result = await asyncio.wait_for(self.session.call_tool(name, arguments=arguments), timeout=20)
                 if not result.content:
                     return "Success: command executed but returned no data."
@@ -251,7 +242,7 @@ class MCPManager:
                 )
             except Exception as exc:
                 self.last_error = str(exc)
-                logger.error("Official MCP tool '%s' failed: %s", name, exc)
+                pass
                 return await self._execute_local_fallback(name, arguments)
 
         return await self._execute_local_fallback(name, arguments)
@@ -313,7 +304,7 @@ class MCPManager:
             )
         except Exception as exc:
             self.last_error = str(exc)
-            logger.error("MongoDB local fallback tool '%s' failed: %s", name, exc)
+            pass
             return f"Error executing MongoDB fallback tool '{name}': {exc}"
 
     async def build_evidence_snapshot(self, project_id: Optional[str] = None) -> Dict[str, Any]:

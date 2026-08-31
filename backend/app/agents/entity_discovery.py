@@ -1,5 +1,4 @@
 import json
-from loguru import logger
 from typing import Dict, Any, List, Optional
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
@@ -33,7 +32,6 @@ class EntityDiscoveryAgent:
 
         # Check for API keys
         if not (settings.NVIDIA_API_KEY or settings.OPENROUTER_API_KEY or settings.GROQ_API_KEY or settings.GOOGLE_API_KEY):
-            logger.warning("No LLM API keys configured. Using fallback discovered entities.")
             return enrich_agent_output(
                 self._get_fallback_entities(db_architecture, api_architecture),
                 self.agent_name,
@@ -88,7 +86,6 @@ class EntityDiscoveryAgent:
         """
 
         try:
-            logger.info("[EntityDiscovery] Running LLM Entity Discovery...")
             raw_response = await get_llm_completion(
                 agent_name=self.agent_name,
                 messages=[
@@ -99,10 +96,8 @@ class EntityDiscoveryAgent:
             )
             raw_response = raw_response.strip()
             parsed = parse_json_response(raw_response)
-            logger.info(f"[EntityDiscovery] Successfully discovered {len(parsed.get('entities', []))} entities.")
             return enrich_agent_output(parsed, self.agent_name, agent_inputs)
         except Exception as e:
-            logger.error(f"Failed to run EntityDiscoveryAgent: {e}. Executing fallback.")
             return enrich_agent_output(
                 self._get_fallback_entities(db_architecture, api_architecture),
                 self.agent_name,

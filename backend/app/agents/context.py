@@ -1,7 +1,6 @@
 import json
 from collections.abc import Mapping
 from typing import Any, Dict, List
-from loguru import logger
 
 
 AGENT_PIPELINE: List[str] = [
@@ -145,10 +144,71 @@ class IncompleteJSONError(Exception):
         super().__init__(message)
         self.raw_response = raw_response
 
-def parse_json_response(raw_response: str) -> Dict[str, Any]:
+
+# ──────────────────────────────────────────────────────────────
+# Semantic Validation for Repaired JSON
+# ──────────────────────────────────────────────────────────────
+
+# Required structural keys per agent. If json_repair succeeds syntactically
+# but these keys are absent/empty, the data was truncated and must be retried.
+AGENT_REQUIRED_KEYS: Dict[str, List[str]] = {
+    "RequirementAnalyzerAgent": ["project_overview", "features"],
+    "PlannerAgent": ["module_execution_order"],
+    "DatabaseArchitectureAgent": ["entities"],
+    "BackendArchitectureAgent": ["backend_strategy"],
+    "APIAgent": ["endpoints"],
+    "FrontendArchitectureAgent": ["pages"],
+    "UIUXArchitectAgent": ["design_system"],
+    "AuthArchitectureAgent": ["authentication_strategy"],
+    "RealtimeArchitectureAgent": ["realtime_strategy"],
+    "StateManagementAgent": ["state_management_strategy"],
+    "DevOpsArchitectureAgent": ["infrastructure_strategy"],
+    "SecurityArchitectureAgent": ["security_strategy"],
+    "TestingArchitectureAgent": ["testing_strategy"],
+    "OptimizationArchitectureAgent": ["optimization_strategy"],
+    "CodeGenerationPlannerAgent": ["generation_strategy"],
+    "DatabaseModelGenerationAgent": ["entities"],
+    "BackendCodeGenerationAgent": ["backend_strategy"],
+    "APIImplementationAgent": ["endpoints"],
+    "FrontendCodeGenerationAgent": ["pages"],
+    "UIComponentGenerationAgent": ["components"],
+    "StateImplementationAgent": ["state_management_strategy"],
+    "IntegrationGenerationAgent": ["integration_strategy"],
+    "BuildCompilationAgent": ["build_strategy"],
+    "ErrorCorrectionAgent": ["corrections"],
+    "ProjectExportAgent": ["export_strategy"],
+}
+
+
+def validate_required_keys(parsed_dict: Dict[str, Any], agent_name: str) -> bool:
+    """Check if repaired JSON actually contains the expected core data keys.
+    
+    Returns True if all required keys are present and non-empty, False otherwise.
+    If the agent_name has no explicit required keys defined, returns True (pass-through).
+    """
+    required = AGENT_REQUIRED_KEYS.get(agent_name)
+    if not required:
+        return True
+    for key in required:
+        value = parsed_dict.get(key)
+        if value is None:
+            return False
+        # Empty lists/dicts also count as missing
+        if isinstance(value, (list, dict)) and len(value) == 0:
+            return False
+    return True
+
+
+def parse_json_response(raw_response: str, agent_name: str = None) -> Dict[str, Any]:
     cleaned = strip_json_code_fence(raw_response)
     try:
-        return json.loads(cleaned)
+        result = json.loads(cleaned)
+        # Even clean JSON may be semantically incomplete after truncation
+        if agent_name and isinstance(result, dict) and not validate_required_keys(result, agent_name):
+            raise IncompleteJSONError(
+                f"Parsed JSON is missing required schema keys for {agent_name}", raw_response
+            )
+        return result
     except json.JSONDecodeError as primary_err:
         # Heuristic: Extract JSON block between the first '{' and last '}'
         try:
@@ -157,16 +217,24 @@ def parse_json_response(raw_response: str) -> Dict[str, Any]:
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                 json_candidate = cleaned[start_idx:end_idx+1]
                 try:
-                    return json.loads(json_candidate)
+                    candidate_result = json.loads(json_candidate)
+                    if agent_name and isinstance(candidate_result, dict) and not validate_required_keys(candidate_result, agent_name):
+                        raise IncompleteJSONError(
+                            f"Candidate JSON block missing required keys for {agent_name}", raw_response
+                        )
+                    return candidate_result
                 except json.JSONDecodeError:
                     # Attempt json_repair on the candidate block
                     from json_repair import repair_json  # type: ignore
                     repaired = repair_json(json_candidate, return_objects=True)
                     if isinstance(repaired, dict):
-                        logger.warning(
-                            "[parse_json_response] Primary JSON parse failed; successfully extracted and repaired candidate block from raw response."
-                        )
+                        if agent_name and not validate_required_keys(repaired, agent_name):
+                            raise IncompleteJSONError(
+                                f"Repaired JSON missing required keys for {agent_name}", raw_response
+                            )
                         return repaired
+        except IncompleteJSONError:
+            raise
         except Exception:
             pass
 
@@ -175,11 +243,13 @@ def parse_json_response(raw_response: str) -> Dict[str, Any]:
             from json_repair import repair_json  # type: ignore
             repaired = repair_json(cleaned, return_objects=True)
             if isinstance(repaired, dict):
-                logger.warning(
-                    f"[parse_json_response] Primary JSON parse failed ({primary_err}); "
-                    "recovered via json_repair."
-                )
+                if agent_name and not validate_required_keys(repaired, agent_name):
+                    raise IncompleteJSONError(
+                        f"Repaired JSON missing required keys for {agent_name}", raw_response
+                    )
                 return repaired
+        except IncompleteJSONError:
+            raise
         except Exception:
             pass
         raise IncompleteJSONError(f"JSONDecodeError: {primary_err}", raw_response)

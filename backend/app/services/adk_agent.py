@@ -1,4 +1,3 @@
-from loguru import logger
 from typing import List, Dict, Any, Optional
 from google.genai.types import Content, Part
 
@@ -14,7 +13,7 @@ try:
     from google.adk.agents.run_config import RunConfig
     HAS_ADK = True
 except (ImportError, ModuleNotFoundError):
-    logger.warning("google-adk package is not installed. Root ADK Agent chat will cascade to LangGraph fallback.")
+    pass
     Agent = None
     Runner = None
     InMemorySessionService = None
@@ -22,14 +21,14 @@ except (ImportError, ModuleNotFoundError):
 
 # If ADK is present, restrict it to production environment and verify credentials.
 if settings.ENVIRONMENT != "production":
-    logger.info("google-adk disabled in development mode.")
+    pass
     HAS_ADK = False
 elif HAS_ADK and settings.USE_VERTEX_AI:
     try:
         import google.auth
         google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
     except Exception as e:
-        logger.warning(f"Vertex AI credentials check failed: {e}. Sarthi ADK Agent chat disabled (bypassing deadlock).")
+        pass
         HAS_ADK = False
 
 
@@ -66,7 +65,7 @@ def get_design_theme_suggestions_tool(project_name: str, category: str, features
         themes = asyncio.run(generate_theme_suggestions(blueprint, custom_prompt=custom_prompt))
         return themes
     except Exception as e:
-        logger.error(f"Error in get_design_theme_suggestions_tool: {e}")
+        pass
         return []
 
 platform_info = "Google Cloud Vertex AI (via IAM Service Account)" if settings.USE_VERTEX_AI else "Google AI Studio (via Developer API Key)"
@@ -152,7 +151,7 @@ try:
     
     fallback_app = workflow.compile()
 except Exception as init_err:
-    logger.error(f"Failed to initialize LangGraph fallback workflow: {init_err}")
+    pass
     fallback_app = None
 
 async def run_langgraph_fallback(
@@ -177,7 +176,7 @@ async def run_langgraph_fallback(
         result = await fallback_app.ainvoke(initial_state)
         return result.get("response", "")
     except Exception as e:
-        logger.error(f"Error executing LangGraph fallback runner: {e}")
+        pass
         from app.services.ai import generate_chat_reply
         return await generate_chat_reply(category, messages, selected_project)
 
@@ -201,7 +200,7 @@ async def run_adk_chat(
                     break
             
             if last_user_message:
-                logger.info(f"🔌 [ADK CHAT RUNNER] Invoking Sarthi root agent via ADK for session {chat_id}...")
+                pass
                 
                 # Get or create session
                 session = await session_service.get_session(
@@ -235,11 +234,11 @@ async def run_adk_chat(
                                 response_text += part.text
                                 
                 if response_text:
-                    logger.info(f"✅ [ADK CHAT RUNNER] Successfully generated chat reply via ADK.")
+                    pass
                     return response_text
                     
         except Exception as adk_err:
-            logger.warning(f"⚠️ [ADK CHAT RUNNER] Failed: {adk_err}. Cascading to LangGraph Fallback...")
+            pass
 
     # Fallback path (LangGraph)
     category = "general"
@@ -275,7 +274,7 @@ async def stream_adk_chat(
                     break
             
             if last_user_message:
-                logger.info(f"🌐 [ADK CHAT RUNNER] Invoking Sarthi root agent via ADK for session {chat_id} (Streaming)...")
+                pass
                 
                 # Get or create session
                 session = await session_service.get_session(
@@ -310,11 +309,11 @@ async def stream_adk_chat(
                                 yield part.text
                                 
                 if has_yielded:
-                    logger.info(f"✅ [ADK CHAT RUNNER] Successfully generated chat reply via ADK streaming.")
+                    pass
                     return
                     
         except Exception as adk_err:
-            logger.warning(f"⚠️ [ADK CHAT RUNNER] Streaming failed: {adk_err}. Cascading to stream_chat_reply...")
+            pass
 
     # Fallback path (streaming chat reply)
     category = "general"

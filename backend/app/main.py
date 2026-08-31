@@ -35,19 +35,14 @@ from app.core.security import decode_access_token
 from app.core.config import settings
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.redis_client import connect_to_redis, close_redis_connection
+from app.core.progress_logger import progress_logger
 from app.api import auth, chats, projects, mcp, feedback
 from app.services.ws_manager import manager
 from app.services.mcp_service import mcp_client
 
-from app.core.logger import setup_logging
-
-# Setup modern logger
-setup_logging()
-from loguru import logger
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing services on startup...")
+    progress_logger.info("Initializing Sarthi services on startup...")
     await connect_to_mongo()
     
     # Purge other databases and seed default user 'Asur'
@@ -56,14 +51,15 @@ async def lifespan(app: FastAPI):
     
     await connect_to_redis()
     
-    logger.info("Starting MongoDB partner MCP bridge...")
     try:
         await mcp_client.start()
+        progress_logger.info("MongoDB MCP bridge connected.")
     except Exception as exc:
-        logger.warning("MongoDB MCP bridge startup failed; continuing without blocking API startup: %s", exc)
+        progress_logger.warning(f"MongoDB MCP bridge startup failed: {exc}")
     
+    progress_logger.success(f"{settings.PROJECT_NAME} backend services ready.")
     yield
-    logger.info("Closing services on shutdown...")
+    progress_logger.info("Closing Sarthi services on shutdown...")
     await mcp_client.stop()
     await close_mongo_connection()
     await close_redis_connection()
@@ -79,7 +75,7 @@ from fastapi import Request
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    progress_logger.error(f"Unhandled exception in API request: {exc}")
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "message": str(exc)},
@@ -162,13 +158,11 @@ async def websocket_notifications(websocket: WebSocket):
         )
         while True:
             data = await websocket.receive_text()
-            logger.debug(f"Received WS message: {data}")
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+    except Exception:
         manager.disconnect(websocket)
 
 
@@ -205,6 +199,5 @@ async def websocket_project_progress(websocket: WebSocket, project_id: str):
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         manager.disconnect(websocket, project_id=project_id)
-    except Exception as e:
-        logger.error(f"Project WS error for {project_id}: {e}")
+    except Exception:
         manager.disconnect(websocket, project_id=project_id)
