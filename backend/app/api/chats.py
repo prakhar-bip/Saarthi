@@ -217,11 +217,17 @@ async def edit_message(chat_id: str, message_id: str, payload: dict, current_use
 
 @router.put("/{chat_id}")
 async def update_chat(chat_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    if not chat_id or chat_id.startswith("chat-temp-"):
+        return {"status": "ignored", "detail": "Temporary optimistic chat ID"}
+
     db = get_database()
     chat = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
     if not chat:
-        raise HTTPException(status_code=404, detail="Chat session not found")
-        
+        # Race condition fallback: wait 300ms in case concurrent creation is committing
+        import asyncio
+        await asyncio.sleep(0.3)
+        chat = await db.chats.find_one({"_id": chat_id, "user_id": current_user["id"]})
+
     updates = {}
     if "selected_project" in payload:
         updates["selected_project"] = payload["selected_project"]
@@ -235,10 +241,33 @@ async def update_chat(chat_id: str, payload: dict, current_user: dict = Depends(
         updates["is_confirmed"] = bool(payload["is_confirmed"])
     if "project_id" in payload:
         updates["project_id"] = payload["project_id"]
-        
+
+    if not chat:
+        # If still not found and valid chat id format, upsert to prevent dropping client state
+        created_str = datetime.now(timezone.utc).strftime("%b %d, %Y")
+        new_doc = {
+            "_id": chat_id,
+            "title": payload.get("title", "New Chat"),
+            "category": payload.get("category", "other"),
+            "messages": [],
+            "created": created_str,
+            "created_at_dt": datetime.now(timezone.utc),
+            "user_id": current_user["id"],
+            "selected_project": payload.get("selected_project"),
+            "is_confirmed": payload.get("is_confirmed", False),
+            "project_id": payload.get("project_id"),
+            "is_paused": payload.get("is_paused", False)
+        }
+        await db.chats.update_one(
+            {"_id": chat_id},
+            {"$setOnInsert": new_doc, "$set": updates},
+            upsert=True
+        )
+        return {"status": "success", "upserted": True, "updates": updates}
+
     if updates:
         await db.chats.update_one({"_id": chat_id}, {"$set": updates})
-        
+
     return {"status": "success", "updates": updates}
 
 @router.get("/{chat_id}/themes")

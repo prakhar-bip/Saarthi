@@ -67,6 +67,8 @@ class ContractAuditor:
         core_modules = reqs.get("core_modules", [])
         db_reqs = reqs.get("database_requirements", {})
         master_entities = db_reqs.get("entities", [])
+        if not master_entities:
+            master_entities = project_doc.get("db_architecture", {}).get("entities", [])
         auth_reqs = reqs.get("authentication", {})
         scalability_reqs = reqs.get("scalability", {})
 

@@ -18,6 +18,12 @@ from app.services.llm_router import current_agent_feedback
 from app.services.contract_auditor import ContractAuditor
 from app.services.surgical_gap_filler import SurgicalGapFiller
 from app.services.state_merger import StateMerger
+from app.services.api_contracts import (
+    endpoint_matches_entity,
+    ensure_entity_crud_endpoints,
+    get_entity_name,
+    is_internal_system_entity,
+)
 
 # Import all agents explicitly
 from app.agents.requirement_analyzer import RequirementAnalyzerAgent
@@ -278,6 +284,37 @@ def get_agent_db_key(agent_name: str) -> str:
     }
     return mapping.get(agent_name, agent_name.lower())
 
+
+def normalize_agent_output_for_contracts(agent_name: str, result: Any, project_doc: Dict[str, Any]) -> Any:
+    """Apply deterministic contract repairs before cache/idempotency/validation handoff."""
+    if agent_name != "APIAgent" or not isinstance(result, dict):
+        return result
+
+    requirements = project_doc.get("requirements", {}) or {}
+    auth_required = requirements.get("authentication", {}).get("required", True)
+    return ensure_entity_crud_endpoints(
+        result,
+        project_doc.get("db_architecture", {}) or {},
+        bool(auth_required),
+    )
+
+
+async def validate_agent_output_contracts(
+    agent_name: str,
+    result: Any,
+    project_doc: Dict[str, Any],
+) -> tuple[bool, str, List[Dict[str, Any]]]:
+    verifier = VerifierAgent()
+    is_complete, feedback = await verifier.verify(agent_name, result)
+    if not is_complete:
+        return False, feedback, []
+
+    try:
+        is_incr_valid, incr_feedback, incr_logs = await verifier.verify_incremental(agent_name, result, project_doc)
+    except Exception:
+        return True, "", []
+    return is_incr_valid, incr_feedback, incr_logs
+
 async def call_agent_design(agent_name: str, agent: Any, project_doc: Dict[str, Any], feedback: Optional[str]) -> Any:
     """Helper to dynamically call agent methods using signature inspections."""
     method = getattr(agent, "design", None) or getattr(agent, "plan", None) or getattr(agent, "analyze", None) or getattr(agent, "generate_plan", None)
@@ -382,19 +419,79 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
 
     db_key = get_agent_db_key(agent_name)
 
-    # —— Idempotency check: skip if this agent already produced valid output ——
+    # —— Deterministic Artifact Cache Check ——
+    from app.services.artifact_cache import ArtifactCache
+    from app.services.dependency_dag import DependencyDAG, AGENT_TO_ARTIFACT
+
+    art_type = AGENT_TO_ARTIFACT.get(agent_name, agent_name.lower())
+    input_hash = ArtifactCache.compute_input_hash(project_doc.get("blueprint") or project_doc.get("initial_prompt") or {})
+    dep_hash = DependencyDAG.compute_dependency_hash(project_doc, art_type)
+    cache_key = ArtifactCache.compute_cache_key(project_id, agent_name, input_hash=input_hash, dependency_hash=dep_hash)
+
+    cached_content = await ArtifactCache.get(db, project_id, agent_name, cache_key)
+    if cached_content and isinstance(cached_content, dict) and len(cached_content) > 0:
+        cached_content = normalize_agent_output_for_contracts(agent_name, cached_content, project_doc)
+        is_cached_valid, cached_feedback, cached_logs = await validate_agent_output_contracts(agent_name, cached_content, project_doc)
+        if not is_cached_valid:
+            if cached_logs and db is not None:
+                await db.projects.update_one(
+                    {"_id": project_id},
+                    {"$push": {"incremental_validation_logs": {"$each": cached_logs}}}
+                )
+            progress_logger.info(
+                f"Cached {agent_name} artifact failed contract validation; regenerating. {cached_feedback}",
+                project_id=project_id,
+                step="cache_contract_validation",
+            )
+        else:
+            if agent_name == "APIAgent":
+                await ArtifactCache.set(
+                    db=db,
+                    project_id=project_id,
+                    agent_name=agent_name,
+                    cache_key=cache_key,
+                    content=cached_content,
+                    input_hash=input_hash,
+                    dependency_hash=dep_hash,
+                )
+            progress_logger.agent_success(agent_name, f"Cache HIT (0s, 0 tokens) -> Reusing verified artifact", project_id=project_id)
+            project_doc[db_key] = cached_content
+            return cached_content
+
+    # —— Idempotency check: skip if this agent already produced valid output in project_doc ——
     existing = project_doc.get(db_key)
     if existing and isinstance(existing, dict) and len(existing) > 0:
-        pass
-        return existing
+        existing = normalize_agent_output_for_contracts(agent_name, existing, project_doc)
+        is_existing_valid, existing_feedback, existing_logs = await validate_agent_output_contracts(agent_name, existing, project_doc)
+        if is_existing_valid:
+            if existing is not project_doc.get(db_key):
+                project_doc[db_key] = existing
+                if agent_name == "APIAgent" and db is not None:
+                    await db.projects.update_one({"_id": project_id}, {"$set": {db_key: existing, f"{db_key}_full": existing}})
+            return existing
+        if existing_logs and db is not None:
+            await db.projects.update_one(
+                {"_id": project_id},
+                {"$push": {"incremental_validation_logs": {"$each": existing_logs}}}
+            )
+        progress_logger.info(
+            f"Existing {agent_name} artifact failed contract validation; regenerating. {existing_feedback}",
+            project_id=project_id,
+            step="existing_contract_validation",
+        )
 
     agent = get_agent_instance(agent_name)
     project_doc = enrich_project_doc_context(project_doc)
     progress_logger.agent_start(agent_name, f"Executing architecture generation ({gen_type})", project_id=project_id)
     
-    # Prune/Filter project document using dynamic knowledge graph sub-graph query
+    # Prune/Filter project document: on backtrack re-runs use precision DAG context windowing
     from app.services.graph_store import GraphStore
-    pruned_project_doc = GraphStore.get_pruned_context(project_doc, agent_name)
+    from app.services.dependency_dag import DependencyDAG
+    is_backtrack_run = bool(project_doc.get("active_healing_context") or project_doc.get("backtrack_depth", 0) > 0)
+    if is_backtrack_run:
+        pruned_project_doc = DependencyDAG.get_pruned_context_for_agent(agent_name, project_doc, is_backtrack=True)
+    else:
+        pruned_project_doc = GraphStore.get_pruned_context(project_doc, agent_name)
     
     # Set tech stack and theme context variables for dynamic prompt adaptation
     from app.services.llm_router import current_tech_stack, current_theme_palette, current_generation_type
@@ -469,11 +566,17 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                 retry_count += 1
                 feedback_history.append("Agent returned no valid output. Please provide a complete JSON response.")
                 continue
-                
-            verifier = VerifierAgent()
-            is_complete, new_feedback = await verifier.verify(agent_name, result)
+
+            result = normalize_agent_output_for_contracts(agent_name, result, project_doc)
+            is_complete, new_feedback, validation_logs = await validate_agent_output_contracts(agent_name, result, project_doc)
             
             if is_complete:
+                if validation_logs and db is not None:
+                    await db.projects.update_one(
+                        {"_id": project_id},
+                        {"$push": {"incremental_validation_logs": {"$each": validation_logs}}}
+                    )
+
                 # ──────────────────────────────────────────────────────
                 # Contract Auditor: Cross-check against Master TRD/Reqs
                 # ──────────────────────────────────────────────────────
@@ -554,9 +657,30 @@ async def run_single_agent(db: Any, project_id: str, project_doc: Dict[str, Any]
                 await db.projects.update_one({"_id": project_id}, {"$set": summary_data})
                 for k, v in summary_data.items():
                     project_doc[k] = v
+
+                # Store into deterministic artifact cache
+                try:
+                    await ArtifactCache.set(
+                        db=db,
+                        project_id=project_id,
+                        agent_name=agent_name,
+                        cache_key=cache_key,
+                        content=result,
+                        input_hash=input_hash,
+                        dependency_hash=dep_hash,
+                        summary=summary_results.get("summary_output", "") if "summary_results" in locals() else ""
+                    )
+                except Exception:
+                    pass
+
                 progress_logger.agent_success(agent_name, f"Completed successfully and saved to DB (key={db_key})", project_id=project_id)
                 return result
             else:
+                if validation_logs and db is not None:
+                    await db.projects.update_one(
+                        {"_id": project_id},
+                        {"$push": {"incremental_validation_logs": {"$each": validation_logs}}}
+                    )
                 retry_count += 1
                 feedback_history.append(new_feedback)
                 pass
@@ -968,10 +1092,9 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
     # 1. Entity existence check (Only if not frontend_only)
     db_entities = set()
     for e in db_arch.get("entities", []):
-        if isinstance(e, dict) and e.get("entity_name"):
-            db_entities.add(e["entity_name"])
-        elif isinstance(e, str):
-            db_entities.add(e)
+        entity_name = get_entity_name(e)
+        if entity_name:
+            db_entities.add(entity_name)
     if gen_type != "frontend_only":
         if not db_entities:
             validation_logs.append({"module": "Database", "severity": "error", "error": "No entities defined in db_architecture."})
@@ -1044,30 +1167,15 @@ async def verifier_guardrail_node(state: AppState, config: Optional[RunnableConf
             
     # 12. Cross-reference: entities vs API endpoints
     if gen_type != "frontend_only" and db_entities and api_endpoints:
-        endpoint_paths = set()
-        for ep in api_endpoints:
-            if isinstance(ep, dict):
-                endpoint_paths.add(ep.get("path", "").lower())
-                endpoint_paths.add(ep.get("resource", "").lower())
-        
-        # Internal / infrastructure / auth tokens do NOT expose generic public REST CRUD endpoints.
-        # They are managed internally by auth flows (e.g. /api/auth/refresh) or background services.
-        INTERNAL_ENTITY_KEYWORDS = {
-            "token", "refreshtoken", "session", "audit", "log", "synclog",
-            "setting", "config", "permission", "role", "userrole", "mapping",
-            "relation", "association", "link"
-        }
-
-        def is_internal_system_entity(ent_name: str) -> bool:
-            name_clean = ent_name.lower().replace("_", "").replace("-", "")
-            return any(kw in name_clean for kw in INTERNAL_ENTITY_KEYWORDS)
-
         uncovered_domain_entities = []
         internal_entities_acknowledged = []
 
         for entity in db_entities:
-            entity_lower = entity.lower().replace("_", "").replace("-", "")
-            has_endpoint = any(entity_lower in p.lower().replace("_", "").replace("-", "") for p in endpoint_paths if p)
+            has_endpoint = any(
+                endpoint_matches_entity(ep, entity)
+                for ep in api_endpoints
+                if isinstance(ep, dict)
+            )
             if not has_endpoint:
                 if is_internal_system_entity(entity):
                     internal_entities_acknowledged.append(entity)
@@ -1157,6 +1265,17 @@ async def backtrack_node(state: AppState, config: Optional[RunnableConfig] = Non
         )
         raise ValueError("Project generation failed: MAX_BACKTRACK_DEPTH or MAX_AGENT_RETRIES exceeded. Status marked FAILED_REQUIRES_HUMAN_REVIEW.")
         
+    # Broadcast backtrack diagnostic event and healing context
+    from app.services.ws_manager import manager as ws_mgr
+    active_healing = backtrack_res["project_doc"].get("active_healing_context")
+    await ws_mgr.broadcast_progress(
+        project_id=project_id,
+        progress=project_doc.get("progress", 73),
+        step=f"Backtrack Depth {backtrack_res['backtrack_depth']}: Re-entering {backtrack_res.get('backtrack_target', 'architecture_design')} for {analyzer_result.get('responsible_agent')}",
+        active_healing_context=active_healing,
+        backtrack_history=backtrack_res["project_doc"].get("backtrack_history", [])
+    )
+
     return {
         "project_doc": backtrack_res["project_doc"],
         "validation_logs": [],

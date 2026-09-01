@@ -37,86 +37,77 @@ class PlannerAgent:
             self.agent_name,
             (
                 "## Role\n"
-                "You are a senior software project planner and build orchestrator. You transform technical requirements into a deterministic build execution plan with clear phases, dependency graphs, and agent scheduling.\n\n"
-                "## Instructions\n"
-                "1. Think step by step: analyze the project type and modules, then define phases (setup → backend → frontend → integration), then map module dependencies, then identify risks.\n"
-                "2. module_execution_order must be a topologically sorted list — foundational modules (Auth, Database) before dependent ones.\n"
-                "3. parallel_execution_groups must only contain modules with NO inter-dependencies.\n"
-                "4. agent_execution_plan must reference real Sarthi agent names: DatabaseArchitectureAgent, BackendArchitectureAgent, APIAgent, FrontendArchitectureAgent, UIUXArchitectAgent, AuthArchitectureAgent.\n"
-                "5. risk_analysis must be specific to the project — avoid generic platitudes.\n\n"
+                "You are a software build planner. Output a compact, deterministic execution plan with phases, module DAG, and agent scheduling.\n\n"
                 "## Constraints\n"
-                "- Return ONLY valid JSON. No markdown fences, no commentary.\n"
-                "- project_phases must contain 3-5 phases, each with concrete tasks and expected_output.\n"
-                "- recommended_next_agents must list agents in the correct pipeline invocation order."
+                "- Output ONLY strict valid JSON. No conversational commentary, no markdown code blocks.\n"
+                "- Keep descriptions brief (max 15 words per item).\n"
+                "- module_execution_order must be topologically sorted.\n"
+                "- recommended_next_agents must list the direct downstream architecture agents."
             )
         )
 
         user_content = f"""
-Analyze the following project requirements and produce a build execution plan.
+Requirements: {json.dumps(requirements, default=str)}
 
-Think step by step:
-1. Determine the architecture style from the tech stack and project type.
-2. Break the build into 3-5 sequential phases (setup → core backend → frontend → integration → polish).
-3. Topologically sort modules so dependencies come first in module_execution_order.
-4. Group independent modules into parallel_execution_groups.
-5. Map each Sarthi agent to its execution stage.
-6. Identify project-specific risks and bottlenecks.
-
-Requirements: {json.dumps(requirements, indent=2)}
-
-Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
+Return ONLY valid JSON with this exact compact structure:
 {{
   "status": "success",
   "execution_strategy": {{
-    "project_type": "string — from requirements.project_overview.type",
-    "architecture_style": "string — e.g. 'Client-Server MVC', 'Microservices', 'Serverless'",
-    "development_strategy": "string — 1 sentence on build approach (e.g. 'Database-first with parallel frontend/backend')",
-    "scalability_strategy": "string — 1 sentence on scaling approach"
+    "project_type": "string — from requirements",
+    "architecture_style": "Client-Server Modular",
+    "development_strategy": "Database-first with parallel frontend/backend logic",
+    "scalability_strategy": "Stateless horizontal scaling with cached reads"
   }},
   "project_phases": [
     {{
-      "phase": "integer — sequential phase number starting at 1",
-      "title": "string — short phase title",
-      "description": "string — what this phase accomplishes",
-      "tasks": ["string — specific actionable tasks"],
-      "expected_output": ["string — concrete deliverables"]
-    }}
-  ],
-  "module_execution_order": ["string — topologically sorted module names from requirements.core_modules"],
-  "parallel_execution_groups": [
-    ["string — modules with no inter-dependencies that can build concurrently"]
-  ],
-  "module_dependencies": [
+      "phase": 1,
+      "title": "Data & Backend Architecture",
+      "description": "Define data models, database schemas, and REST endpoints.",
+      "tasks": ["Design schema entities", "Map API endpoints"],
+      "expected_output": ["Database models", "API schemas"]
+    }},
     {{
-      "module": "string — dependent module name",
-      "depends_on": ["string — prerequisite module names"]
+      "phase": 2,
+      "title": "Frontend & UI/UX Assembly",
+      "description": "Design pages, layouts, and component state bindings.",
+      "tasks": ["Theme token design", "Component hierarchy"],
+      "expected_output": ["UI wireframes", "State management"]
+    }},
+    {{
+      "phase": 3,
+      "title": "Security, Operations & Code Synthesis",
+      "description": "Implement auth guards, testing suites, and compile codebase.",
+      "tasks": ["Auth validation", "Code synthesis"],
+      "expected_output": ["Complete production codebase"]
     }}
   ],
+  "module_execution_order": ["string — module names"],
+  "parallel_execution_groups": [["string — independent modules"]],
+  "module_dependencies": [{{"module": "string", "depends_on": ["string"]}}],
   "agent_execution_plan": [
-    {{
-      "agent": "string — exact Sarthi agent class name (e.g. 'DatabaseArchitectureAgent')",
-      "responsibility": "string — what this agent produces",
-      "execution_stage": "string — which phase this agent runs in"
-    }}
+    {{"agent": "DatabaseArchitectureAgent", "responsibility": "Database schemas", "execution_stage": "Phase 1"}},
+    {{"agent": "BackendArchitectureAgent", "responsibility": "Backend services", "execution_stage": "Phase 1"}},
+    {{"agent": "APIAgent", "responsibility": "API endpoints", "execution_stage": "Phase 1"}},
+    {{"agent": "FrontendArchitectureAgent", "responsibility": "UI architecture", "execution_stage": "Phase 2"}},
+    {{"agent": "UIUXArchitectAgent", "responsibility": "Theme and styling", "execution_stage": "Phase 2"}},
+    {{"agent": "AuthArchitectureAgent", "responsibility": "Auth & RBAC", "execution_stage": "Phase 3"}}
   ],
   "compilation_pipeline": [
-    {{
-      "stage": "string — pipeline stage name",
-      "purpose": "string — what this stage achieves"
-    }}
+    {{"stage": "Architecture Design", "purpose": "Data and service contracts"}},
+    {{"stage": "Code Synthesis", "purpose": "File generation and validation"}}
   ],
   "system_workflow": {{
-    "initialization": ["string — system startup steps"],
-    "backend_flow": ["string — request processing steps"],
-    "frontend_flow": ["string — UI rendering steps"],
-    "integration_flow": ["string — third-party/async integration steps"]
+    "initialization": ["Initialize DB connections and auth keys"],
+    "backend_flow": ["Route requests through JWT validation to services"],
+    "frontend_flow": ["Render dashboard with reactive state"],
+    "integration_flow": ["Process async background tasks"]
   }},
   "risk_analysis": {{
-    "complex_modules": ["string — modules with highest implementation risk"],
-    "potential_bottlenecks": ["string — specific performance/integration risks"],
-    "optimization_suggestions": ["string — actionable mitigation strategies"]
+    "complex_modules": ["Core business logic"],
+    "potential_bottlenecks": ["External API rate limits"],
+    "optimization_suggestions": ["Use response caching"]
   }},
-  "recommended_next_agents": ["string — Sarthi agent names in invocation order"]
+  "recommended_next_agents": ["DatabaseArchitectureAgent", "FrontendArchitectureAgent", "UIUXArchitectAgent"]
 }}
 """
 
@@ -127,7 +118,8 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=2048
             )
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)

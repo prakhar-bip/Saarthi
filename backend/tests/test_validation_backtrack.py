@@ -15,7 +15,33 @@ class MockCollection:
         self.update_calls = []
 
     async def find_one(self, query, *args, **kwargs):
-        return self.data.get(query.get("_id"))
+        doc_id = query.get("_id")
+        if doc_id:
+            doc = self.data.get(doc_id)
+            if not doc:
+                return None
+            for k, v in query.items():
+                if k == "_id":
+                    continue
+                if doc.get(k) != v:
+                    return None
+            return doc
+        for doc in self.data.values():
+            match = True
+            for k, v in query.items():
+                if doc.get(k) != v:
+                    match = False
+                    break
+            if match:
+                return doc
+        return None
+
+    async def update_many(self, query, update, *args, **kwargs):
+        self.update_calls.append((query, update))
+        set_ops = update.get("$set", {})
+        for doc_id, doc in list(self.data.items()):
+            for k, v in set_ops.items():
+                doc[k] = v
 
     async def insert_one(self, doc, *args, **kwargs):
         self.data[doc["_id"]] = doc
@@ -68,6 +94,8 @@ class MockCollection:
 class MockDatabase:
     def __init__(self):
         self.projects = MockCollection()
+        self.chats = MockCollection()
+        self.artifact_cache = MockCollection()
         self.validation_backtrack_metrics = MockCollection()
 
 

@@ -79,9 +79,9 @@ AGENT_ROUTE_MAPPING: Dict[str, Tuple[str, str]] = {
     # TIER 2: CHAT, PLANNING & ARCHITECTURE TASKS
     # Routed to OpenRouter for chatting and document templates
     # ---------------------------------------------------------
-    "ChatReply": ("openrouter", settings.OPENROUTER_MODEL),
+    "ChatReply": ("gemini", FAST_MODEL),
     "CategoryClassifier": ("gemini", FAST_MODEL),
-    "ProjectSuggestions": ("openrouter", settings.OPENROUTER_MODEL),
+    "ProjectSuggestions": ("gemini", FAST_MODEL),
     "PlannerAgent": ("gemini", FAST_MODEL),
     "RequirementAnalyzerAgent": ("gemini", FAST_MODEL),
     "ErrorCorrectionAgent": ("gemini", REASONING_MODEL),
@@ -208,11 +208,8 @@ async def get_raw_llm_completion(
         pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
-        if agent_name == "ChatReply":
-            fallback_sequence = ["nvidia", "openrouter"]
-        else:
-            # Production: Vertex AI (gemini) -> NVIDIA fallback
-            fallback_sequence = ["nvidia"]
+        # Production: Vertex AI (gemini) -> NVIDIA fallback
+        fallback_sequence = ["nvidia"]
     else:  # development
         dev_pref = settings.DEV_PRIMARY_PROVIDER.lower() if settings.DEV_PRIMARY_PROVIDER else "nvidia"
         if dev_pref == "openrouter" and not settings.OPENROUTER_API_KEY and settings.NVIDIA_API_KEY:
@@ -220,7 +217,12 @@ async def get_raw_llm_completion(
         elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
             dev_pref = "openrouter"
 
-        if dev_pref == "nvidia":
+        # Route lightweight interactive tasks to fast OpenRouter model if available
+        if agent_name in ("ProjectSuggestions", "CategoryClassifier", "ThemeGeneratorAgent", "ChatReply") and settings.OPENROUTER_API_KEY:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
+            fallback_sequence = ["nvidia"]
+        elif dev_pref == "nvidia":
             pref_provider = "nvidia"
             pref_model = settings.NVIDIA_MODEL
             # Development: NVIDIA -> OpenRouter fallback
@@ -393,11 +395,8 @@ async def stream_raw_llm_completion(
         pref_provider, pref_model = AGENT_ROUTE_MAPPING.get(
             agent_name, ("gemini", settings.GOOGLE_MODEL)
         )
-        if agent_name == "ChatReply":
-            fallback_sequence = ["nvidia", "openrouter"]
-        else:
-            # Production: Vertex AI (gemini) -> NVIDIA fallback
-            fallback_sequence = ["nvidia"]
+        # Production: Vertex AI (gemini) -> NVIDIA fallback
+        fallback_sequence = ["nvidia"]
     else:  # development
         dev_pref = settings.DEV_PRIMARY_PROVIDER.lower() if settings.DEV_PRIMARY_PROVIDER else "nvidia"
         if dev_pref == "openrouter" and not settings.OPENROUTER_API_KEY and settings.NVIDIA_API_KEY:
@@ -405,7 +404,12 @@ async def stream_raw_llm_completion(
         elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
             dev_pref = "openrouter"
 
-        if dev_pref == "nvidia":
+        # Route lightweight interactive tasks to fast OpenRouter model if available
+        if agent_name in ("ProjectSuggestions", "CategoryClassifier", "ThemeGeneratorAgent", "ChatReply") and settings.OPENROUTER_API_KEY:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
+            fallback_sequence = ["nvidia"]
+        elif dev_pref == "nvidia":
             pref_provider = "nvidia"
             pref_model = settings.NVIDIA_MODEL
             # Development: NVIDIA -> OpenRouter fallback
@@ -559,7 +563,11 @@ async def get_llm_completion(
         elif dev_pref == "nvidia" and not settings.NVIDIA_API_KEY and settings.OPENROUTER_API_KEY:
             dev_pref = "openrouter"
 
-        if dev_pref == "nvidia":
+        # Route lightweight interactive tasks to fast OpenRouter model if available
+        if agent_name in ("ProjectSuggestions", "CategoryClassifier", "ThemeGeneratorAgent", "ChatReply") and settings.OPENROUTER_API_KEY:
+            pref_provider = "openrouter"
+            pref_model = settings.OPENROUTER_MODEL
+        elif dev_pref == "nvidia":
             pref_provider = "nvidia"
             pref_model = settings.NVIDIA_MODEL
         else:

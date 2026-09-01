@@ -78,13 +78,9 @@ Design the authentication and authorization architecture. Think step by step:
 6. Design auth workflows: login, signup, token refresh, logout — each with full UI-to-DB execution flow.
 7. Set OWASP-aligned security rules: bcrypt hashing, short-lived tokens, HttpOnly cookies, XSS protection.
 
-Requirements: {json.dumps(requirements, indent=2)}
-Planning: {json.dumps(planning, indent=2)}
-Database Architecture: {json.dumps(db_architecture, indent=2)}
-Backend Architecture: {json.dumps(backend_architecture, indent=2)}
-API Architecture: {json.dumps(api_architecture, indent=2)}
-Frontend Architecture: {json.dumps(frontend_architecture, indent=2)}
-Theme Styling: {json.dumps(theme_styling, indent=2)}
+Requirements: {json.dumps(requirements.get("project_overview", requirements), default=str)}
+Database Entities: {json.dumps(db_architecture.get("entities", []) if db_architecture else [], default=str)}
+API Architecture: {json.dumps(api_architecture, default=str)}
 
 Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
 {{
@@ -145,8 +141,8 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
     "protected_ui_flows": ["string — how unauthorized access is handled in UI"]
   }},
   "security_considerations": {{
-    "password_security_rules": ["string — specific password policy rules"],
-    "token_security_rules": ["string — specific token expiry and signing rules"],
+    "token_security_rules": ["string — token signing, expiry, rotation rules"],
+    "credential_storage": ["string — hashing algorithm and salt rounds"],
     "authentication_risks": ["string — known attack vectors and mitigations"]
   }},
   "future_generation_context": {{
@@ -164,7 +160,8 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=2048
             )
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)

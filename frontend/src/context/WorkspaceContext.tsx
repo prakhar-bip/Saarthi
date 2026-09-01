@@ -222,10 +222,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [suggestions, setSuggestions] = useState<ProjectSuggestion[]>([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState<boolean>(false);
   const [compilationLogs, setCompilationLogs] = useState<Record<string, any[]>>({});
+  const suggestionsCacheRef = useRef<Record<string, ProjectSuggestion[]>>({});
 
   const fetchSuggestions = useCallback(async (category: string) => {
+    const cat = category.toLowerCase().trim();
+    if (suggestionsCacheRef.current[cat]) {
+      setSuggestions(suggestionsCacheRef.current[cat]);
+      return;
+    }
+
     setIsFetchingSuggestions(true);
-    setSuggestions([]);
     const token = localStorage.getItem("token");
     if (!token) {
       setIsFetchingSuggestions(false);
@@ -237,6 +243,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
       if (res.ok) {
         const data = await res.json();
+        suggestionsCacheRef.current[cat] = data;
         setSuggestions(data);
       }
     } catch (e) {
@@ -393,7 +400,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       prev.map((c) => (c.id === chatId ? { ...c, selected_project: selectedProject } : c))
     );
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token || !chatId || chatId.startsWith("chat-temp-")) return;
     try {
       await fetch(`${API_BASE}/api/chats/${chatId}`, {
         method: "PUT",

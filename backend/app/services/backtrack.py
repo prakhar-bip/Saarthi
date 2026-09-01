@@ -1,8 +1,18 @@
 import os
-from typing import Dict, Any, List, Set, Optional
 import copy
+import hashlib
+from typing import Dict, Any, List, Set, Optional
 from datetime import datetime, timezone
 from app.core.progress_logger import progress_logger
+from app.services.dependency_dag import (
+    DependencyDAG,
+    AGENT_TO_ARTIFACT,
+    ARTIFACT_TO_DB_KEY,
+    ARTIFACT_TO_AGENT,
+)
+from app.services.artifact_cache import ArtifactCache
+from app.services.agent_failure_inspector import AgentFailureInspector
+
 
 # Maps each responsible agent to the workspace node that should be re-run (scoped backtrack)
 AGENT_TO_WORKSPACE: dict = {
@@ -25,9 +35,11 @@ AGENT_TO_WORKSPACE: dict = {
     "OptimizationArchitectureAgent": "ops_security_workspace",
 }
 
+
 class ValidationFailureAnalyzer:
     """
     Parses validation errors and identifies the responsible agent and recommended action.
+    Computes a deterministic error signature to detect repeated identical failures.
     """
     @staticmethod
     def analyze(validation_errors: List[Dict[str, Any]], current_agent: str, workflow_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,21 +48,21 @@ class ValidationFailureAnalyzer:
                 "failure_type": "None",
                 "responsible_agent": "None",
                 "severity": "info",
-                "recommended_action": "No errors found."
+                "recommended_action": "No errors found.",
+                "error_id": "none"
             }
-            
+
         # Prioritize analyzing "error" level issues, then fall back to "warning"
         errors_to_analyze = [e for e in validation_errors if e.get("severity") == "error"]
         if not errors_to_analyze:
             errors_to_analyze = validation_errors
 
-        # Select the first prominent error
         error_item = errors_to_analyze[0]
         error_msg = error_item.get("error", "").lower()
         module = error_item.get("module", "").lower()
-        
+
         failure_type = "Generic Validation Error"
-        responsible_agent = "DatabaseArchitectureAgent"  # Safe default fallback
+        responsible_agent = "DatabaseArchitectureAgent"
         severity = error_item.get("severity", "error")
         recommended_action = "Regenerate the architecture layer."
 
@@ -58,7 +70,7 @@ class ValidationFailureAnalyzer:
             failure_type = "Missing API Endpoint"
             responsible_agent = "APIAgent"
             recommended_action = "Regenerate API specifications and ensure all entities have CRUD endpoint mappings."
-        elif "route" in error_msg or "routes" in error_msg or module == "crossref-routes" or "page" in error_msg:
+        elif "route" in error_msg or "routes" in error_msg or module == "crossref-routes" or "page" in error_msg or module == "frontend":
             failure_type = "Missing Route"
             responsible_agent = "FrontendArchitectureAgent"
             recommended_action = "Regenerate frontend architecture, ensuring each page is properly assigned a routing path."
@@ -66,6 +78,10 @@ class ValidationFailureAnalyzer:
             failure_type = "Missing Entity Mapping"
             responsible_agent = "DatabaseArchitectureAgent"
             recommended_action = "Regenerate database architecture and define the primary schema entities."
+        elif "model" in error_msg or "database_model" in error_msg or module == "databasemodel":
+            failure_type = "Database Model Error"
+            responsible_agent = "DatabaseModelGenerationAgent"
+            recommended_action = "Regenerate database models matching entities."
         elif "integration" in error_msg or module == "integration":
             failure_type = "Broken Integration"
             responsible_agent = "IntegrationGenerationAgent"
@@ -87,19 +103,24 @@ class ValidationFailureAnalyzer:
             responsible_agent = "StateManagementAgent"
             recommended_action = "Regenerate reactive frontend state parameters and dispatcher schemes."
 
+        error_id = hashlib.sha256(f"{module}:{error_msg}".encode()).hexdigest()[:12]
+
         return {
             "failure_type": failure_type,
             "responsible_agent": responsible_agent,
             "severity": severity,
-            "recommended_action": recommended_action
+            "recommended_action": recommended_action,
+            "error_id": error_id,
+            "raw_error": error_item.get("error", "")
         }
 
 
 class BacktrackManager:
     """
-    Manages topological backtracking, checkpoint snapshotting, and telemetry metrics in MongoDB.
+    Manages dependency-aware topological backtracking, precision artifact invalidation,
+    repeated error detection, and telemetry metrics in MongoDB.
     """
-    # Complete topological dependency graph for Sarthi agents
+    # Expose DEPENDENCY_GRAPH and AGENT_DB_KEYS for backwards compatibility with tests
     DEPENDENCY_GRAPH = {
         "DatabaseArchitectureAgent": [],
         "DatabaseModelGenerationAgent": ["DatabaseArchitectureAgent"],
@@ -120,7 +141,6 @@ class BacktrackManager:
         "StateImplementationAgent": ["StateManagementAgent", "UIComponentGenerationAgent"],
     }
 
-    # Map agent name to database key fields to unset during rollback
     AGENT_DB_KEYS = {
         "RequirementAnalyzerAgent": ["requirements", "requirements_full", "requirements_summary", "requirements_compressed", "requirements_contracts"],
         "PlannerAgent": ["planning", "planning_full", "planning_summary", "planning_compressed", "planning_contracts"],
@@ -129,6 +149,7 @@ class BacktrackManager:
         "DatabaseModelGenerationAgent": ["database_model_generation", "database_model_generation_full", "database_model_generation_summary", "database_model_generation_compressed", "database_model_generation_contracts"],
         "BackendArchitectureAgent": ["backend_architecture", "backend_architecture_full", "backend_architecture_summary", "backend_architecture_compressed", "backend_architecture_contracts"],
         "APIAgent": ["api_architecture", "api_architecture_full", "api_architecture_summary", "api_architecture_compressed", "api_architecture_contracts"],
+        "APIImplementationAgent": ["api_implementation", "api_implementation_full", "api_implementation_summary", "api_implementation_compressed", "api_implementation_contracts"],
         "FrontendArchitectureAgent": ["frontend_architecture", "frontend_architecture_full", "frontend_architecture_summary", "frontend_architecture_compressed", "frontend_architecture_contracts"],
         "UIUXArchitectAgent": ["theme_styling", "theme_styling_full", "theme_styling_summary", "theme_styling_compressed", "theme_styling_contracts"],
         "UIComponentGenerationAgent": ["ui_component_generation", "ui_component_generation_full", "ui_component_generation_summary", "ui_component_generation_compressed", "ui_component_generation_contracts"],
@@ -141,6 +162,13 @@ class BacktrackManager:
         "TestingArchitectureAgent": ["testing_architecture", "testing_architecture_full", "testing_architecture_summary", "testing_architecture_compressed", "testing_architecture_contracts"],
         "ValidationArchitectureAgent": ["validation_architecture", "validation_architecture_full", "validation_architecture_summary", "validation_architecture_compressed", "validation_architecture_contracts"],
         "OptimizationArchitectureAgent": ["optimization_architecture", "optimization_architecture_full", "optimization_architecture_summary", "optimization_architecture_compressed", "optimization_architecture_contracts"],
+        "CodeGenerationPlannerAgent": ["code_generation_plan", "code_generation_plan_full"],
+        "BackendCodeGenerationAgent": ["backend_code_generation", "backend_code_generation_full"],
+        "FrontendCodeGenerationAgent": ["frontend_code_generation", "frontend_code_generation_full"],
+        "IntegrationGenerationAgent": ["integration_generation", "integration_generation_full"],
+        "BuildCompilationAgent": ["build_compilation", "build_compilation_full"],
+        "ErrorCorrectionAgent": ["error_correction", "error_correction_full"],
+        "ProjectExportAgent": ["project_export", "project_export_full"],
     }
 
     def __init__(self, db: Any, project_id: str):
@@ -149,44 +177,52 @@ class BacktrackManager:
 
     def get_downstream_dependents(self, responsible_agent: str) -> Set[str]:
         """
-        Recursively determines all downstream agents dependent on the responsible agent.
+        Recursively determines all downstream agents dependent on the responsible agent using DependencyDAG.
         """
-        dependents = set()
-        to_process = [responsible_agent]
-        
-        while to_process:
-            current = to_process.pop(0)
-            for agent, deps in self.DEPENDENCY_GRAPH.items():
-                if current in deps and agent not in dependents:
-                    dependents.add(agent)
-                    to_process.append(agent)
-                    
-        return dependents
+        affected = DependencyDAG.get_affected_agents(responsible_agent)
+        # Exclude the responsible agent itself to match callers expecting only downstream
+        return set(ag for ag in affected if ag != responsible_agent)
 
-    async def backtrack(self, project_doc: Dict[str, Any], validation_logs: List[Dict[str, Any]], analyzer_result: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    async def backtrack(
+        self,
+        project_doc: Dict[str, Any],
+        validation_logs: List[Dict[str, Any]],
+        analyzer_result: Dict[str, Any],
+        state: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
-        Restores checkpoint, unsets relevant DB keys for responsible and downstream agents, and logs progress.
+        Executes dependency-aware backtracking:
+        1. Identifies responsible agent and exact downstream subtree via DAG.
+        2. Checks backtrack depth, retry count, and repeated identical error thresholds.
+        3. Invalidates ONLY affected artifacts in DB and ArtifactCache.
+        4. Preserves all independent and upstream artifacts.
         """
-        MAX_AGENT_RETRIES = 2 if os.environ.get("ENVIRONMENT") == "development" else 3
-        MAX_BACKTRACK_DEPTH = 1 if os.environ.get("ENVIRONMENT") == "development" else 5
+        from app.core.config import settings
+        MAX_AGENT_RETRIES = 2 if settings.ENVIRONMENT == "development" else 3
+        MAX_BACKTRACK_DEPTH = 1 if settings.ENVIRONMENT == "development" else 5
 
         responsible_agent = analyzer_result["responsible_agent"]
         failure_type = analyzer_result["failure_type"]
+        error_id = analyzer_result.get("error_id", "unknown")
 
-        # Compute all dependent downstream agents that must also be re-run
+        # Compute affected downstream agents
         dependents = self.get_downstream_dependents(responsible_agent)
         triggered_agents = [responsible_agent] + sorted(list(dependents))
 
-        # Retrieve current backtrack depth and agent retries from state or DB
+        # Retrieve current backtrack depth and agent retries
         backtrack_depth = state.get("backtrack_depth", 0) + 1
         agent_retries = copy.deepcopy(state.get("agent_retries", {}) or {})
-        
         current_retries = agent_retries.get(responsible_agent, 0) + 1
         agent_retries[responsible_agent] = current_retries
 
+        # Check repeated failure history to prevent infinite loops
+        failed_errors = state.get("failed_error_signatures", []) or project_doc.get("failed_error_signatures", [])
+        is_repeated_failure = failed_errors.count(error_id) >= 2
+
         target_ws = AGENT_TO_WORKSPACE.get(responsible_agent, "architecture_design")
-        reason_msg = f"{len(validation_logs)} validation error(s) | Triggered agents: {', '.join(triggered_agents)}"
+        reason_msg = f"{failure_type}: {analyzer_result.get('raw_error', '')} | Invalidation scope: {', '.join(triggered_agents)}"
         project_id = self.project_id or str(project_doc.get("_id", ""))
+
         progress_logger.backtrack(
             responsible_agent=responsible_agent,
             target_workspace=target_ws,
@@ -196,9 +232,7 @@ class BacktrackManager:
         )
 
         # Check thresholds
-        if current_retries > MAX_AGENT_RETRIES or backtrack_depth > MAX_BACKTRACK_DEPTH:
-            
-            # Record human intervention metrics in MongoDB
+        if current_retries > MAX_AGENT_RETRIES or backtrack_depth > MAX_BACKTRACK_DEPTH or is_repeated_failure:
             await self._record_metrics_db(
                 failure_type=failure_type,
                 responsible_agent=responsible_agent,
@@ -206,35 +240,62 @@ class BacktrackManager:
                 is_success=False,
                 is_human_intervention=True
             )
-            return {"status": "FAILED_REQUIRES_HUMAN_REVIEW", "project_doc": project_doc, "retry_count": backtrack_depth}
+            return {
+                "status": "FAILED_REQUIRES_HUMAN_REVIEW",
+                "project_doc": project_doc,
+                "retry_count": backtrack_depth,
+                "reason": f"Exceeded backtrack limit (depth={backtrack_depth}, retries={current_retries}, repeated={is_repeated_failure})"
+            }
 
-        # Backup current state as snapshot
+        # Backup snapshot
         snapshot_time = datetime.now(timezone.utc).isoformat()
         snapshot = {
             "timestamp": snapshot_time,
             "backtrack_depth": backtrack_depth,
             "responsible_agent": responsible_agent,
             "triggered_agents": triggered_agents,
-            "data_snapshot": {k: project_doc.get(k) for agent in triggered_agents for k in self.AGENT_DB_KEYS.get(agent, []) if project_doc.get(k)}
+            "data_snapshot": {
+                k: project_doc.get(k)
+                for agent in triggered_agents
+                for k in self.AGENT_DB_KEYS.get(agent, [])
+                if project_doc.get(k)
+            }
         }
 
-        # Select the prominent error message to display in the healing instructions
+        # Select prominent error message
         errors_to_analyze = [e for e in validation_logs if e.get("severity") == "error"]
         if not errors_to_analyze:
             errors_to_analyze = validation_logs
         error_msg = errors_to_analyze[0].get("error", "Unknown validation error") if errors_to_analyze else "Unknown validation error"
-        
+
+        # Deep inspection of the failing agent's output
+        failure_report = await AgentFailureInspector.inspect(
+            db=self.db,
+            project_id=self.project_id or str(project_doc.get("_id", "")),
+            project_doc=project_doc,
+            responsible_agent=responsible_agent,
+            validation_logs=validation_logs,
+            analyzer_result=analyzer_result,
+            backtrack_depth=backtrack_depth,
+        )
+
         # Compile active healing context
         active_healing_context = {
             "responsible_agent": responsible_agent,
             "error_msg": error_msg,
+            "error_id": error_id,
             "failure_type": failure_type,
             "recommended_action": analyzer_result.get("recommended_action", "Regenerate the architecture layer."),
+            "healing_hint": failure_report.get("healing_hint", ""),
+            "failure_report": failure_report,
             "triggered_agents": triggered_agents,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-        # Compile unset keys
+        # Invalidate cache for triggered agents
+        await ArtifactCache.invalidate_downstream(self.db, self.project_id, responsible_agent)
+
+        # Compile unset keys for MongoDB
         unset_fields = {}
         for agent in triggered_agents:
             keys = self.AGENT_DB_KEYS.get(agent, [])
@@ -242,25 +303,25 @@ class BacktrackManager:
                 unset_fields[key] = ""
 
         # Perform atomic update on DB
-        await self.db.projects.update_one(
-            {"_id": self.project_id},
-            {
-                "$unset": unset_fields,
-                "$push": {
-                    "backtrack_history": snapshot,
-                    "healing_history": active_healing_context
-                },
-                "$set": {
-                    "backtrack_depth": backtrack_depth,
-                    "agent_retries": agent_retries,
-                    "active_healing_context": active_healing_context
+        if self.db is not None:
+            await self.db.projects.update_one(
+                {"_id": self.project_id},
+                {
+                    "$unset": unset_fields,
+                    "$push": {
+                        "backtrack_history": snapshot,
+                        "healing_history": active_healing_context,
+                        "failed_error_signatures": error_id
+                    },
+                    "$set": {
+                        "backtrack_depth": backtrack_depth,
+                        "agent_retries": agent_retries,
+                        "active_healing_context": active_healing_context
+                    }
                 }
-            }
-        )
+            )
 
-        # Log restored state and retry metrics
-
-        # Update MongoDB telemetry metrics
+        # Telemetry metrics
         await self._record_metrics_db(
             failure_type=failure_type,
             responsible_agent=responsible_agent,
@@ -271,9 +332,10 @@ class BacktrackManager:
 
         # Fetch clean, fresh project doc with cleared fields
         clean_doc = await self.db.projects.find_one({"_id": self.project_id}) or project_doc
+        # Also clean locally if mock DB didn't update in place
+        for k in unset_fields:
+            clean_doc.pop(k, None)
 
-        # Determine which workspace to re-run (scoped backtrack)
-        responsible_agent = analyzer_result.get("responsible_agent", "")
         backtrack_target = AGENT_TO_WORKSPACE.get(responsible_agent, "architecture_design")
 
         return {
@@ -282,78 +344,80 @@ class BacktrackManager:
             "retry_count": backtrack_depth,
             "backtrack_depth": backtrack_depth,
             "agent_retries": agent_retries,
-            "backtrack_target": backtrack_target
+            "backtrack_target": backtrack_target,
+            "triggered_agents": triggered_agents,
+            "failure_report": failure_report,
         }
 
     async def record_regeneration_success(self, validation_errors: List[Dict[str, Any]] = None):
-        """
-        Records a successful validation loop and increments recovery metric counts in MongoDB.
-        """
-        # If we successfully revalidated (i.e. zero errors now), count it as a recovery success
+        """Records a successful validation recovery loop in MongoDB."""
         if not validation_errors:
-            await self.db.projects.update_one(
-                {"_id": self.project_id},
-                {"$unset": {"active_healing_context": ""}}
-            )
-            await self.db.validation_backtrack_metrics.update_one(
-                {"_id": "global_metrics"},
-                {
-                    "$inc": {
-                        "total_backtracks_succeeded": 1,
-                        "total_regenerations_succeeded": 1
-                    }
-                },
-                upsert=True
-            )
+            if self.db is not None:
+                await self.db.projects.update_one(
+                    {"_id": self.project_id},
+                    {"$unset": {"active_healing_context": ""}}
+                )
+                await self.db.validation_backtrack_metrics.update_one(
+                    {"_id": "global_metrics"},
+                    {
+                        "$inc": {
+                            "total_backtracks_succeeded": 1,
+                            "total_regenerations_succeeded": 1
+                        }
+                    },
+                    upsert=True
+                )
 
     async def _record_metrics_db(self, failure_type: str, responsible_agent: str, is_backtrack: bool, is_success: bool, is_human_intervention: bool):
-        """
-        Writes aggregated telemetry to MongoDB using atomic modifiers.
-        """
+        """Writes aggregated telemetry to MongoDB."""
+        if self.db is None:
+            return
         inc_fields = {
             "total_regenerations_triggered": 1,
             f"validation_failure_types.{failure_type}": 1,
             f"most_common_failing_agents.{responsible_agent}": 1
         }
-        
         if is_backtrack:
             inc_fields["total_backtracks_triggered"] = 1
-            
         if is_human_intervention:
             inc_fields["total_human_interventions"] = 1
 
-        await self.db.validation_backtrack_metrics.update_one(
-            {"_id": "global_metrics"},
-            {"$inc": inc_fields},
-            upsert=True
-        )
+        try:
+            await self.db.validation_backtrack_metrics.update_one(
+                {"_id": "global_metrics"},
+                {"$inc": inc_fields},
+                upsert=True
+            )
+        except Exception:
+            pass
 
     @classmethod
     async def clear_downstream_keys(cls, db: Any, project_id: str, target_agent: str) -> List[str]:
         """
         Calculates all downstream topologically dependent agents from the target agent
         and unsets their database keys in MongoDB, alongside the codebase compilation keys.
-        Returns the list of triggered agents.
         """
         manager = cls(db, project_id)
         dependents = manager.get_downstream_dependents(target_agent)
         triggered_agents = [target_agent] + sorted(list(dependents))
-        
+
+        # Invalidate cache for triggered agents
+        await ArtifactCache.invalidate_downstream(db, project_id, target_agent)
+
         unset_fields = {}
         for agent in triggered_agents:
             keys = cls.AGENT_DB_KEYS.get(agent, [])
             for key in keys:
                 unset_fields[key] = ""
-                
-        # Also always clear codebase-specific compile keys
+
         unset_fields["synthesized_codebase"] = ""
         unset_fields["codebase"] = ""
         unset_fields["validation_logs"] = ""
         unset_fields["active_healing_context"] = ""
-        
-        await db.projects.update_one(
-            {"_id": project_id},
-            {"$unset": unset_fields}
-        )
-        return triggered_agents
 
+        if db is not None:
+            await db.projects.update_one(
+                {"_id": project_id},
+                {"$unset": unset_fields}
+            )
+        return triggered_agents

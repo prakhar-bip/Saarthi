@@ -4,6 +4,13 @@ from openai import OpenAI
 from app.core.config import settings
 from app.services.llm_router import get_llm_completion
 from app.agents.context import build_agent_system_prompt, enrich_agent_output, parse_json_response
+from app.services.api_contracts import (
+    ensure_entity_crud_endpoints,
+    get_entity_name,
+    is_internal_system_entity,
+    request_fields_for_entity,
+    resource_name_for_entity,
+)
 
 
 class APIAgent:
@@ -196,6 +203,7 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                     "important_notes_for_backend_agents": [],
                     "important_notes_for_devops_agents": []
                 }
+            data = ensure_entity_crud_endpoints(data, db_architecture, bool(auth_req))
             return enrich_agent_output(data, self.agent_name, agent_inputs)
         except Exception as e:
             return enrich_agent_output(self._get_fallback_api_architecture(requirements, planning, db_architecture, backend_architecture), self.agent_name, agent_inputs)
@@ -255,15 +263,18 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
             })
 
         for ent in entities:
-            ent_name = ent.get("entity_name", "Core") if isinstance(ent, dict) else ent
-            ent_lower = ent_name.lower()
+            ent_name = get_entity_name(ent) or "Core"
+            if is_internal_system_entity(ent_name):
+                continue
+            resource_name = resource_name_for_entity(ent_name)
+            entity_key = ent_name.lower().replace(" ", "_").replace("-", "_")
             
             # Allow standard CRUD endpoints for User to be generated as well
 
 
             endpoints.append({
                 "group_name": f"{ent_name} API",
-                "path": f"/api/v1/{ent_lower}s",
+                "path": f"/api/v1/{resource_name}",
                 "method": "GET",
                 "description": f"Retrieves a list of {ent_name} records.",
                 "request_body": {},
@@ -273,24 +284,17 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
                 ],
                 "response_payload": {
                     "status": "success",
-                    f"{ent_lower}s": "array"
+                    resource_name.replace("-", "_"): "array"
                 },
                 "requires_auth": auth_req,
                 "roles_allowed": []
             })
 
-            fields_creation = {}
-            fields_list = ent.get("fields", []) if isinstance(ent, dict) else []
-            for f in fields_list:
-                if f.get("name") not in ["id", "created_at", "updated_at"]:
-                    fields_creation[f.get("name")] = {
-                        "type": f.get("type", "string").lower(),
-                        "required": f.get("required", False)
-                    }
+            fields_creation = request_fields_for_entity(ent)
 
             endpoints.append({
                 "group_name": f"{ent_name} API",
-                "path": f"/api/v1/{ent_lower}s",
+                "path": f"/api/v1/{resource_name}",
                 "method": "POST",
                 "description": f"Creates a new {ent_name} record.",
                 "request_body": fields_creation or { "name": { "type": "string", "required": True } },
@@ -306,14 +310,14 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
 
             endpoints.append({
                 "group_name": f"{ent_name} API",
-                "path": f"/api/v1/{ent_lower}s/{{id}}",
+                "path": f"/api/v1/{resource_name}/{{id}}",
                 "method": "GET",
                 "description": f"Fetches details of a single {ent_name}.",
                 "request_body": {},
                 "query_parameters": [],
                 "response_payload": {
                     "status": "success",
-                    ent_lower: "object"
+                    entity_key: "object"
                 },
                 "requires_auth": auth_req,
                 "roles_allowed": []
@@ -321,7 +325,23 @@ Return ONLY valid JSON (no markdown fences, no explanation) in this exact struct
 
             endpoints.append({
                 "group_name": f"{ent_name} API",
-                "path": f"/api/v1/{ent_lower}s/{{id}}",
+                "path": f"/api/v1/{resource_name}/{{id}}",
+                "method": "PUT",
+                "description": f"Updates a specific {ent_name}.",
+                "request_body": fields_creation or { "name": { "type": "string", "required": True } },
+                "query_parameters": [],
+                "response_payload": {
+                    "status": "success",
+                    entity_key: "object",
+                    "message": f"{ent_name} updated successfully."
+                },
+                "requires_auth": auth_req,
+                "roles_allowed": []
+            })
+
+            endpoints.append({
+                "group_name": f"{ent_name} API",
+                "path": f"/api/v1/{resource_name}/{{id}}",
                 "method": "DELETE",
                 "description": f"Deletes a specific {ent_name}.",
                 "request_body": {},

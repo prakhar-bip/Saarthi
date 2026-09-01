@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Any
 from app.services.llm_router import get_llm_completion
-from app.agents.context import parse_json_response
+from app.agents.context import parse_json_response, extract_deterministic_summary
 
 class SummaryAgent:
     """
@@ -41,11 +41,16 @@ class SummaryAgent:
         """Fast character-to-token ratio estimation helper (~4 characters per token)."""
         return max(1, len(text) // 4)
 
-    async def summarize(self, target_agent_name: str, agent_output: Dict[str, Any]) -> Dict[str, Any]:
+    async def summarize(self, target_agent_name: str, agent_output: Dict[str, Any], use_llm: bool = False) -> Dict[str, Any]:
         """
         Takes raw agent outputs and generates detailed summaries, extreme compressed representations, 
         and lightweight schemas/contracts.
+        By default, uses fast, zero-token deterministic extraction in Python.
         """
+        if not use_llm:
+            # Deterministic fast path (0s, 0 tokens, 0 LLM calls)
+            return extract_deterministic_summary(target_agent_name, agent_output)
+
         word_limit, category = self._get_limit_category(target_agent_name)
         
         system_prompt = (

@@ -365,6 +365,66 @@ def summarize_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_deterministic_summary(agent_name: str, agent_output: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deterministically synthesizes a 3-part summary payload from an agent's output
+    without making a redundant, slow secondary LLM call:
+    - summary_output: A clean conceptual summary
+    - compressed_output: An ultra-dense summary under 200 words
+    - critical_contracts: A lightweight contract map (schemas, APIs, keys, variables)
+    """
+    if not isinstance(agent_output, dict):
+        return {
+            "summary_output": str(agent_output)[:300],
+            "compressed_output": str(agent_output)[:100],
+            "critical_contracts": {}
+        }
+
+    contract = summarize_contract(agent_output)
+
+    native_summary = agent_output.get("summary") or agent_output.get("description")
+    lines = []
+    if native_summary:
+        lines.append(str(native_summary))
+
+    for k, v in agent_output.items():
+        if k.endswith("_strategy") and isinstance(v, dict):
+            strat_parts = [f"{sk}: {sv}" for sk, sv in v.items() if isinstance(sv, str)]
+            if strat_parts:
+                lines.append(f"{k.replace('_', ' ').title()}: {'; '.join(strat_parts[:3])}")
+
+    if "entities" in contract:
+        lines.append(f"Entities: {', '.join(contract['entities'][:8])}")
+    if "endpoints" in contract:
+        lines.append(f"Endpoints: {', '.join(contract['endpoints'][:8])}")
+    if "pages" in contract:
+        lines.append(f"Pages: {', '.join(contract['pages'][:8])}")
+
+    summary_output = "\n".join(lines) if lines else f"Completed {agent_name} architectural phase successfully."
+
+    compressed_items = []
+    for k in ("entities", "endpoints", "pages", "features", "core_modules"):
+        if k in contract:
+            compressed_items.append(f"{k}: {len(contract[k])}")
+    compressed_output = f"[{agent_name}] " + (", ".join(compressed_items) if compressed_items else "Configured.")
+
+    critical_contracts = {
+        k: contract[k] for k in (
+            "entities", "endpoints", "pages", "layouts", "relationships",
+            "database_strategy", "backend_strategy", "api_strategy",
+            "frontend_strategy", "design_system", "authentication_strategy",
+            "realtime_strategy", "state_management_strategy", "infrastructure_strategy",
+            "security_strategy", "testing_strategy", "validation_strategy", "optimization_strategy"
+        ) if k in contract
+    }
+
+    return {
+        "summary_output": summary_output,
+        "compressed_output": compressed_output,
+        "critical_contracts": critical_contracts
+    }
+
+
 def _extract_integration_points(output: Mapping[str, Any]) -> List[str]:
     points: List[str] = []
     if output.get("database_strategy"):

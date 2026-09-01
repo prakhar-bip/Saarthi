@@ -1,13 +1,21 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from app.agents.context import IncompleteJSONError
+from app.services.api_contracts import endpoint_matches_entity, get_entity_name, is_internal_system_entity
 
 class VerifierAgent:
     """
     VerifierAgent checks the output of upstream agents for completeness and validity.
     Enhanced with deep semantic validation, content quality checks, and cross-agent
     contract verification.
-    
-    Returns a tuple: (is_complete, feedback)
+
+    Two entry points:
+    - verify(agent_name, agent_output): Full 3-layer structural + semantic verification.
+      Called per-agent after each LLM response.
+    - verify_incremental(agent_name, agent_output, project_doc): Cross-agent contract
+      check run immediately after each agent saves to DB, before downstream agents start.
+      Catches entity/endpoint/page mismatches early so the guardrail fires sooner.
+
+    Both return a tuple: (is_valid: bool, feedback: str)
     """
     def __init__(self):
         self.agent_name = "VerifierAgent"
@@ -200,3 +208,105 @@ class VerifierAgent:
 
         pass
         return True, ""
+
+    async def verify_incremental(
+        self, agent_name: str, agent_output: Any, project_doc: Dict[str, Any]
+    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
+        """
+        Incrementally validates an agent's output against project-level cross-agent contracts
+        immediately after it completes and saves to DB.
+        
+        Returns: (is_valid: bool, feedback: str, validation_logs: List[Dict[str, Any]])
+        """
+        logs: List[Dict[str, Any]] = []
+        gen_type = project_doc.get("generation_type", "full_stack")
+
+        if agent_name == "DatabaseArchitectureAgent":
+            if gen_type != "frontend_only":
+                entities = agent_output.get("entities", []) if isinstance(agent_output, dict) else []
+                if not entities:
+                    logs.append({
+                        "module": "Database",
+                        "severity": "error",
+                        "error": "No entities defined in db_architecture."
+                    })
+
+        elif agent_name == "APIAgent":
+            if gen_type != "frontend_only":
+                endpoints = agent_output.get("endpoints", []) if isinstance(agent_output, dict) else []
+                db_arch = project_doc.get("db_architecture", {}) or {}
+                db_entities = set()
+                for e in db_arch.get("entities", []):
+                    entity_name = get_entity_name(e)
+                    if entity_name:
+                        db_entities.add(entity_name)
+                
+                if db_entities and not endpoints:
+                    logs.append({
+                        "module": "API",
+                        "severity": "error",
+                        "error": "No API endpoints defined despite having entities in db_architecture."
+                    })
+                elif db_entities and endpoints:
+                    uncovered = []
+                    for entity in db_entities:
+                        has_ep = any(
+                            endpoint_matches_entity(ep, entity)
+                            for ep in endpoints
+                            if isinstance(ep, dict)
+                        )
+                        if not has_ep and not is_internal_system_entity(entity):
+                            uncovered.append(entity)
+
+                    if uncovered:
+                        logs.append({
+                            "module": "CrossRef-API",
+                            "severity": "error",
+                            "error": f"Domain entities without matching API endpoints: {uncovered}. APIAgent must provide CRUD routes for these core business entities."
+                        })
+
+        elif agent_name == "FrontendArchitectureAgent":
+            if gen_type not in ("backend_only", "microservice"):
+                pages = agent_output.get("pages", []) if isinstance(agent_output, dict) else []
+                if not pages and not (isinstance(agent_output, dict) and agent_output.get("structure")):
+                    logs.append({
+                        "module": "Frontend",
+                        "severity": "error",
+                        "error": "No frontend pages defined."
+                    })
+                elif pages:
+                    pages_without_routes = []
+                    for page in pages:
+                        if isinstance(page, dict):
+                            has_route = page.get("route") or page.get("path") or page.get("url")
+                            if not has_route:
+                                page_name = page.get("name") or page.get("page_name") or str(page)
+                                pages_without_routes.append(page_name)
+                    if pages_without_routes:
+                        logs.append({
+                            "module": "CrossRef-Routes",
+                            "severity": "error",
+                            "error": f"Frontend pages without routes: {pages_without_routes}. FrontendArchitectureAgent must assign route paths."
+                        })
+
+        elif agent_name == "BackendArchitectureAgent":
+            if gen_type != "frontend_only":
+                if not agent_output or not isinstance(agent_output, dict):
+                    logs.append({"module": "Backend", "severity": "error", "error": "No backend_architecture defined."})
+
+        elif agent_name == "UIUXArchitectAgent":
+            if gen_type not in ("backend_only", "microservice"):
+                if not agent_output or not isinstance(agent_output, dict):
+                    logs.append({"module": "ThemeStyling", "severity": "error", "error": "No theme_styling defined."})
+
+        elif agent_name == "StateManagementAgent":
+            if gen_type not in ("backend_only", "microservice"):
+                if not agent_output or not isinstance(agent_output, dict):
+                    logs.append({"module": "StateManagement", "severity": "error", "error": "No state_management defined."})
+
+        errors = [l for l in logs if l.get("severity") == "error"]
+        if errors:
+            err_msg = "; ".join([e["error"] for e in errors])
+            return False, f"Incremental contract check failed: {err_msg}", logs
+        return True, "", logs
+

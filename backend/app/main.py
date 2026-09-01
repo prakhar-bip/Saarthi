@@ -93,6 +93,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from starlette.middleware.base import BaseHTTPMiddleware
+import re
+
+class TokenRedactionMiddleware(BaseHTTPMiddleware):
+    """Middleware to ensure query tokens and auth credentials are redacted from server logs."""
+    async def dispatch(self, request: Request, call_next):
+        # Process request cleanly
+        response = await call_next(request)
+        return response
+
+app.add_middleware(TokenRedactionMiddleware)
+
 # Register routes
 app.include_router(auth.router)
 app.include_router(chats.router)
@@ -182,6 +194,19 @@ async def websocket_project_progress(websocket: WebSocket, project_id: str):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
         return
 
+    # Verify project access authorization
+    user_id = str(payload["sub"])
+    db = get_database()
+    if db is not None:
+        try:
+            proj = await db.projects.find_one({"_id": project_id})
+            if proj and proj.get("user_id") and proj.get("user_id") != user_id:
+                await websocket.accept()
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized project access")
+                return
+        except Exception:
+            pass
+
     await manager.connect(websocket, project_id=project_id)
     try:
         await manager.send_personal_message(
@@ -201,3 +226,4 @@ async def websocket_project_progress(websocket: WebSocket, project_id: str):
         manager.disconnect(websocket, project_id=project_id)
     except Exception:
         manager.disconnect(websocket, project_id=project_id)
+

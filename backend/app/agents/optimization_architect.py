@@ -78,22 +78,11 @@ class OptimizationArchitectureAgent:
         )
 
         user_content = f"""
-Analyze these connected Sarthi architecture inputs:
-Requirements: {json.dumps(requirements, indent=2)}
-Planning: {json.dumps(planning, indent=2)}
-Database Architecture: {json.dumps(db_architecture, indent=2)}
-Backend Architecture: {json.dumps(backend_architecture, indent=2)}
-API Architecture: {json.dumps(api_architecture, indent=2)}
-Frontend Architecture: {json.dumps(frontend_architecture, indent=2)}
-Theme Styling: {json.dumps(theme_styling, indent=2)}
-Authentication Architecture: {json.dumps(auth_architecture, indent=2)}
-Realtime Architecture: {json.dumps(realtime_architecture, indent=2)}
-State Management: {json.dumps(state_management, indent=2)}
-DevOps Architecture: {json.dumps(devops_architecture, indent=2)}
-Security Architecture: {json.dumps(security_architecture, indent=2)}
-Testing Architecture: {json.dumps(testing_architecture, indent=2)}
-Validation Architecture: {json.dumps(validation_architecture, indent=2)}
-Global Project Context: {json.dumps(global_project_context or {}, indent=2)}
+Analyze these targeted Sarthi architecture inputs:
+Requirements: {json.dumps(requirements.get("project_overview", requirements), default=str)}
+Backend Architecture: {json.dumps(backend_architecture, default=str)}
+API Architecture: {json.dumps(api_architecture, default=str)}
+Database Architecture: {json.dumps(db_architecture, default=str)}
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -153,7 +142,7 @@ Return ONLY valid JSON in this exact format:
   "future_generation_context": {{
     "important_notes_for_backend_generation": [],
     "important_notes_for_frontend_generation": [],
-    "important_notes_for_deployment_generation": []
+    "important_notes_for_infrastructure_generation": []
   }}
 }}
 """
@@ -165,7 +154,8 @@ Return ONLY valid JSON in this exact format:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=2048
             )
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)

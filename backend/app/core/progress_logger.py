@@ -81,6 +81,21 @@ LEVEL_ICONS = {
 }
 
 
+import re
+
+TOKEN_REGEX = re.compile(r"eyJ[A-Za-z0-9-_=]+\.eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+")
+SECRET_PARAM_REGEX = re.compile(r"(token|key|secret|password)=([A-Za-z0-9-_%]+)", re.IGNORECASE)
+
+
+def redact_sensitive_tokens(text: str) -> str:
+    """Masks raw JWTs and secret query params from logged strings."""
+    if not isinstance(text, str):
+        return str(text)
+    sanitized = TOKEN_REGEX.sub("[REDACTED_JWT]", text)
+    sanitized = SECRET_PARAM_REGEX.sub(r"\1=[REDACTED]", sanitized)
+    return sanitized
+
+
 class ProgressLogger:
     """
     Next-Gen Progress & Execution Logging System.
@@ -136,6 +151,7 @@ class ProgressLogger:
         broadcast: bool = True,
     ):
         """Internal dispatcher that outputs to console, WebSocket, and MongoDB."""
+        message = redact_sensitive_tokens(message)
         now = datetime.now(timezone.utc)
         time_str = now.strftime("%H:%M:%S")
         date_str = now.strftime("%Y-%m-%d")

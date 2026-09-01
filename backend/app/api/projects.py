@@ -721,7 +721,13 @@ async def run_project_compilation(
 async def get_suggestions(category: str, current_user: dict = Depends(get_current_user)):
     if not category:
         raise HTTPException(status_code=400, detail="Category parameter is required")
+    from app.services.suggestion_cache import SuggestionCache
+    cached = SuggestionCache.get(category)
+    if cached is not None:
+        return cached
     suggestions = await generate_project_suggestions(category)
+    if suggestions:
+        SuggestionCache.set(category, suggestions)
     return suggestions
 
 class SuggestBlueprintRequest(BaseModel):

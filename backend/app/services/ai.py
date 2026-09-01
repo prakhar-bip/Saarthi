@@ -1235,16 +1235,45 @@ def parse_json_array_response(raw_content: str) -> List[Any]:
         
     raise ValueError("Failed to parse valid JSON array from raw content")
 
+_SUGGESTIONS_CACHE: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_SUGGESTIONS_LOCKS: Dict[str, Any] = {}
+SUGGESTIONS_TTL_SEC: float = 600.0  # 10 minutes cache TTL
+
+
 async def generate_project_suggestions(category: str) -> List[Dict[str, Any]]:
     """
-    Generate exactly 5 project suggestions in JSON format using Nvidia NIM / Google fallback,
-    or fall back to the structured fallback lists.
+    Generate exactly 5 project suggestions in JSON format using fast LLM routing,
+    with in-memory TTL caching (10 min) and request deduplication.
     """
-    category_lower = category.lower()
-    if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
-        return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
-    
-    prompt = f"""
+    import asyncio
+    category_lower = category.strip().lower()
+
+    # 1. Fast cache check
+    now = time.time()
+    if category_lower in _SUGGESTIONS_CACHE:
+        cached_time, cached_data = _SUGGESTIONS_CACHE[category_lower]
+        if now - cached_time < SUGGESTIONS_TTL_SEC:
+            return cached_data
+
+    # 2. In-flight request deduplication lock
+    if category_lower not in _SUGGESTIONS_LOCKS:
+        _SUGGESTIONS_LOCKS[category_lower] = asyncio.Lock()
+    lock = _SUGGESTIONS_LOCKS[category_lower]
+
+    async with lock:
+        # Double check after acquiring lock
+        now = time.time()
+        if category_lower in _SUGGESTIONS_CACHE:
+            cached_time, cached_data = _SUGGESTIONS_CACHE[category_lower]
+            if now - cached_time < SUGGESTIONS_TTL_SEC:
+                return cached_data
+
+        if not (settings.USE_VERTEX_AI or settings.GOOGLE_API_KEY or settings.OPENROUTER_API_KEY or settings.NVIDIA_API_KEY):
+            res = FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
+            _SUGGESTIONS_CACHE[category_lower] = (now, res)
+            return res
+
+        prompt = f"""
 You are Sarthi, an expert AI partner. Generate exactly 5 project suggestions for a hackathon under the category '{category}'.
 Each suggestion must represent a detailed blueprint that can flow cleanly through Sarthi's connected agent pipeline.
 For each suggestion, provide:
@@ -1271,26 +1300,29 @@ The JSON must match this structure exactly:
   }}
 ]
 """
-    try:
-        content = await get_llm_completion(
-            agent_name="ProjectSuggestions",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are Sarthi's blueprint ideation agent. You must output ONLY strict, valid JSON. No conversational text."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2048
-        )
-        data = parse_json_array_response(content)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-        else:
-            raise ValueError("Invalid suggestions format returned by model")
-    except Exception as e:
-        return FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
+        try:
+            content = await get_llm_completion(
+                agent_name="ProjectSuggestions",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are Sarthi's blueprint ideation agent. You must output ONLY strict, valid JSON. No conversational text."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2048
+            )
+            data = parse_json_array_response(content)
+            if isinstance(data, list) and len(data) > 0:
+                _SUGGESTIONS_CACHE[category_lower] = (now, data)
+                return data
+            else:
+                raise ValueError("Invalid suggestions format returned by model")
+        except Exception as e:
+            res = FALLBACK_PROJECTS.get(category_lower, FALLBACK_PROJECTS["other"])
+            _SUGGESTIONS_CACHE[category_lower] = (now, res)
+            return res
 
 async def generate_single_project_suggestion(idea: str, generation_type: str = "full_stack") -> Dict[str, Any]:
     """

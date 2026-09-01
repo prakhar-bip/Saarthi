@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # Google LLM Configurations
     GOOGLE_API_KEY: str = Field(default="")
     GOOGLE_MODEL: str = Field(default="gemini-3.1-pro")
-    GOOGLE_FAST_MODEL: str = Field(default="gemini-2.5-flash")
+    GOOGLE_FAST_MODEL: str = Field(default="gemini-3.5-flash")
     GOOGLE_REASONING_MODEL: str = Field(default="gemini-3.1-pro")
 
     # Google Cloud Vertex AI

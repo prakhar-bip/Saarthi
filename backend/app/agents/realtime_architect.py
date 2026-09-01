@@ -57,15 +57,10 @@ class RealtimeArchitectureAgent:
         )
 
         user_content = f"""
-Analyze the following inputs:
-Requirements: {json.dumps(requirements, indent=2)}
-Planning: {json.dumps(planning, indent=2)}
-Database Architecture: {json.dumps(db_architecture, indent=2)}
-Backend Architecture: {json.dumps(backend_architecture, indent=2)}
-API Architecture: {json.dumps(api_architecture, indent=2)}
-Frontend Architecture: {json.dumps(frontend_architecture, indent=2)}
-Theme Styling: {json.dumps(theme_styling, indent=2)}
-Authentication Architecture: {json.dumps(auth_architecture, indent=2)}
+Analyze the following targeted architecture inputs:
+Requirements: {json.dumps(requirements.get("project_overview", requirements), default=str)}
+API Architecture: {json.dumps(api_architecture, default=str)}
+Authentication Strategy: {json.dumps(auth_architecture.get("authentication_strategy", {}) if auth_architecture else {}, default=str)}
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -144,7 +139,8 @@ Return ONLY valid JSON in this exact format:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                temperature=0.1
+                temperature=0.2,
+                max_tokens=2048
             )
             raw_response = raw_response.strip()
             return enrich_agent_output(parse_json_response(raw_response), self.agent_name, agent_inputs)
